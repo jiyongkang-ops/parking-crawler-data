@@ -1,0 +1,15 @@
+{
+  "name": "parking-price-crawler",
+  "version": "0.1.0",
+  "description": "駐車場主要プレイヤーの料金を節度をもって定期収集するクローラ (Phase 1: 三井のリパーク)",
+  "type": "module",
+  "scripts": {
+    "crawl": "node src/run.js",
+    "dashboard": "node src/dashboard.js",
+    "export": "node src/export-csv.js",
+    "analyze": "node analyzer/analyze.mjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  }
+}

@@ -1,0 +1,48 @@
+# タイムズ専用の定期実行（GitHub Actions）
+# タイムズは全国 約21,700件 × 配慮した6秒間隔のため1巡が長く、ジョブ時間も長い。
+# 本体(crawl.yml)と分離し、出力先も別ファイル(prices-times.jsonl)にして push 競合を回避。
+#   毎回 3,000件ローリング（約5時間）→ 約2.4日で全国1巡。
+name: crawl-times
+
+on:
+  schedule:
+    # 本体(0,6,12 UTC)とずらして 3,9,15 UTC に実行
+    - cron: "0 3,9,15 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  crawl-times:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: crawl-times
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run crawl
+        env:
+          CRAWL_ONLY: "times"
+          OUT_FILE: "data/prices-times.jsonl"
+      - name: commit data if changed
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data/prices-times.jsonl data/times-crawl-state.json data/times-park-urls.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update times prices ($(date -u +%Y-%m-%dT%H:%MZ))"
+            for i in $(seq 1 6); do
+              git pull --no-rebase --no-edit origin main
+              if git push; then echo "pushed"; break; fi
+              echo "push retry $i"; sleep $((RANDOM % 8 + 3))
+              [ "$i" = 6 ] && { echo "push failed after retries"; exit 1; }
+            done
+          else
+            echo "変化なし。コミットしません。"
+          fi

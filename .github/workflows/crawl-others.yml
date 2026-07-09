@@ -1,0 +1,47 @@
+# 中堅事業者の定期実行（GitHub Actions）
+# 本体(npc+repark)・タイムズと分離し、出力も別ファイル(prices-others.jsonl)にして
+# push 競合を回避。現状は名鉄協商(約5,100件)。今後エコロシティ等を追加予定。
+name: crawl-others
+
+on:
+  schedule:
+    # 本体(0,6,12)・タイムズ(3,9,15)とずらして 1,7,13 UTC に実行
+    - cron: "0 1,7,13 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  crawl-others:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: crawl-others
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run crawl
+        env:
+          CRAWL_ONLY: "mkp,thepark" # 名鉄協商(ローリング) + ザ・パーク(単一JSON)
+          OUT_FILE: "data/prices-others.jsonl"
+      - name: commit data if changed
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data/prices-others.jsonl data/mkp-crawl-state.json data/mkp-ids.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update others (mkp) prices ($(date -u +%Y-%m-%dT%H:%MZ))"
+            for i in $(seq 1 6); do
+              git pull --no-rebase --no-edit origin main
+              if git push; then echo "pushed"; break; fi
+              echo "push retry $i"; sleep $((RANDOM % 8 + 3))
+              [ "$i" = 6 ] && { echo "push failed after retries"; exit 1; }
+            done
+          else
+            echo "変化なし。コミットしません。"
+          fi
