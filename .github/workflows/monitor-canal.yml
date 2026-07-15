@@ -1,0 +1,41 @@
+# 商業施設周辺の満空モニタリング（キャナルシティ博多・木の葉モール橋本 / 毎時・JSTの木/金/日のみ収集）
+name: monitor-canal
+on:
+  schedule:
+    - cron: "0 * * * *" # 毎時。曜日の判定はスクリプト側でJST基準に行う
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monitor-canal
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PK_HOST: ${{ secrets.PK_HOST }}
+      PK_CID: ${{ secrets.PK_CID }}
+      PK_SECRET: ${{ secrets.PK_SECRET }}
+      PK_UID: ${{ secrets.PK_UID }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node src/availability-canal.js
+      - name: Commit
+        run: |
+          git config user.name "monitor-bot"
+          git config user.email "jiyong.kang@landit.co.jp"
+          git add data/availability-*.jsonl
+          git diff --cached --quiet && echo "変更なし" && exit 0
+          git commit -m "monitor: canal availability $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+          for i in 1 2 3; do
+            git pull --no-rebase --no-edit && git push && break
+            sleep 10
+          done
