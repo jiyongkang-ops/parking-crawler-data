@@ -1,4 +1,4 @@
-# キャナルシティ博多 周辺1kmの満空モニタリング（毎時・JSTの木/金/日のみ収集）
+# 商業施設周辺の満空モニタリング（キャナルシティ博多・木の葉モール橋本 / 毎時・JSTの木/金/日のみ収集）
 name: monitor-canal
 on:
   schedule:
@@ -32,7 +32,7 @@ jobs:
         run: |
           git config user.name "monitor-bot"
           git config user.email "jiyong.kang@landit.co.jp"
-          git add data/availability-canal.jsonl
+          git add data/availability-*.jsonl
           git diff --cached --quiet && echo "変更なし" && exit 0
           git commit -m "monitor: canal availability $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
           for i in 1 2 3; do
