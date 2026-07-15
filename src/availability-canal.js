@@ -34,10 +34,17 @@ try {
     const q = new URLSearchParams({ apiver: PK_APIVER, cid: PK_CID, lat: String(LAT), lng: String(LNG), radius: "1000", pk_type: "OFF_STREET" });
     if (PK_UID) q.set("uid", PK_UID);
     const r = await (await fetch(`https://${PK_HOST}/api/parking/locations?${q}`, { headers: { Authorization: `Bearer ${t}` } })).json();
+    const coordOf = (g) => { if (!g) return null;
+      if (g.type === "Point") return g.coordinates;
+      if (g.type === "GeometryCollection") { const p2 = (g.geometries || []).find((x) => x.type === "Point"); return p2?.coordinates ?? null; }
+      return null; };
     for (const f of r.result?.features ?? []) {
       const s = f.properties?.static, a = f.properties?.dynamic?.availability?.[0];
       if (!a) continue; // 満空情報のある物件のみ記録
+      const c = coordOf(f.geometry);
       rows.push({ at, source: "parkopedia", name: s?.name ?? "?", capacity: s?.capacity ?? null,
+        lat: c ? c[1] : null, lng: c ? c[0] : null, address: s?.address ?? null,
+        dist: c ? Math.round(hav(LAT, LNG, c[1], c[0])) : null,
         free: a.free ?? null, indicator: a.indicator ?? null, trend: a.trend ?? null, updatedAt: a.updated_at ?? null });
     }
     console.log(`[PK] 満空あり ${rows.length}件`);
@@ -56,6 +63,7 @@ try {
     const d = hav(LAT, LNG, +p.latitude, +p.longitude);
     if (d > 1000) continue;
     rows.push({ at, source: "npc", name: p.parking_name, capacity: null, free: null,
+      lat: +p.latitude, lng: +p.longitude, address: p.address ?? null, dist: Math.round(d),
       indicator: null, status: ST[p.full_empty_status] ?? String(p.full_empty_status) });
     n++;
   }
