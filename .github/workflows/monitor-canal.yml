@@ -2,7 +2,7 @@
 name: monitor-canal
 on:
   schedule:
-    - cron: "0 * * * *" # 毎時。曜日の判定はスクリプト側でJST基準に行う
+    - cron: "0,30 * * * *" # 30分毎に起動（GitHubのcron遅延・スキップ対策。時間別集計では最後の観測を採用）
   workflow_dispatch: {}
 
 permissions:
