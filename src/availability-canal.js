@@ -4,18 +4,20 @@
 // 各1リクエストずつ取得し、data/availability-<key>.jsonl に追記する。
 import fs from "node:fs";
 
+// days: 収集するJST曜日（0=日..6=土）/ dates: 特定日だけ収集する一時調査
 const LOCATIONS = [
-  { key: "canal", label: "キャナルシティ博多", lat: 33.5896305, lng: 130.4109478, out: "data/availability-canal.jsonl" },
-  { key: "konoha", label: "木の葉モール橋本", lat: 33.5560016, lng: 130.3217887, out: "data/availability-konoha.jsonl" },
+  { key: "canal", label: "キャナルシティ博多", lat: 33.5896305, lng: 130.4109478, out: "data/availability-canal.jsonl", days: [0, 4, 5] },
+  { key: "konoha", label: "木の葉モール橋本", lat: 33.5560016, lng: 130.3217887, out: "data/availability-konoha.jsonl", days: [0, 4, 5] },
+  { key: "sapporo-k11", label: "シスコンパーク札幌北1東1", lat: 43.06321051177676, lng: 141.3573998557347, out: "data/availability-sapporo-k11.jsonl", dates: ["2026-07-18", "2026-07-19", "2026-07-22"] },
 ];
 const UA = "Mozilla/5.0 (compatible; LanditParkingResearch/1.0; +mailto:jiyong.kang@landit.co.jp)";
 
 const jstNow = new Date(Date.now() + 9 * 3600e3);
 const dow = jstNow.getUTCDay(); // JSTの曜日
-if (![0, 4, 5].includes(dow) && !process.env.FORCE) { // 日=0, 木=4, 金=5
-  console.log(`skip: 対象曜日外 (JST ${jstNow.toISOString().slice(0, 16)})`);
-  process.exit(0);
-}
+const jstDate = jstNow.toISOString().slice(0, 10);
+const isActive = (loc) => process.env.FORCE ? true
+  : loc.dates ? loc.dates.includes(jstDate)
+  : (loc.days ?? []).includes(dow);
 
 const hav = (aLat, aLng, bLat, bLng) => { const R = 6371000, toR = (d) => d * Math.PI / 180;
   const dLat = toR(bLat - aLat), dLng = toR(bLng - aLng);
@@ -74,6 +76,7 @@ async function npcFetch(LAT, LNG) {
 }
 
 for (const loc of LOCATIONS) {
+  if (!isActive(loc)) { console.log(`[${loc.label}] 対象日外・スキップ`); continue; }
   const rows = [];
   try { rows.push(...await pkFetch(loc.lat, loc.lng)); } catch (e) { console.error(`[PK:${loc.key}] 失敗:`, e.message); }
   try { rows.push(...await npcFetch(loc.lat, loc.lng)); } catch (e) { console.error(`[NPC:${loc.key}] 失敗:`, e.message); }
