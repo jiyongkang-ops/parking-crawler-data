@@ -36,7 +36,12 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "chore: update ecolo prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do
-              git pull --no-rebase --no-edit origin main
+              if ! git pull --no-rebase --no-edit origin main; then
+                # 追記レースの衝突: jsonlはunionマージで自動解決、残り(状態ファイル等)は自分側を採用
+                git diff --name-only --diff-filter=U | xargs -r git checkout --ours --
+                git add -A
+                git commit --no-edit
+              fi
               if git push; then echo "pushed"; break; fi
               echo "push retry $i"; sleep $((RANDOM % 8 + 3))
               [ "$i" = 6 ] && { echo "push failed after retries"; exit 1; }

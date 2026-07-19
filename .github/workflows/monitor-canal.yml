@@ -36,6 +36,12 @@ jobs:
           git diff --cached --quiet && echo "変更なし" && exit 0
           git commit -m "monitor: canal availability $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
           for i in 1 2 3; do
-            git pull --no-rebase --no-edit && git push && break
+            if ! git pull --no-rebase --no-edit; then
+              git diff --name-only --diff-filter=U | xargs -r git checkout --ours --
+              git add -A
+              git commit --no-edit
+            fi
+            if git push; then break; fi
+            [ "$i" = 3 ] && { echo "push failed after retries"; exit 1; }
             sleep 10
           done
