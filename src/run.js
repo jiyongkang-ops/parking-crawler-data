@@ -26,6 +26,12 @@ import { getAllNaviparkCodes } from "./navipark-enumerate.js";
 import { detailUrl as ecoloDetailUrl, parseEcoloDetail } from "./ecolo.js";
 import { getAllEcoloIds } from "./ecolo-enumerate.js";
 import { searchUrl as theparkUrl, parseTheparkJson } from "./thepark.js";
+import { detailUrl as kyotechDetailUrl, parseKyotechDetail } from "./kyotech.js";
+import { getAllKyotechIds } from "./kyotech-enumerate.js";
+import { detailUrl as leparcDetailUrl, parseLeparcDetail } from "./leparc.js";
+import { getAllLeparcIds } from "./leparc-enumerate.js";
+import { areaListUrl, parseGsparkList, parseAreaCodes } from "./gspark.js";
+import { politeFetch as pf2 } from "./polite-fetch.js";
 
 const STATE = {
   reparkSitemapCache: "data/repark-sitemap.xml",
@@ -38,6 +44,11 @@ const STATE = {
   naviparkCrawlState: "data/navipark-crawl-state.json",
   ecoloIdsCache: "data/ecolo-ids.txt",
   ecoloCrawlState: "data/ecolo-crawl-state.json",
+  kyotechIdsCache: "data/kyotech-ids.txt",
+  kyotechCrawlState: "data/kyotech-crawl-state.json",
+  leparcIdsCache: "data/leparc-ids.txt",
+  leparcCrawlState: "data/leparc-crawl-state.json",
+  gsparkAreasCache: "data/gspark-areas.txt",
 };
 
 function readLastSnapshots(file) {
@@ -276,6 +287,83 @@ async function main() {
         state[id] = now;
       }
       saveCrawlState(STATE.ecoloCrawlState, state);
+      continue;
+    }
+
+    // ---- キョウテク 全国（一覧→詳細ローリング） ----
+    if (t.operator === "kyotech" && t.mode === "nationwide") {
+      let ids;
+      try {
+        ids = await getAllKyotechIds({ cacheFile: STATE.kyotechIdsCache, cacheMs: 7 * 864e5 });
+      } catch (e) { console.error(`[error] kyotech enumerate: ${e.message}`); continue; }
+      const state = loadCrawlState(STATE.kyotechCrawlState);
+      const perRun = config.kyotechRollingPerRun ?? 800;
+      const batch = pickRolling(ids, state, perRun);
+      console.log(`[キョウテク] 全${ids.length}件 / 今回${batch.length}件取得`);
+      for (const id of batch) {
+        let res;
+        try { res = await politeFetch(kyotechDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        const rec = parseKyotechDetail(res.html, { id });
+        rec._requestUrl = kyotechDetailUrl(id);
+        handleRecord(rec);
+        state[id] = now;
+      }
+      saveCrawlState(STATE.kyotechCrawlState, state);
+      continue;
+    }
+
+    // ---- NTTル・パルク 全国（mapion一覧→詳細ローリング） ----
+    if (t.operator === "leparc" && t.mode === "nationwide") {
+      let ids;
+      try {
+        ids = await getAllLeparcIds({ cacheFile: STATE.leparcIdsCache, cacheMs: 7 * 864e5 });
+      } catch (e) { console.error(`[error] leparc enumerate: ${e.message}`); continue; }
+      const state = loadCrawlState(STATE.leparcCrawlState);
+      const perRun = config.leparcRollingPerRun ?? 500;
+      const batch = pickRolling(ids, state, perRun);
+      console.log(`[ル・パルク] 全${ids.length}件 / 今回${batch.length}件取得`);
+      for (const id of batch) {
+        let res;
+        try { res = await politeFetch(leparcDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        const rec = parseLeparcDetail(res.html, { id });
+        rec._requestUrl = leparcDetailUrl(id);
+        handleRecord(rec);
+        state[id] = now;
+      }
+      saveCrawlState(STATE.leparcCrawlState, state);
+      continue;
+    }
+
+    // ---- GSパーク 全国（エリア一覧に料金直載・毎回全エリア） ----
+    if (t.operator === "gspark" && t.mode === "nationwide") {
+      let codes = [];
+      try {
+        const fsMod = fs;
+        if (fsMod.existsSync(STATE.gsparkAreasCache) && Date.now() - fsMod.statSync(STATE.gsparkAreasCache).mtimeMs < 7 * 864e5) {
+          codes = fsMod.readFileSync(STATE.gsparkAreasCache, "utf8").split("\n").filter(Boolean);
+        } else {
+          const res0 = await politeFetch("https://www.gs-park.com/time_parking/");
+          if (!res0.ok) throw new Error(`エリア一覧 HTTP ${res0.status}`);
+          codes = parseAreaCodes(res0.html);
+          if (!codes.length) throw new Error("エリアコード0件");
+          fsMod.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n");
+        }
+      } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); continue; }
+      console.log(`[GSパーク] エリア${codes.length}件を巡回`);
+      let count = 0;
+      for (const code of codes) {
+        for (let page = 1; page <= 30; page++) {
+          let res;
+          try { res = await politeFetch(areaListUrl(code, page)); } catch (e) { console.error(`  [error] ${code} p${page}: ${e.message}`); break; }
+          if (!res.ok || res.skippedReason) break;
+          const { records, hasNext } = parseGsparkList(res.html);
+          for (const rec of records) { rec._requestUrl = areaListUrl(code, page); handleRecord(rec); count++; }
+          if (!hasNext) break;
+        }
+      }
+      console.log(`[ok] GSパーク | ${count}物件`);
       continue;
     }
 
