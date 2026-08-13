@@ -2,7 +2,7 @@
 # 調査日（既定: 2026-08-18 火 / 2026-08-20 木 / 2026-08-22 土）のみ収集。
 # JST 6〜22時は30分毎・夜間は1時間毎のスロット。cronは15分毎に発火し（遅延・スキップ対策）、
 # 同一スロット取得済みならスクリプト側で冪等スキップする。
-# ※調査終了後（8/22以降）はこのワークフローを disable すること。
+# 調査最終日（SURVEY_END）を過ぎると、次の発火時に自分自身を自動disableする。
 name: availability-saitama
 on:
   schedule:
@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: availability-saitama
@@ -26,13 +27,27 @@ jobs:
       PK_SECRET: ${{ secrets.PK_SECRET }}
       PK_UID: ${{ secrets.PK_UID }}
       FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+      SURVEY_END: "2026-08-22"
     steps:
       - uses: actions/checkout@v4
+      - name: 調査期間終了後は自動disable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          today=$(TZ=Asia/Tokyo date +%F)
+          if [[ "$today" > "$SURVEY_END" ]]; then
+            gh workflow disable "availability-saitama.yml" -R "${{ github.repository }}"
+            echo "調査期間終了（$SURVEY_END）を過ぎたためワークフローを自動disableしました"
+            echo "DISABLED=1" >> "$GITHUB_ENV"
+          fi
       - uses: actions/setup-node@v4
+        if: env.DISABLED != '1'
         with:
           node-version: 22
-      - run: node src/availability-saitama.js
+      - if: env.DISABLED != '1'
+        run: node src/availability-saitama.js
       - name: Commit
+        if: env.DISABLED != '1'
         run: |
           git config user.name "monitor-bot"
           git config user.email "jiyong.kang@landit.co.jp"
