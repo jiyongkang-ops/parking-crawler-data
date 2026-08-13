@@ -26,6 +26,38 @@ import { getAllNaviparkCodes } from "./navipark-enumerate.js";
 import { detailUrl as ecoloDetailUrl, parseEcoloDetail } from "./ecolo.js";
 import { getAllEcoloIds } from "./ecolo-enumerate.js";
 import { searchUrl as theparkUrl, parseTheparkJson } from "./thepark.js";
+import { detailUrl as kyotechDetailUrl, parseKyotechDetail } from "./kyotech.js";
+import { getAllKyotechIds } from "./kyotech-enumerate.js";
+import { detailUrl as leparcDetailUrl, parseLeparcDetail } from "./leparc.js";
+import { getAllLeparcIds } from "./leparc-enumerate.js";
+import { areaListUrl, parseGsparkList, parseAreaCodes } from "./gspark.js";
+// 2026-08 追加分（詳細ページ型6社・一覧直載型2社）
+import { detailUrl as space24Url, parseSpace24Detail } from "./space24.js";
+import { getAllSpace24Ids } from "./space24-enumerate.js";
+import { detailUrl as jqparksUrl, parseJqparksDetail } from "./jqparks.js";
+import { getAllJqparksIds } from "./jqparks-enumerate.js";
+import { detailUrl as tamaparkUrl, parseTamaparkDetail } from "./tamapark.js";
+import { getAllTamaparkIds } from "./tamapark-enumerate.js";
+import { detailUrl as anabukiUrl, parseAnabukiDetail } from "./anabuki.js";
+import { getAllAnabukiIds } from "./anabuki-enumerate.js";
+import { detailUrl as kintetsuUrl, parseKintetsuDetail } from "./kintetsu.js";
+import { getAllKintetsuIds } from "./kintetsu-enumerate.js";
+import { detailUrl as tokyulifiaUrl, parseTokyuLifiaDetail } from "./tokyulifia.js";
+import { getAllTokyuLifiaIds } from "./tokyulifia-enumerate.js";
+import { cityListUrl as parknetCityUrl, parseParknetList } from "./parknet.js";
+import { getAllParknetCities } from "./parknet-enumerate.js";
+import { listUrl as mdenListUrl, parseMdenList } from "./mden.js";
+import { detailUrl as seiwaparkUrl, parseSeiwaparkDetail } from "./seiwapark.js";
+import { getAllSeiwaparkIds } from "./seiwapark-enumerate.js";
+import { detailUrl as systemparkUrl, parseSystemparkDetail } from "./systempark.js";
+import { getAllSystemparkIds } from "./systempark-enumerate.js";
+import { detailUrl as comnetUrl, parseComnetDetail } from "./comnet.js";
+import { getAllComnetIds } from "./comnet-enumerate.js";
+import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
+import { getAllKeioIds } from "./keio-enumerate.js";
+import { detailUrl as odakyuUrl, parseOdakyuDetail } from "./odakyu.js";
+import { getAllOdakyuIds } from "./odakyu-enumerate.js";
+import { politeFetch as pf2 } from "./polite-fetch.js";
 
 const STATE = {
   reparkSitemapCache: "data/repark-sitemap.xml",
@@ -38,7 +70,39 @@ const STATE = {
   naviparkCrawlState: "data/navipark-crawl-state.json",
   ecoloIdsCache: "data/ecolo-ids.txt",
   ecoloCrawlState: "data/ecolo-crawl-state.json",
+  kyotechIdsCache: "data/kyotech-ids.txt",
+  kyotechCrawlState: "data/kyotech-crawl-state.json",
+  leparcIdsCache: "data/leparc-ids.txt",
+  leparcCrawlState: "data/leparc-crawl-state.json",
+  gsparkAreasCache: "data/gspark-areas.txt",
+  parknetCitiesCache: "data/parknet-cities.txt",
 };
+
+// 2026-08 追加分の「列挙→ローリングで詳細取得」型（挙動が同一なので表で持つ）
+const ROLLING_SITES = [
+  { op: "space24", label: "スペース二十四", enumerate: getAllSpace24Ids, detailUrl: space24Url, parse: parseSpace24Detail,
+    idsCache: "data/space24-ids.txt", stateFile: "data/space24-crawl-state.json", defaultPerRun: 500 },
+  { op: "jqparks", label: "JQパークス", enumerate: getAllJqparksIds, detailUrl: jqparksUrl, parse: parseJqparksDetail,
+    idsCache: "data/jqparks-ids.txt", stateFile: "data/jqparks-crawl-state.json", defaultPerRun: 400 },
+  { op: "tamapark", label: "タマパーク", enumerate: getAllTamaparkIds, detailUrl: tamaparkUrl, parse: parseTamaparkDetail,
+    idsCache: "data/tamapark-ids.txt", stateFile: "data/tamapark-crawl-state.json", defaultPerRun: 200 },
+  { op: "anabuki", label: "あなぶきパーク", enumerate: getAllAnabukiIds, detailUrl: anabukiUrl, parse: parseAnabukiDetail,
+    idsCache: "data/anabuki-ids.txt", stateFile: "data/anabuki-crawl-state.json", defaultPerRun: 400 },
+  { op: "kintetsu", label: "近鉄不動産", enumerate: getAllKintetsuIds, detailUrl: kintetsuUrl, parse: parseKintetsuDetail,
+    idsCache: "data/kintetsu-ids.txt", stateFile: "data/kintetsu-crawl-state.json", defaultPerRun: 200 },
+  { op: "tokyulifia", label: "東急ライフィア", enumerate: getAllTokyuLifiaIds, detailUrl: tokyulifiaUrl, parse: parseTokyuLifiaDetail,
+    idsCache: "data/tokyulifia-ids.txt", stateFile: "data/tokyulifia-crawl-state.json", defaultPerRun: 150 },
+  { op: "seiwapark", label: "セイワパーク", enumerate: getAllSeiwaparkIds, detailUrl: seiwaparkUrl, parse: parseSeiwaparkDetail,
+    idsCache: "data/seiwapark-ids.txt", stateFile: "data/seiwapark-crawl-state.json", defaultPerRun: 400 },
+  { op: "systempark", label: "システムパーク", enumerate: getAllSystemparkIds, detailUrl: systemparkUrl, parse: parseSystemparkDetail,
+    idsCache: "data/systempark-ids.txt", stateFile: "data/systempark-crawl-state.json", defaultPerRun: 300 },
+  { op: "comnet", label: "コムパーク", enumerate: getAllComnetIds, detailUrl: comnetUrl, parse: parseComnetDetail,
+    idsCache: "data/comnet-ids.txt", stateFile: "data/comnet-crawl-state.json", defaultPerRun: 200 },
+  { op: "keio", label: "京王コインパーク", enumerate: getAllKeioIds, detailUrl: keioUrl, parse: parseKeioDetail,
+    idsCache: "data/keio-ids.txt", stateFile: "data/keio-crawl-state.json", defaultPerRun: 100 },
+  { op: "odakyu", label: "小田急パーキング", enumerate: getAllOdakyuIds, detailUrl: odakyuUrl, parse: parseOdakyuDetail,
+    idsCache: "data/odakyu-ids.txt", stateFile: "data/odakyu-crawl-state.json", defaultPerRun: 100 },
+];
 
 function readLastSnapshots(file) {
   const last = new Map();
@@ -276,6 +340,143 @@ async function main() {
         state[id] = now;
       }
       saveCrawlState(STATE.ecoloCrawlState, state);
+      continue;
+    }
+
+    // ---- キョウテク 全国（一覧→詳細ローリング） ----
+    if (t.operator === "kyotech" && t.mode === "nationwide") {
+      let ids;
+      try {
+        ids = await getAllKyotechIds({ cacheFile: STATE.kyotechIdsCache, cacheMs: 7 * 864e5 });
+      } catch (e) { console.error(`[error] kyotech enumerate: ${e.message}`); continue; }
+      const state = loadCrawlState(STATE.kyotechCrawlState);
+      const perRun = config.kyotechRollingPerRun ?? 800;
+      const batch = pickRolling(ids, state, perRun);
+      console.log(`[キョウテク] 全${ids.length}件 / 今回${batch.length}件取得`);
+      for (const id of batch) {
+        let res;
+        try { res = await politeFetch(kyotechDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        const rec = parseKyotechDetail(res.html, { id });
+        rec._requestUrl = kyotechDetailUrl(id);
+        handleRecord(rec);
+        state[id] = now;
+      }
+      saveCrawlState(STATE.kyotechCrawlState, state);
+      continue;
+    }
+
+    // ---- NTTル・パルク 全国（mapion一覧→詳細ローリング） ----
+    if (t.operator === "leparc" && t.mode === "nationwide") {
+      let ids;
+      try {
+        ids = await getAllLeparcIds({ cacheFile: STATE.leparcIdsCache, cacheMs: 7 * 864e5 });
+      } catch (e) { console.error(`[error] leparc enumerate: ${e.message}`); continue; }
+      const state = loadCrawlState(STATE.leparcCrawlState);
+      const perRun = config.leparcRollingPerRun ?? 500;
+      const batch = pickRolling(ids, state, perRun);
+      console.log(`[ル・パルク] 全${ids.length}件 / 今回${batch.length}件取得`);
+      for (const id of batch) {
+        let res;
+        try { res = await politeFetch(leparcDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        const rec = parseLeparcDetail(res.html, { id });
+        rec._requestUrl = leparcDetailUrl(id);
+        handleRecord(rec);
+        state[id] = now;
+      }
+      saveCrawlState(STATE.leparcCrawlState, state);
+      continue;
+    }
+
+    // ---- GSパーク 全国（エリア一覧に料金直載・毎回全エリア） ----
+    if (t.operator === "gspark" && t.mode === "nationwide") {
+      let codes = [];
+      try {
+        const fsMod = fs;
+        if (fsMod.existsSync(STATE.gsparkAreasCache) && Date.now() - fsMod.statSync(STATE.gsparkAreasCache).mtimeMs < 7 * 864e5) {
+          codes = fsMod.readFileSync(STATE.gsparkAreasCache, "utf8").split("\n").filter(Boolean);
+        } else {
+          const res0 = await politeFetch("https://www.gs-park.com/time_parking/");
+          if (!res0.ok) throw new Error(`エリア一覧 HTTP ${res0.status}`);
+          codes = parseAreaCodes(res0.html);
+          if (!codes.length) throw new Error("エリアコード0件");
+          fsMod.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n");
+        }
+      } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); continue; }
+      console.log(`[GSパーク] エリア${codes.length}件を巡回`);
+      let count = 0;
+      for (const code of codes) {
+        for (let page = 1; page <= 30; page++) {
+          let res;
+          try { res = await politeFetch(areaListUrl(code, page)); } catch (e) { console.error(`  [error] ${code} p${page}: ${e.message}`); break; }
+          if (!res.ok || res.skippedReason) break;
+          const { records, hasNext } = parseGsparkList(res.html);
+          for (const rec of records) { rec._requestUrl = areaListUrl(code, page); handleRecord(rec); count++; }
+          if (!hasNext) break;
+        }
+      }
+      console.log(`[ok] GSパーク | ${count}物件`);
+      continue;
+    }
+
+    // ---- 2026-08 追加分: 列挙→ローリング詳細取得（6社共通） ----
+    const rolling = ROLLING_SITES.find((x) => x.op === t.operator);
+    if (rolling && t.mode === "nationwide") {
+      let ids;
+      try {
+        ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
+      } catch (e) { console.error(`[error] ${rolling.op} enumerate: ${e.message}`); continue; }
+      const state = loadCrawlState(rolling.stateFile);
+      const perRun = config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun;
+      const batch = pickRolling(ids, state, perRun);
+      console.log(`[${rolling.label}] 全${ids.length}件 / 今回${batch.length}件取得`);
+      for (const id of batch) {
+        const url = rolling.detailUrl(id);
+        let res;
+        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        let rec;
+        try { rec = rolling.parse(res.html, { id }); } catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); continue; }
+        if (!rec || !rec.name) continue;
+        rec._requestUrl = url;
+        handleRecord(rec);
+        state[id] = now;
+      }
+      saveCrawlState(rolling.stateFile, state);
+      continue;
+    }
+
+    // ---- パークネット 全国（市区一覧に料金直載・毎回全巡回） ----
+    if (t.operator === "parknet" && t.mode === "nationwide") {
+      let cities;
+      try {
+        cities = await getAllParknetCities({ cacheFile: STATE.parknetCitiesCache, cacheMs: 7 * 864e5 });
+      } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); continue; }
+      console.log(`[パークネット] 市区${cities.length}件を巡回`);
+      let count = 0;
+      for (const line of cities) {
+        const [prefCd, city] = line.split("\t");
+        if (!prefCd || !city) continue;
+        const url = parknetCityUrl(prefCd, city);
+        let res;
+        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${city}: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) continue;
+        for (const rec of parseParknetList(res.html)) { rec._requestUrl = url; handleRecord(rec); count++; }
+      }
+      console.log(`[ok] パークネット | ${count}物件`);
+      continue;
+    }
+
+    // ---- エムデン・テクノパーキング 全国（1ページに全物件） ----
+    if (t.operator === "mden" && t.mode === "nationwide") {
+      const url = mdenListUrl();
+      let res;
+      try { res = await politeFetch(url); } catch (e) { console.error(`[error] mden: ${e.message}`); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] mden: HTTP ${res.status}`); continue; }
+      const records = parseMdenList(res.html);
+      records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
+      console.log(`[ok] エムデン・テクノパーキング | ${records.length}物件`);
       continue;
     }
 

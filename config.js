@@ -45,6 +45,24 @@ export const config = {
     // エコロパーク(エコロシティ) — 約195エリアを辿って列挙・ローリング巡回。
     // ※別ワークフロー(crawl-ecolo.yml, CRAWL_ONLY=ecolo)で実行。
     { operator: "ecolo", mode: "nationwide", label: "エコロパーク全国" },
+    // ※別ワークフロー(crawl-extra.yml, CRAWL_ONLY=kyotech,leparc,gspark)で実行。
+    { operator: "kyotech", mode: "nationwide", label: "キョウテク全国" },
+    { operator: "leparc", mode: "nationwide", label: "NTTル・パルク全国" },
+    { operator: "gspark", mode: "nationwide", label: "GSパーク全国" },
+    // ※別ワークフロー(crawl-extra2.yml)で実行する2026-08追加分。
+    { operator: "space24", mode: "nationwide", label: "スペース二十四全国" },
+    { operator: "jqparks", mode: "nationwide", label: "JQパークス（九州）" },
+    { operator: "parknet", mode: "nationwide", label: "パークネット全国" },
+    { operator: "tamapark", mode: "nationwide", label: "タマパーク" },
+    { operator: "anabuki", mode: "nationwide", label: "あなぶきパーク全国" },
+    { operator: "mden", mode: "nationwide", label: "エムデン・テクノパーキング" },
+    { operator: "kintetsu", mode: "nationwide", label: "近鉄不動産" },
+    { operator: "tokyulifia", mode: "nationwide", label: "東急ライフィア" },
+    { operator: "seiwapark", mode: "nationwide", label: "セイワパーク" },
+    { operator: "systempark", mode: "nationwide", label: "システムパーク（仙台）" },
+    { operator: "comnet", mode: "nationwide", label: "コムパーク" },
+    { operator: "keio", mode: "nationwide", label: "京王コインパーク" },
+    { operator: "odakyu", mode: "nationwide", label: "小田急パーキング" },
 
     // ザ・パーク(第一興商) — 単一JSON(data/search.json)で全国 約3,367件を1リクエスト取得。
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。
@@ -69,6 +87,21 @@ export const config = {
 
   // エコロパーク 全国ローリング巡回。4秒間隔。
   ecoloRollingPerRun: 2500,
+  // 追加3社（crawl-extra.yml）。いずれも毎回全件相当（~1,300リクエスト×6秒 ≒ 2.2時間/回）
+  kyotechRollingPerRun: 800,
+  leparcRollingPerRun: 500,
+  // 2026-08 追加分（crawl-extra2.yml・1日1回で全件を目安）
+  space24RollingPerRun: 500,
+  jqparksRollingPerRun: 400,
+  tamaparkRollingPerRun: 200,
+  anabukiRollingPerRun: 400,
+  kintetsuRollingPerRun: 200,
+  tokyulifiaRollingPerRun: 150,
+  seiwaparkRollingPerRun: 400,
+  systemparkRollingPerRun: 300,
+  comnetRollingPerRun: 200,
+  keioRollingPerRun: 100,
+  odakyuRollingPerRun: 100,
 
   // 全国規模では全件を毎回追記するとファイルが肥大するため、
   // 「新規 or 料金変動した物件のみ」追記する（時系列＝変化点の記録になる）。
