@@ -45,6 +45,9 @@ export function parseTamaparkDetail(html, { id } = {}) {
         if (amt && per) {
           const rg = String(range).match(/(\d{1,2}:\d{2})\s*[-~〜]\s*(\d{1,2}:\d{2})/);
           unitCharges.push({ scope, timeRange: rg ? `${rg[1]}-${rg[2]}` : "00:00-24:00", perMinutes: per, amountYen: amt });
+        } else if (amt && range) {
+          // 単位（N分）が無い定額型（例: 駐車後2時間まで 400円）は打切り料金として扱う
+          maxFees.push({ scope, condition: String(range), amountYen: amt });
         }
       } else if (section === "最大料金") {
         const [cond, fee] = cells;
