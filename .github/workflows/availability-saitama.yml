@@ -1,0 +1,66 @@
+# さいたま市 未利用市有資産（高収益候補7件）周辺の満空モニタリング
+# 調査日（既定: 2026-08-18 火 / 2026-08-20 木 / 2026-08-22 土）のみ収集。
+# JST 6〜22時は30分毎・夜間は1時間毎のスロット。cronは15分毎に発火し（遅延・スキップ対策）、
+# 同一スロット取得済みならスクリプト側で冪等スキップする。
+# 調査最終日（SURVEY_END）を過ぎると、次の発火時に自分自身を自動disableする。
+name: availability-saitama
+on:
+  schedule:
+    - cron: "0,15,30,45 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: availability-saitama
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PK_HOST: ${{ secrets.PK_HOST }}
+      PK_CID: ${{ secrets.PK_CID }}
+      PK_SECRET: ${{ secrets.PK_SECRET }}
+      PK_UID: ${{ secrets.PK_UID }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+      SURVEY_END: "2026-08-22"
+    steps:
+      - uses: actions/checkout@v4
+      - name: 調査期間終了後は自動disable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          today=$(TZ=Asia/Tokyo date +%F)
+          if [[ "$today" > "$SURVEY_END" ]]; then
+            gh workflow disable "availability-saitama.yml" -R "${{ github.repository }}"
+            echo "調査期間終了（$SURVEY_END）を過ぎたためワークフローを自動disableしました"
+            echo "DISABLED=1" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/setup-node@v4
+        if: env.DISABLED != '1'
+        with:
+          node-version: 22
+      - if: env.DISABLED != '1'
+        run: node src/availability-saitama.js
+      - name: Commit
+        if: env.DISABLED != '1'
+        run: |
+          git config user.name "monitor-bot"
+          git config user.email "jiyong.kang@landit.co.jp"
+          git add data/availability-*.jsonl
+          git diff --cached --quiet && echo "変更なし" && exit 0
+          git commit -m "monitor: saitama availability $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+          for i in 1 2 3; do
+            if ! git pull --no-rebase --no-edit; then
+              git diff --name-only --diff-filter=U | xargs -r git checkout --ours --
+              git add -A
+              git commit --no-edit
+            fi
+            if git push; then break; fi
+            [ "$i" = 3 ] && { echo "push failed after retries"; exit 1; }
+            sleep 10
+          done
