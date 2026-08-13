@@ -45,6 +45,10 @@ export const config = {
     // エコロパーク(エコロシティ) — 約195エリアを辿って列挙・ローリング巡回。
     // ※別ワークフロー(crawl-ecolo.yml, CRAWL_ONLY=ecolo)で実行。
     { operator: "ecolo", mode: "nationwide", label: "エコロパーク全国" },
+    // ※別ワークフロー(crawl-extra.yml, CRAWL_ONLY=kyotech,leparc,gspark)で実行。
+    { operator: "kyotech", mode: "nationwide", label: "キョウテク全国" },
+    { operator: "leparc", mode: "nationwide", label: "NTTル・パルク全国" },
+    { operator: "gspark", mode: "nationwide", label: "GSパーク全国" },
 
     // ザ・パーク(第一興商) — 単一JSON(data/search.json)で全国 約3,367件を1リクエスト取得。
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。
@@ -69,6 +73,9 @@ export const config = {
 
   // エコロパーク 全国ローリング巡回。4秒間隔。
   ecoloRollingPerRun: 2500,
+  // 追加3社（crawl-extra.yml）。いずれも毎回全件相当（~1,300リクエスト×6秒 ≒ 2.2時間/回）
+  kyotechRollingPerRun: 800,
+  leparcRollingPerRun: 500,
 
   // 全国規模では全件を毎回追記するとファイルが肥大するため、
   // 「新規 or 料金変動した物件のみ」追記する（時系列＝変化点の記録になる）。
