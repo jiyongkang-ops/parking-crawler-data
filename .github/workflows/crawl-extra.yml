@@ -33,7 +33,8 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add data/prices-extra.jsonl data/kyotech-crawl-state.json data/kyotech-ids.txt data/leparc-crawl-state.json data/leparc-ids.txt data/gspark-areas.txt
+          # 列挙失敗でファイルが無い社があっても他社のデータを失わないよう data/ 配下をまとめて追加
+          git add -A data/
           if ! git diff --cached --quiet; then
             git commit -m "chore: update extra (kyotech/leparc/gspark) prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do

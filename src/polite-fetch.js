@@ -25,26 +25,27 @@ function parseRobots(txt) {
     if (field === "user-agent") {
       if (current && current.hasRules) current = null;
       if (!current) {
-        current = { agents: [], disallow: [], hasRules: false };
+        current = { agents: [], rules: [], hasRules: false };
         groups.push(current);
       }
       current.agents.push(value.toLowerCase());
     } else if (field === "disallow" && current) {
       current.hasRules = true;
-      if (value) current.disallow.push(value);
+      if (value) current.rules.push({ type: "disallow", path: value });
     } else if (field === "allow" && current) {
-      current.hasRules = true; // allow は無視するが、グループ区切り判定のため記録
+      current.hasRules = true;
+      if (value) current.rules.push({ type: "allow", path: value });
     }
   }
   return groups;
 }
 
-function disallowListFor(groups, uaToken) {
+function rulesFor(groups, uaToken) {
   // 当ボット名に一致するグループがあれば優先、なければ "*" を使う
   const ua = uaToken.toLowerCase();
   let chosen = groups.find((g) => g.agents.some((a) => a !== "*" && ua.includes(a)));
   if (!chosen) chosen = groups.find((g) => g.agents.includes("*"));
-  return chosen ? chosen.disallow : [];
+  return chosen ? chosen.rules : [];
 }
 
 async function getRobots(origin) {
@@ -52,7 +53,7 @@ async function getRobots(origin) {
   if (cached && Date.now() - cached.fetchedAt < config.robotsCacheMs) {
     return cached.rules;
   }
-  let disallow = [];
+  let rules = [];
   try {
     const res = await fetch(`${origin}/robots.txt`, {
       headers: { "User-Agent": config.userAgent },
@@ -60,7 +61,7 @@ async function getRobots(origin) {
     });
     if (res.ok) {
       const txt = await res.text();
-      disallow = disallowListFor(parseRobots(txt), config.userAgent);
+      rules = rulesFor(parseRobots(txt), config.userAgent);
     }
   } catch (e) {
     // robots.txt が取れない場合は安全側に倒し、取得を控える方針も取り得るが、
@@ -68,12 +69,22 @@ async function getRobots(origin) {
     // 必要に応じて厳格化すること。
     console.warn(`[robots] ${origin} 取得失敗: ${e.message}`);
   }
-  robotsCache.set(origin, { rules: disallow, fetchedAt: Date.now() });
-  return disallow;
+  robotsCache.set(origin, { rules, fetchedAt: Date.now() });
+  return rules;
 }
 
-function isAllowed(disallow, pathname) {
-  return !disallow.some((rule) => pathname.startsWith(rule));
+// robots.txt の判定（RFC 9309 準拠）:
+// パスに前方一致するルールのうち「最も長いもの」が勝ち、同じ長さなら Allow を優先する。
+// 例）Disallow: / ＋ Allow: /parknet/ のサイトでは /parknet/... は許可される。
+// （以前は Allow を無視していたため、部分許可のサイトを丸ごとブロックしていた）
+function isAllowed(rules, pathname) {
+  let best = null;
+  for (const r of rules) {
+    if (!r.path || !pathname.startsWith(r.path)) continue;
+    if (!best || r.path.length > best.path.length
+      || (r.path.length === best.path.length && r.type === "allow")) best = r;
+  }
+  return !best || best.type === "allow";
 }
 
 // 節度を守って 1 件取得する。
@@ -84,8 +95,8 @@ export async function politeFetch(url, opts = {}) {
   const origin = `${u.protocol}//${u.host}`;
 
   // 1) robots.txt チェック
-  const disallow = await getRobots(origin);
-  if (!isAllowed(disallow, u.pathname)) {
+  const rules = await getRobots(origin);
+  if (!isAllowed(rules, u.pathname)) {
     return { ok: false, skippedReason: `robots.txt で Disallow: ${u.pathname}` };
   }
 

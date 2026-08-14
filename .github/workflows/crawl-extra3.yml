@@ -32,7 +32,8 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add data/prices-extra3.jsonl data/tamapark-ids.txt data/tamapark-crawl-state.json data/anabuki-ids.txt data/anabuki-crawl-state.json data/kintetsu-ids.txt data/kintetsu-crawl-state.json data/tokyulifia-ids.txt data/tokyulifia-crawl-state.json data/seiwapark-ids.txt data/seiwapark-crawl-state.json data/systempark-ids.txt data/systempark-crawl-state.json data/comnet-ids.txt data/comnet-crawl-state.json data/keio-ids.txt data/keio-crawl-state.json data/odakyu-ids.txt data/odakyu-crawl-state.json
+          # 列挙失敗でファイルが無い社があっても他社のデータを失わないよう data/ 配下をまとめて追加
+          git add -A data/
           if ! git diff --cached --quiet; then
             git commit -m "chore: update extra3 prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do
