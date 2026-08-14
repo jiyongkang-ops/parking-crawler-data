@@ -1,6 +1,8 @@
 // 小田急パーキング: 時間貸し一覧からスラッグを列挙（1リクエスト）------------
 // /parking/hourly_parking/ に東京・神奈川の全物件が1ページで載る（ページャ無し）。
 // スラッグは URL エンコードのまま保持する（detailUrl がそのまま使える）。
+// 【注意】GitHub Actions のIPからは一覧が HTTP 403 を返す（ローカルからは取得可）。
+//   失敗しても run.js が continue するため他社の収集には影響しない。
 import fs from "node:fs";
 import { politeFetch } from "./polite-fetch.js";
 
