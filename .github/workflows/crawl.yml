@@ -1,14 +1,23 @@
 # クラウド定期実行（GitHub Actions）
-# 1日3回（JST 9時/15時/21時）に節度をもって料金を収集する。
-#   - NPC全国: 毎回 約1,700件を1リクエストで取得
-#   - repark全国: 毎回 3,000件をローリング巡回（約2日で全国1巡）→ 1ジョブ約3.3時間
+# この2社だけは満空（空車/混雑/満車）が取れるので、1時間おきに回す。
+#   - NPC全国: 毎回 約1,700件を1リクエストで取得 → 24時間×7曜日がそのまま埋まる
+#   - repark全国: 毎回 約630件をローリング巡回（config.reparkRollingCycleRuns=25）
+#
+# なぜ1時間おきで1周25回なのか:
+#   在車率は時間帯と曜日で大きく変わる。1日3回（9/15/21時）のままだと同じ物件を
+#   いつも似た時刻に見ることになり、平均が昼の顔に寄る。1周を25時間にすると
+#   24と互いに素なので、同じ物件を見る時刻が1周ごとに1時間ずつずれ、
+#   約25日で24時間すべて・7回の観測で7曜日すべてを通る。
+#
+# 先方への負荷は増やしていない。1日あたりの件数はほぼ同じ（13,500→約15,100件）で、
+# まとめて3.3時間叩くのをやめ、1時間に約630件へならしている（山が低くなる）。
 # 収集結果と巡回状態(data/)に変化があればコミットして次回に引き継ぐ。
 name: crawl-parking-prices
 
 on:
   schedule:
-    # cron は UTC。JST 9/15/21時 = UTC 0/6/12時（6時間間隔でジョブ重複なし）
-    - cron: "0 0,6,12 * * *"
+    # 毎時0分。cron は UTC だが毎時なので時差の影響を受けない。
+    - cron: "0 * * * *"
   workflow_dispatch: {} # 手動実行も可
 
 permissions:
@@ -17,8 +26,8 @@ permissions:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    # repark全国ローリングは長時間（約3.3h）。GitHub の上限6hの手前で打ち切る。
-    timeout-minutes: 350
+    # 1回は約30分の見込み。次の実行（1時間後）に食い込まないよう55分で打ち切る。
+    timeout-minutes: 55
     concurrency:
       group: crawl # 多重起動を防ぐ（節度）
       cancel-in-progress: false
@@ -31,6 +40,9 @@ jobs:
       - run: npm run crawl
         env:
           CRAWL_ONLY: "npc,repark" # タイムズは crawl-times.yml で別実行
+          # NPCは1リクエストで全国分が返る単発取得なので、既定の6時間キャッシュに
+          # 当たると1時間おきに回しても6回に5回が空振りする。ここでは無効にする。
+          PAGE_CACHE_MS: "0"
       - run: npm run dashboard # 最新データで dashboard.html を再生成（全社分を集計）
       - run: npm run export # 統一料金CSV(data/parking-latest.csv)を再生成
       - name: commit data if changed
@@ -40,6 +52,9 @@ jobs:
           # prices.jsonl（価格時系列）と repark-crawl-state.json（巡回位置）を永続化。
           # 状態をコミットしないとローリングが毎回先頭に戻ってしまう。
           git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml dashboard.html data/parking-latest.csv
+          # 満空は data/vacancy-YYYY-MM.jsonl（月ごと）。古い月は変わらないのでgitが太らない。
+          # 月初の1回目はまだ無いことがあるので、拾えなくても止めない。
+          git add data/vacancy-*.jsonl || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: update npc+repark prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do
