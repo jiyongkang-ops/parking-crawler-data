@@ -118,6 +118,14 @@ function readLastSnapshots(file) {
   return last;
 }
 
+/** 1回あたりの取得件数。<op>RollingCycleRuns があれば「1周を何回で終えるか」から割り出す。
+ *  物件数が増えても周回数（＝観測時刻のずれ方）が変わらないようにするため。 */
+function rollingPerRun(op, total, fallback) {
+  const cycle = config[`${op}RollingCycleRuns`];
+  if (!cycle) return fallback;
+  return Math.max(1, Math.ceil(total / cycle));
+}
+
 function feeFingerprint(rec) {
   const u = (rec.unitCharges ?? [])
     .map((x) => `${x.timeRange}=${x.perMinutes}分/${x.amountYen}円`)
@@ -138,7 +146,9 @@ async function main() {
   const stats = { processed: 0, written: 0, changed: 0, isNew: 0, vacancy: 0 };
   // 満空の置き場。料金とは別ファイルにする（追記の条件が違うため）。
   // 名前・座標・台数は初回だけ入れ、以降は id で引く（同じ値を毎回書かない）
-  const vacancyFile = process.env.VACANCY_FILE || "data/vacancy.jsonl";
+  // 月ごとに分ける。1本にすると1年で数百MBになり、毎回の巡回でコミットするgitが重くなる。
+  // 先月以前のファイルは二度と変わらないので、gitはそれ以上太らない。
+  const vacancyFile = process.env.VACANCY_FILE || `data/vacancy-${now.slice(0, 7)}.jsonl`;
 
   // CRAWL_ONLY=times / npc,repark などで対象事業者を絞れる（ワークフロー分割用）。
   const only = (process.env.CRAWL_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -186,7 +196,10 @@ async function main() {
   // ページキャッシュ判定（単純な単一リクエスト対象用）。
   function cachedRecently(requestUrl) {
     const repr = [...last.values()].find((r) => r._requestUrl === requestUrl);
-    return repr && Date.now() - new Date(repr.fetchedAt).getTime() < config.pageCacheMs;
+    // PAGE_CACHE_MS=0 で無効化できる。満空を1時間おきに採る回ではキャッシュに当たると
+    // 6回に5回が空振りになり、時間帯が埋まらない。
+    const ms = process.env.PAGE_CACHE_MS ? Number(process.env.PAGE_CACHE_MS) : config.pageCacheMs;
+    return repr && Date.now() - new Date(repr.fetchedAt).getTime() < ms;
   }
 
   for (const t of targets) {
@@ -228,7 +241,7 @@ async function main() {
         ids = await getAllParkIds({ cacheFile: STATE.reparkSitemapCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] repark sitemap: ${e.message}`); continue; }
       const state = loadCrawlState(STATE.reparkCrawlState);
-      const perRun = config.reparkRollingPerRun ?? 1000;
+      const perRun = rollingPerRun("repark", ids.length, config.reparkRollingPerRun ?? 1000);
       const batch = pickRolling(ids, state, perRun);
       const visited = ids.filter((id) => state[id]).length;
       console.log(
@@ -443,7 +456,7 @@ async function main() {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] ${rolling.op} enumerate: ${e.message}`); continue; }
       const state = loadCrawlState(rolling.stateFile);
-      const perRun = config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun;
+      const perRun = rollingPerRun(rolling.op, ids.length, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
       const batch = pickRolling(ids, state, perRun);
       console.log(`[${rolling.label}] 全${ids.length}件 / 今回${batch.length}件取得`);
       for (const id of batch) {
