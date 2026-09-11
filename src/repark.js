@@ -79,11 +79,17 @@ export function parseReparkDetail(html, { parkId, label } = {}) {
     ? Number(String(ld.maximumAttendeeCapacity).replace(/[^\d]/g, "")) || null
     : null;
 
+  // 満空。詳細ページの hidden input に現在の状態が入っている（0=空車 1=混雑 2=満車）。
+  // すでに料金のために取っているページなので、追加の取得は発生しない。
+  const statusCode = $("#status").attr("value") ?? null;
+  const fullEmptyStatus = { 0: "空", 1: "混雑", 2: "満車" }[String(statusCode)] ?? null;
+
   return {
     operator: "repark",
     parkId,
     label: label ?? null,
     name,
+    fullEmptyStatus,
     address: address || null,
     lat: ld?.geo?.latitude ?? null,
     lng: ld?.geo?.longitude ?? null,

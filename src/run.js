@@ -135,7 +135,10 @@ async function main() {
   const last = readLastSnapshots(outFile);
   const now = new Date().toISOString();
 
-  const stats = { processed: 0, written: 0, changed: 0, isNew: 0 };
+  const stats = { processed: 0, written: 0, changed: 0, isNew: 0, vacancy: 0 };
+  // 満空の置き場。料金とは別ファイルにする（追記の条件が違うため）。
+  // 名前・座標・台数は初回だけ入れ、以降は id で引く（同じ値を毎回書かない）
+  const vacancyFile = process.env.VACANCY_FILE || "data/vacancy.jsonl";
 
   // CRAWL_ONLY=times / npc,repark などで対象事業者を絞れる（ワークフロー分割用）。
   const only = (process.env.CRAWL_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -163,6 +166,18 @@ async function main() {
     if (!config.appendOnlyChanges || isNew || isChanged) {
       fs.appendFileSync(outFile, JSON.stringify(rec) + "\n");
       stats.written++;
+    }
+    // 満空は料金と別に、巡回のたびに残す。
+    // 料金の指紋（feeFingerprint）に満空は入っていないので、上の追記に混ぜると
+    // 「料金が変わった回だけ」しか残らず、時系列にならない（実際そうなっていた。
+    // 1物件あたりの観測回数の中央値が1回）。在車率の推定に使うには連続した観測が要る。
+    // 1行を小さくして、1年回してもファイルが重くならないようにする。
+    if (rec.fullEmptyStatus) {
+      fs.appendFileSync(vacancyFile, JSON.stringify({
+        at: now, op: rec.operator, id: rec.parkId, s: rec.fullEmptyStatus,
+        ...(isNew ? { name: rec.name, lat: rec.lat, lng: rec.lng, cap: rec.capacity } : {}),
+      }) + "\n");
+      stats.vacancy++;
     }
     last.set(key, rec);
     stats.processed++;
@@ -511,7 +526,7 @@ async function main() {
   }
 
   console.log(
-    `\n完了: ${stats.processed}物件処理 / 新規${stats.isNew} / 変動${stats.changed} / 追記${stats.written}行 → ${process.env.OUT_FILE || config.outFile}`
+    `\n完了: ${stats.processed}物件処理 / 新規${stats.isNew} / 変動${stats.changed} / 追記${stats.written}行 / 満空${stats.vacancy}行 → ${process.env.OUT_FILE || config.outFile}`
   );
 }
 

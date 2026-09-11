@@ -39,7 +39,7 @@ jobs:
           git config user.email "github-actions@users.noreply.github.com"
           # prices.jsonl（価格時系列）と repark-crawl-state.json（巡回位置）を永続化。
           # 状態をコミットしないとローリングが毎回先頭に戻ってしまう。
-          git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml dashboard.html data/parking-latest.csv
+          git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml dashboard.html data/parking-latest.csv data/vacancy.jsonl
           if ! git diff --cached --quiet; then
             git commit -m "chore: update npc+repark prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do
