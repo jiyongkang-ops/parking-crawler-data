@@ -15,7 +15,7 @@ import { politeFetch } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import {
-  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling,
+  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, stampState,
 } from "./repark-enumerate.js";
 import { parseTimesDetail } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -242,7 +242,8 @@ async function main() {
       } catch (e) { console.error(`[error] repark sitemap: ${e.message}`); continue; }
       const state = loadCrawlState(STATE.reparkCrawlState);
       const perRun = rollingPerRun("repark", ids.length, config.reparkRollingPerRun ?? 1000);
-      const batch = pickRolling(ids, state, perRun);
+      // 満空が取れる事業者なので、今の時刻をまだ見ていない物件から先に回す
+      const batch = pickRolling(ids, state, perRun, { spreadHours: true, at: now });
       const visited = ids.filter((id) => state[id]).length;
       console.log(
         `[repark全国] 全${ids.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
@@ -255,7 +256,7 @@ async function main() {
         const rec = parseReparkDetail(res.html, { parkId: id });
         rec._requestUrl = reparkDetailUrl(id);
         handleRecord(rec);
-        state[id] = now;
+        state[id] = stampState(state[id], now);
       }
       saveCrawlState(STATE.reparkCrawlState, state);
       continue;
