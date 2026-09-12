@@ -58,7 +58,7 @@ jobs:
           git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml dashboard.html data/parking-latest.csv
           # 満空は data/vacancy-YYYY-MM.jsonl（月ごと）。古い月は変わらないのでgitが太らない。
           # 月初の1回目はまだ無いことがあるので、拾えなくても止めない。
-          git add data/vacancy-*.jsonl || true
+          git add data/vacancy-*.jsonl data/vacancy-lots.json || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: update npc+repark prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do

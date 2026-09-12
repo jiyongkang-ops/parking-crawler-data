@@ -149,6 +149,13 @@ async function main() {
   // 月ごとに分ける。1本にすると1年で数百MBになり、毎回の巡回でコミットするgitが重くなる。
   // 先月以前のファイルは二度と変わらないので、gitはそれ以上太らない。
   const vacancyFile = process.env.VACANCY_FILE || `data/vacancy-${now.slice(0, 7)}.jsonl`;
+  // 名前・座標・台数は時系列に毎回書くと1行が3倍になるので、別の1ファイルに最新だけ持つ。
+  // 以前は「料金データに新規のときだけ書く」にしていたが、既に知っている物件では一度も
+  // 書かれず、9,777観測のうち座標があるのは1件だけだった（＝地図に置けず使えなかった）。
+  const vacancyMetaFile = process.env.VACANCY_META_FILE || "data/vacancy-lots.json";
+  let vacMeta = {};
+  try { vacMeta = JSON.parse(fs.readFileSync(vacancyMetaFile, "utf8")); } catch { /* 初回 */ }
+  let vacMetaDirty = false;
 
   // CRAWL_ONLY=times / npc,repark などで対象事業者を絞れる（ワークフロー分割用）。
   const only = (process.env.CRAWL_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -185,9 +192,14 @@ async function main() {
     if (rec.fullEmptyStatus) {
       fs.appendFileSync(vacancyFile, JSON.stringify({
         at: now, op: rec.operator, id: rec.parkId, s: rec.fullEmptyStatus,
-        ...(isNew ? { name: rec.name, lat: rec.lat, lng: rec.lng, cap: rec.capacity } : {}),
       }) + "\n");
       stats.vacancy++;
+      // 名前・座標は別ファイルへ。変わったときだけ書き換える
+      const prevMeta = vacMeta[key];
+      if (!prevMeta || prevMeta.la !== rec.lat || prevMeta.ln !== rec.lng || prevMeta.c !== rec.capacity || prevMeta.n !== rec.name) {
+        vacMeta[key] = { n: rec.name ?? null, la: rec.lat ?? null, ln: rec.lng ?? null, c: rec.capacity ?? null };
+        vacMetaDirty = true;
+      }
     }
     last.set(key, rec);
     stats.processed++;
@@ -539,6 +551,8 @@ async function main() {
 
     console.warn(`[skip] 未対応の target: ${JSON.stringify(t)}`);
   }
+
+  if (vacMetaDirty) fs.writeFileSync(vacancyMetaFile, JSON.stringify(vacMeta));
 
   console.log(
     `\n完了: ${stats.processed}物件処理 / 新規${stats.isNew} / 変動${stats.changed} / 追記${stats.written}行 / 満空${stats.vacancy}行 → ${process.env.OUT_FILE || config.outFile}`
