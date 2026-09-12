@@ -15,7 +15,7 @@ import { politeFetch } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import {
-  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, stampState,
+  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit,
 } from "./repark-enumerate.js";
 import { parseTimesDetail } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -251,12 +251,12 @@ async function main() {
       );
       for (const id of batch) {
         let res;
-        try { res = await politeFetch(reparkDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        try { res = await politeFetch(reparkDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null, { hours: true }); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`); recordVisit(state, id, now, res, { hours: true }); continue; }
         const rec = parseReparkDetail(res.html, { parkId: id });
         rec._requestUrl = reparkDetailUrl(id);
         handleRecord(rec);
-        state[id] = stampState(state[id], now);
+        recordVisit(state, id, now, res, { hours: true });
       }
       saveCrawlState(STATE.reparkCrawlState, state);
       continue;
@@ -280,8 +280,8 @@ async function main() {
       );
       for (const url of batch) {
         let res;
-        try { res = await politeFetch(url, { minDelay: delay }); } catch (e) { console.error(`  [error] ${url}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${url}`); continue; }
+        try { res = await politeFetch(url, { minDelay: delay }); } catch (e) { console.error(`  [error] ${url}: ${e.message}`); recordVisit(state, url, now, null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${url}`); recordVisit(state, url, now, res); continue; }
         const rec = parseTimesDetail(res.html, { url });
         rec._requestUrl = url;
         handleRecord(rec);
@@ -307,8 +307,8 @@ async function main() {
       );
       for (const id of batch) {
         let res;
-        try { res = await politeFetch(mkpDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        try { res = await politeFetch(mkpDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
         const rec = parseMkpDetail(res.html, { id });
         rec._requestUrl = mkpDetailUrl(id);
         handleRecord(rec);
@@ -334,8 +334,8 @@ async function main() {
       );
       for (const code of batch) {
         let res;
-        try { res = await politeFetch(naviparkDetailUrl(code)); } catch (e) { console.error(`  [error] ${code}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${code}`); continue; }
+        try { res = await politeFetch(naviparkDetailUrl(code)); } catch (e) { console.error(`  [error] ${code}: ${e.message}`); recordVisit(state, code, now, null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${code}`); recordVisit(state, code, now, res); continue; }
         const rec = parseNaviparkDetail(res.html, { code });
         rec._requestUrl = naviparkDetailUrl(code);
         handleRecord(rec);
@@ -361,8 +361,8 @@ async function main() {
       );
       for (const id of batch) {
         let res;
-        try { res = await politeFetch(ecoloDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        try { res = await politeFetch(ecoloDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
         const rec = parseEcoloDetail(res.html, { id });
         rec._requestUrl = ecoloDetailUrl(id);
         handleRecord(rec);
@@ -384,8 +384,8 @@ async function main() {
       console.log(`[キョウテク] 全${ids.length}件 / 今回${batch.length}件取得`);
       for (const id of batch) {
         let res;
-        try { res = await politeFetch(kyotechDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        try { res = await politeFetch(kyotechDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
         const rec = parseKyotechDetail(res.html, { id });
         rec._requestUrl = kyotechDetailUrl(id);
         handleRecord(rec);
@@ -407,8 +407,8 @@ async function main() {
       console.log(`[ル・パルク] 全${ids.length}件 / 今回${batch.length}件取得`);
       for (const id of batch) {
         let res;
-        try { res = await politeFetch(leparcDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        try { res = await politeFetch(leparcDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
         const rec = parseLeparcDetail(res.html, { id });
         rec._requestUrl = leparcDetailUrl(id);
         handleRecord(rec);
@@ -463,14 +463,15 @@ async function main() {
       for (const id of batch) {
         const url = rolling.detailUrl(id);
         let res;
-        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); continue; }
+        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
         let rec;
-        try { rec = rolling.parse(res.html, { id }); } catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); continue; }
-        if (!rec || !rec.name) continue;
+        // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
+        try { rec = rolling.parse(res.html, { id }); } catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); recordVisit(state, id, now, res); continue; }
+        if (!rec || !rec.name) { recordVisit(state, id, now, res); continue; }
         rec._requestUrl = url;
         handleRecord(rec);
-        state[id] = now;
+        recordVisit(state, id, now, res);
       }
       saveCrawlState(rolling.stateFile, state);
       continue;

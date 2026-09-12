@@ -55,32 +55,56 @@ export function saveCrawlState(stateFile, state) {
 }
 
 const ALL_HOURS = (1 << 24) - 1;
+/** 消えた物件を寝かせる期間。一覧(sitemap)の作り直しと同じ7日 */
+const GONE_MS = 7 * 864e5;
 
 /** 状態の値を分解する。古い形式（ISO文字列だけ）もそのまま読める */
 export function parseState(v) {
-  if (!v) return { t: 0, mask: 0 };
-  const [iso, m] = String(v).split("|");
-  return { t: new Date(iso).getTime() || 0, mask: m ? parseInt(m, 36) : 0 };
+  if (!v) return { t: 0, mask: 0, gone: false };
+  const s = String(v);
+  if (s.startsWith("GONE|")) return { t: new Date(s.slice(5)).getTime() || 0, mask: 0, gone: true };
+  const [iso, m] = s.split("|");
+  return { t: new Date(iso).getTime() || 0, mask: m ? parseInt(m, 36) : 0, gone: false };
 }
 
-/** 取得できたときに書き戻す値。24時間ぜんぶ見終わったマスクは畳んで次の一巡に入る */
-export function stampState(prev, atIso) {
+/** 巡回したときに書き戻す値。
+ *  seen=false（取れなかった）でも時刻だけは進める。**これをしないと失敗した物件が
+ *  「最後に取れた時刻」のまま古い順の先頭に居座り、毎回そこだけを叩いて
+ *  生きている物件へ一生たどり着かない**（1回あたりの件数を4500→629に減らしたとき、
+ *  629件ぜんぶが404の物件になり巡回が止まった。2026-09-12）。
+ *  24時間ぜんぶ見終わったマスクは畳んで次の一巡に入る。 */
+export function stampState(prev, atIso, seen = true) {
   const { mask } = parseState(prev);
+  if (!seen) return `${atIso}|${mask.toString(36)}`;
   const hour = new Date(new Date(atIso).getTime() + 9 * 3600e3).getUTCHours(); // 日本時間
   const next = (mask === ALL_HOURS ? 0 : mask) | (1 << hour);
   return `${atIso}|${next.toString(36)}`;
+}
+
+/** 404（消えた物件）。一覧を作り直すまでは回さない。
+ *  先方に無駄な404を投げ続けないための処置でもある（リパークで約970件あった） */
+export const goneState = (atIso) => `GONE|${atIso}`;
+
+/** 取得の結果を状態へ書き戻す。404 は寝かせ、それ以外の失敗は時刻だけ進める */
+export function recordVisit(state, key, atIso, res, { hours = false } = {}) {
+  if (res && res.status === 404) { state[key] = goneState(atIso); return; }
+  const ok = !!(res && res.ok && !res.skippedReason);
+  state[key] = hours ? stampState(state[key], atIso, ok) : atIso;
 }
 
 /** 未取得 → 取得が古い順に N 件選ぶ。
  *  spreadHours を渡すと「その時刻をまだ見ていない物件」を先に回す（満空を時間帯ごと均等に採るため）。 */
 export function pickRolling(allIds, state, n, { spreadHours = false, at = null } = {}) {
   const st = (id) => parseState(state[id]);
+  // 消えた物件は寝かせる。期限が切れたら普通に戻る（本当に復活していれば取れる）
+  const nowMs = new Date(at ?? Date.now()).getTime();
+  const live = allIds.filter((id) => { const x = st(id); return !(x.gone && nowMs - x.t < GONE_MS); });
   if (!spreadHours) {
-    return [...allIds].sort((a, b) => st(a).t - st(b).t).slice(0, n);
+    return [...live].sort((a, b) => st(a).t - st(b).t).slice(0, n);
   }
   const bit = 1 << new Date(new Date(at ?? Date.now()).getTime() + 9 * 3600e3).getUTCHours();
   const need = [], done = [];
-  for (const id of allIds) ((st(id).mask & bit) ? done : need).push(id);
+  for (const id of live) ((st(id).mask & bit) ? done : need).push(id);
   const byAge = (a, b) => st(a).t - st(b).t;
   need.sort(byAge);
   if (need.length >= n) return need.slice(0, n);
