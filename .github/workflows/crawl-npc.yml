@@ -48,12 +48,11 @@ jobs:
           NPC_INTERVAL_MIN: "27"
           # 6時間キャッシュに当たると1回目から空振りする
           PAGE_CACHE_MS: "0"
-          # 料金は本体(crawl.yml)が持つ。ここは満空が目的なので別ファイルにして push 競合を避ける
-          OUT_FILE: "data/prices-npc.jsonl"
-          # 名前・座標も別ファイルにする。1つの .json を両方から書くと、
-          # 衝突時に「自分側を採用」した方がもう一方の分を消してしまう
-          VACANCY_META_FILE: "data/vacancy-lots-npc.json"
+          # 料金は本体(crawl.yml)が持つ。ここでは料金を書かず満空だけ残す。
+          # 別ファイルに料金を書くと NPC の料金時系列が2本になり、変動が二重に数えられる
+          VACANCY_ONLY: "1"
       - name: commit data if changed
+        if: always()   # 途中で殺されても、そこまでの観測は残す
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"

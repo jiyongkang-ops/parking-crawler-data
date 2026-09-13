@@ -6,6 +6,7 @@
 // 週1回のキャッシュ更新を想定（既定 7日）。
 
 import fs from "node:fs";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 
@@ -17,7 +18,7 @@ const MAX_PAGES = 200; // 暴走防止の上限
 export async function getAllAnabukiIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile) {
     const abs = path.resolve(cacheFile);
-    if (fs.existsSync(abs) && Date.now() - fs.statSync(abs).mtimeMs < cacheMs) {
+    if (cacheFresh(abs, cacheMs)) {
       return fs.readFileSync(abs, "utf8").split("\n").filter(Boolean);
     }
   }
@@ -61,6 +62,7 @@ export async function getAllAnabukiIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) 
     const abs = path.resolve(cacheFile);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, list.join("\n") + "\n");
+    markFetched(abs);
   }
   return list;
 }
