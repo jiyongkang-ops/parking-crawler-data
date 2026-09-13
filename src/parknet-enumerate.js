@@ -1,6 +1,6 @@
 // パークネット: 検索トップ → 都道府県ページ → 市区リンク（pref_cd\tcity）を列挙 --
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 import { prefListUrl, parseCityLinks } from "./parknet.js";
 
@@ -8,8 +8,7 @@ const TOP = "https://parknet.shinmaywa.co.jp/parknet/search/";
 
 export async function getAllParknetCities({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = cacheAgeMs(cacheFile);
-    if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
+    if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const top = await politeFetch(TOP);
   if (!top.ok) throw new Error(`パークネット トップ取得失敗: HTTP ${top.status}`);
@@ -25,5 +24,6 @@ export async function getAllParknetCities({ cacheFile, cacheMs = 7 * 864e5 } = {
   const list = [...cities].sort();
   if (!list.length) throw new Error("パークネット市区リンクが0件");
   if (cacheFile) fs.writeFileSync(cacheFile, list.join("\n") + "\n");
+  if (cacheFile) markFetched(cacheFile);
   return list;
 }

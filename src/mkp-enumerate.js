@@ -3,7 +3,7 @@
 // 抽出した ID 一覧をローカルキャッシュ。巡回状態は repark-enumerate の汎用関数を共用。
 
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 
@@ -24,5 +24,6 @@ export async function getAllMkpIds({ cacheFile, cacheMs }) {
   const list = [...ids];
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, list.join("\n") + "\n");
+  markFetched(abs);
   return list;
 }

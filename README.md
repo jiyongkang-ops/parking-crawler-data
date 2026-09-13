@@ -11,8 +11,9 @@
   巡回のたび追記する（料金の変動とは無関係に毎回残す）。名前・座標は `data/vacancy-lots.jsonl`
   （追記型・同じ物件は最後の行が最新）。NPCは `crawl-npc.yml` が1回の実行で27分おきに11回採る
   （`VACANCY_ONLY=1` で料金は書かない。定時実行の遅れで時間帯に穴が空くのを埋めるため）。
-- 物件一覧（sitemap / ids）の鮮度は **git の最終コミット時刻**で測る（`src/cache-age.js`）。
-  mtime だと CI の checkout が毎回「今」にするため一度も更新されず、7月の一覧のまま2か月止まっていた。
+- 物件一覧（sitemap / ids）の鮮度は、となりに置く **`<file>.fetched`（取得日時）** だけで測る（`src/cache-age.js`）。
+  mtime は checkout が毎回「今」にし、git の最終コミット時刻も**浅いクローン（fetch-depth:1）では常に「今」**を返すため、
+  どちらでも一度も更新されず、7月の一覧のまま2か月止まっていた。作り直しは1回の実行で2件まで（`LIST_REFRESH_MAX`）。
 - `dashboard.html` と統一CSVは `publish.yml` で1日1回作る（毎時コミットすると派生物だけで月75MB太る）。
 - ローリング巡回は `ROLLING_BUDGET_MIN`（既定45分）で切り上げ、状態を50件ごとに保存する。
   途中で殺されても、そこまでの観測と巡回状態は `if: always()` のコミットで残る。

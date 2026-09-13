@@ -5,7 +5,7 @@
 // URLに付く ustr= は検索セッションキーだが、無くても page 指定だけで通る。
 
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 import { listUrl, parseKintetsuList } from "./kintetsu.js";
@@ -41,6 +41,7 @@ export async function getAllKintetsuIds({ cacheFile, cacheMs = 7 * 864e5 } = {})
     const abs = path.resolve(cacheFile);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, list.join("\n") + "\n");
+    markFetched(abs);
   }
   return list;
 }

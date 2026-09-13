@@ -2,15 +2,14 @@
 // 県/市区ページには物件が無く、駅ページ（/station/{駅名}）にのみ /number/{code} が載る。
 // 駅ページ巡回は7日キャッシュ前提（初回のみ約222リクエスト）。
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const TOP = "https://www.parking-kyushu.jp/";
 
 export async function getAllJqparksIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = cacheAgeMs(cacheFile);
-    if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
+    if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const top = await politeFetch(TOP);
   if (!top.ok) throw new Error(`JQパークス トップ取得失敗: HTTP ${top.status}`);
@@ -27,5 +26,6 @@ export async function getAllJqparksIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) 
   const list = [...ids].sort();
   if (!list.length) throw new Error("JQパークス物件コードが0件");
   if (cacheFile) fs.writeFileSync(cacheFile, list.join("\n") + "\n");
+  if (cacheFile) markFetched(cacheFile);
   return list;
 }

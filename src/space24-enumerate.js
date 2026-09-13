@@ -1,14 +1,13 @@
 // スペース二十四: 一覧（10件/頁 × 約150頁）から詳細IDを列挙 -------------------
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const LIST_URL = (page) => `https://space24.co.jp/parkings?page=${page}`;
 
 export async function getAllSpace24Ids({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = cacheAgeMs(cacheFile);
-    if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
+    if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const ids = new Set();
   let lastPage = 200;
@@ -29,5 +28,6 @@ export async function getAllSpace24Ids({ cacheFile, cacheMs = 7 * 864e5 } = {}) 
   const list = [...ids].sort((a, b) => Number(a) - Number(b));
   if (!list.length) throw new Error("スペース24一覧の解析結果が0件（ページ構造変更の可能性）");
   if (cacheFile) fs.writeFileSync(cacheFile, list.join("\n") + "\n");
+  if (cacheFile) markFetched(cacheFile);
   return list;
 }

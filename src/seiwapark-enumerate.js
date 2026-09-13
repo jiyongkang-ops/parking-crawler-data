@@ -4,7 +4,7 @@
 // を付けて巡る。0件だった場合のみ絞り込み無しで再試行する。
 // 1ページ20件。ページャは現在地周辺しか出さないため、毎ページ最大値を取り直す。
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const QS = "post_type=search&type%5B0%5D=35"; // 35 = コインパーキング
@@ -17,8 +17,7 @@ const MAX_PAGES = 40; // 暴走よけの上限
 
 export async function getAllSeiwaparkIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = cacheAgeMs(cacheFile);
-    if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
+    if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const walk = async (filtered) => {
     const ids = new Set();
@@ -41,5 +40,6 @@ export async function getAllSeiwaparkIds({ cacheFile, cacheMs = 7 * 864e5 } = {}
   const list = [...ids].sort();
   if (!list.length) throw new Error("セイワパーク一覧の解析結果が0件（ページ構造変更の可能性）");
   if (cacheFile) fs.writeFileSync(cacheFile, list.join("\n") + "\n");
+  if (cacheFile) markFetched(cacheFile);
   return list;
 }

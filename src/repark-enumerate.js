@@ -5,7 +5,7 @@
 // 毎回 N 件だけ」取得するローリング方式で、数日かけて全国を1巡する。
 
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 
@@ -24,6 +24,7 @@ export async function getAllParkIds({ cacheFile, cacheMs }) {
     xml = res.html;
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, xml);
+    markFetched(abs);
   }
   // www 版の detail URL から park= の値だけを重複なく拾う
   const ids = new Set();
@@ -53,6 +54,7 @@ export function saveCrawlState(stateFile, state) {
   const abs = path.resolve(stateFile);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, JSON.stringify(state, null, 0));
+  markFetched(abs);
 }
 
 const ALL_HOURS = (1 << 24) - 1;

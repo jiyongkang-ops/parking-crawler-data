@@ -6,7 +6,7 @@
 // 週1回のキャッシュ更新を想定（既定 7日）。
 
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 
@@ -62,6 +62,7 @@ export async function getAllAnabukiIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) 
     const abs = path.resolve(cacheFile);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, list.join("\n") + "\n");
+    markFetched(abs);
   }
   return list;
 }

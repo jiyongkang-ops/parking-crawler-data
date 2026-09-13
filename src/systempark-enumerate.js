@@ -2,15 +2,14 @@
 // タブの cat 値は一覧ページ自身に列挙されているので、まず cat=1 を取ってタブを拾い、
 // 残りのタブを順に巡る（現状 9 タブ）。
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const LIST_URL = (cat) => `https://systempark.biz/jisseki/index.php?cat=${cat}`;
 
 export async function getAllSystemparkIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = cacheAgeMs(cacheFile);
-    if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
+    if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const ids = new Set();
   const first = await politeFetch(LIST_URL(1));
@@ -33,5 +32,6 @@ export async function getAllSystemparkIds({ cacheFile, cacheMs = 7 * 864e5 } = {
   const list = [...ids].sort((a, b) => Number(a) - Number(b));
   if (!list.length) throw new Error("システムパーク一覧の解析結果が0件（ページ構造変更の可能性）");
   if (cacheFile) fs.writeFileSync(cacheFile, list.join("\n") + "\n");
+  if (cacheFile) markFetched(cacheFile);
   return list;
 }

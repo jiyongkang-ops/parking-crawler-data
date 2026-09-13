@@ -5,7 +5,7 @@
 // 以降を順に巡回する。?page= を付けないとテンプレートだけの空HTMLが返る点に注意。
 
 import fs from "node:fs";
-import { cacheFresh, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 import { parseTokyuLifiaSearch, searchUrl } from "./tokyulifia.js";
@@ -50,6 +50,7 @@ export async function getAllTokyuLifiaIds({ cacheFile, cacheMs = 7 * 864e5 } = {
     const abs = path.resolve(cacheFile);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, list.join("\n") + "\n");
+    markFetched(abs);
   }
   return list;
 }
