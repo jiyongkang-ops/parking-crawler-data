@@ -58,8 +58,12 @@ export function saveCrawlState(stateFile, state) {
 }
 
 const ALL_HOURS = (1 << 24) - 1;
-/** 消えた物件を寝かせる期間。一覧(sitemap)の作り直しと同じ7日 */
-const GONE_MS = 7 * 864e5;
+/** 消えた物件（404）を寝かせる期間。
+ *  もとは「一覧を7日ごとに作り直すから7日」としていたが、実際に作り直してみると
+ *  リパークの一覧は2か月変わっておらず、404の975件がそのまま載っていた。
+ *  7日ごとに975件の404を投げ直すだけになるので、時間では長めに置き、
+ *  **一覧の中身が変わったときに起こす**（unparkGone）のを主な復帰の合図にする。 */
+const GONE_MS = 30 * 864e5;
 /** 日本時間の「時」。stampState と pickRolling で同じ位置のビットを使うために1か所に置く */
 const jstHour = (ms) => new Date(ms + 9 * 3600e3).getUTCHours();
 /** 24時間ぜんぶ見終わったマスクは「まだ何も見ていない」と同じ扱い（次の一巡に入る） */
@@ -97,6 +101,25 @@ export function recordVisit(state, key, atIso, res, { hours = false, seen } = {}
   const ok = !!(res && res.ok && !res.skippedReason);
   // seen を渡されたら「その時刻を見た」の判定はそちら（満空が読めたかどうか）に従う
   state[key] = hours ? stampState(state[key], atIso, seen ?? ok) : atIso;
+}
+
+/** 一覧の中身の指紋。作り直して中身が変わったかを見るのに使う */
+export function listHash(ids) {
+  let h = 0;
+  for (const id of ids) { for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) | 0; h = (h + 0x9e3779b9) | 0; }
+  return `${ids.length}:${(h >>> 0).toString(36)}`;
+}
+
+/** 一覧が変わったら、寝かせていた物件を起こす。
+ *  先方が物件を出し入れしたということなので、404だったものが復活している見込みがある。
+ *  逆に一覧が変わらないうちは、何度叩いても404のままなので起こさない。 */
+export function unparkGone(state, ids) {
+  const h = listHash(ids);
+  if (state._list === h) return 0;
+  let n = 0;
+  for (const id of ids) if (String(state[id] ?? "").startsWith("GONE|")) { delete state[id]; n++; }
+  state._list = h;
+  return n;
 }
 
 /** 生きている（寝かせていない）物件の数。1周の回数を決めるのに使う */
