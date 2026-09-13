@@ -5,6 +5,8 @@
 // search.json は city_id 単位でその市区の全 NPC 物件を配列で返す。
 // 1リクエスト＝複数物件なので parse() はレコード配列を返す。
 
+import { emptyStatusLabel } from "./vacancy-label.js";
+
 const API_BASE = "https://parking.npc-npc.co.jp/api/parking";
 
 // city_id 単位の検索 URL
@@ -78,11 +80,6 @@ function parseMaxFees(maxCharge) {
   return fees;
 }
 
-// full_empty_status: "0"=空/不明 等。表示用ラベルに変換（取得できる範囲で）。
-function emptyStatusLabel(code) {
-  const map = { 0: "空", 1: "混雑", 2: "満車" };
-  return map[String(code)] ?? null;
-}
 
 // JSON文字列 → 正規化レコード配列（共通スキーマ）
 export function parseNpcSearch(body, { cityId, prefId, label } = {}) {
