@@ -5,6 +5,7 @@
 // URLに付く ustr= は検索セッションキーだが、無くても page 指定だけで通る。
 
 import fs from "node:fs";
+import { cacheFresh, cacheAgeMs } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 import { listUrl, parseKintetsuList } from "./kintetsu.js";
@@ -14,7 +15,7 @@ const MAX_PAGES = 60; // 20件/頁 → 1,200件相当。暴走防止の上限
 export async function getAllKintetsuIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile) {
     const abs = path.resolve(cacheFile);
-    if (fs.existsSync(abs) && Date.now() - fs.statSync(abs).mtimeMs < cacheMs) {
+    if (cacheFresh(abs, cacheMs)) {
       return fs.readFileSync(abs, "utf8").split("\n").filter(Boolean);
     }
   }

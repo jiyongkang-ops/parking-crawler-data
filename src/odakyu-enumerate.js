@@ -4,13 +4,14 @@
 // 【注意】GitHub Actions のIPからは一覧が HTTP 403 を返す（ローカルからは取得可）。
 //   失敗しても run.js が continue するため他社の収集には影響しない。
 import fs from "node:fs";
+import { cacheFresh, cacheAgeMs } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const LIST_URL = "https://service.odakyu-life.jp/parking/hourly_parking/";
 
 export async function getAllOdakyuIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
+    const age = cacheAgeMs(cacheFile);
     if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const res = await politeFetch(LIST_URL);

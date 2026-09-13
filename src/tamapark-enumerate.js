@@ -1,12 +1,13 @@
 // タマパーク: 一覧ページ（1枚に全物件）から日本語スラッグを列挙 ----------------
 import fs from "node:fs";
+import { cacheFresh, cacheAgeMs } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const LIST_URL = "https://www.tamapark.co.jp/parking/";
 
 export async function getAllTamaparkIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
+    const age = cacheAgeMs(cacheFile);
     if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const res = await politeFetch(LIST_URL);

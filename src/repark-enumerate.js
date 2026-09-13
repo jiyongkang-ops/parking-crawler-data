@@ -5,6 +5,7 @@
 // 毎回 N 件だけ」取得するローリング方式で、数日かけて全国を1巡する。
 
 import fs from "node:fs";
+import { cacheFresh, cacheAgeMs } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 
@@ -14,7 +15,7 @@ const SITEMAP_URL = "https://www.repark.jp/sitemap_park.xml";
 export async function getAllParkIds({ cacheFile, cacheMs }) {
   let xml = null;
   const abs = path.resolve(cacheFile);
-  if (fs.existsSync(abs) && Date.now() - fs.statSync(abs).mtimeMs < cacheMs) {
+  if (cacheFresh(abs, cacheMs)) {
     xml = fs.readFileSync(abs, "utf8");
   } else {
     const res = await politeFetch(SITEMAP_URL);
@@ -57,6 +58,10 @@ export function saveCrawlState(stateFile, state) {
 const ALL_HOURS = (1 << 24) - 1;
 /** 消えた物件を寝かせる期間。一覧(sitemap)の作り直しと同じ7日 */
 const GONE_MS = 7 * 864e5;
+/** 日本時間の「時」。stampState と pickRolling で同じ位置のビットを使うために1か所に置く */
+const jstHour = (ms) => new Date(ms + 9 * 3600e3).getUTCHours();
+/** 24時間ぜんぶ見終わったマスクは「まだ何も見ていない」と同じ扱い（次の一巡に入る） */
+const effectiveMask = (mask) => (mask === ALL_HOURS ? 0 : mask);
 
 /** 状態の値を分解する。古い形式（ISO文字列だけ）もそのまま読める */
 export function parseState(v) {
@@ -76,8 +81,7 @@ export function parseState(v) {
 export function stampState(prev, atIso, seen = true) {
   const { mask } = parseState(prev);
   if (!seen) return `${atIso}|${mask.toString(36)}`;
-  const hour = new Date(new Date(atIso).getTime() + 9 * 3600e3).getUTCHours(); // 日本時間
-  const next = (mask === ALL_HOURS ? 0 : mask) | (1 << hour);
+  const next = effectiveMask(mask) | (1 << jstHour(new Date(atIso).getTime()));
   return `${atIso}|${next.toString(36)}`;
 }
 
@@ -86,25 +90,34 @@ export function stampState(prev, atIso, seen = true) {
 export const goneState = (atIso) => `GONE|${atIso}`;
 
 /** 取得の結果を状態へ書き戻す。404 は寝かせ、それ以外の失敗は時刻だけ進める */
-export function recordVisit(state, key, atIso, res, { hours = false } = {}) {
+export function recordVisit(state, key, atIso, res, { hours = false, seen } = {}) {
   if (res && res.status === 404) { state[key] = goneState(atIso); return; }
   const ok = !!(res && res.ok && !res.skippedReason);
-  state[key] = hours ? stampState(state[key], atIso, ok) : atIso;
+  // seen を渡されたら「その時刻を見た」の判定はそちら（満空が読めたかどうか）に従う
+  state[key] = hours ? stampState(state[key], atIso, seen ?? ok) : atIso;
+}
+
+/** 生きている（寝かせていない）物件の数。1周の回数を決めるのに使う */
+export function countLive(allIds, state, nowMs = Date.now()) {
+  return allIds.filter((id) => { const x = parseState(state[id]); return !(x.gone && nowMs - x.t < GONE_MS); }).length;
 }
 
 /** 未取得 → 取得が古い順に N 件選ぶ。
  *  spreadHours を渡すと「その時刻をまだ見ていない物件」を先に回す（満空を時間帯ごと均等に採るため）。 */
 export function pickRolling(allIds, state, n, { spreadHours = false, at = null } = {}) {
-  const st = (id) => parseState(state[id]);
+  // 状態の文字列は1回だけ読む（比較関数の中で毎回分解すると数十万回になる）
+  const parsed = new Map(allIds.map((id) => [id, parseState(state[id])]));
+  const st = (id) => parsed.get(id);
   // 消えた物件は寝かせる。期限が切れたら普通に戻る（本当に復活していれば取れる）
   const nowMs = new Date(at ?? Date.now()).getTime();
   const live = allIds.filter((id) => { const x = st(id); return !(x.gone && nowMs - x.t < GONE_MS); });
   if (!spreadHours) {
     return [...live].sort((a, b) => st(a).t - st(b).t).slice(0, n);
   }
-  const bit = 1 << new Date(new Date(at ?? Date.now()).getTime() + 9 * 3600e3).getUTCHours();
+  const bit = 1 << jstHour(nowMs);
   const need = [], done = [];
-  for (const id of live) ((st(id).mask & bit) ? done : need).push(id);
+  // 24時間ぜんぶ見終わった物件を「どの時刻も済み」にすると、次の一巡に入れず後回しにされ続ける
+  for (const id of live) ((effectiveMask(st(id).mask) & bit) ? done : need).push(id);
   const byAge = (a, b) => st(a).t - st(b).t;
   need.sort(byAge);
   if (need.length >= n) return need.slice(0, n);

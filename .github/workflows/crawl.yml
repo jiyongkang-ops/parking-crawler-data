@@ -30,8 +30,9 @@ permissions:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    # 1回は約30分の見込み。次の実行（1時間後）に食い込まないよう55分で打ち切る。
-    timeout-minutes: 55
+    # リパーク629件×4秒＝約42分＋前後の処理。クローラ側で45分の予算を持って切り上げる
+    # （ROLLING_BUDGET_MIN）ので、ここは余裕を見る。concurrency で重複は起きない
+    timeout-minutes: 75
     concurrency:
       group: crawl # 多重起動を防ぐ（節度）
       cancel-in-progress: false
@@ -47,18 +48,20 @@ jobs:
           # NPCは1リクエストで全国分が返る単発取得なので、既定の6時間キャッシュに
           # 当たると1時間おきに回しても6回に5回が空振りする。ここでは無効にする。
           PAGE_CACHE_MS: "0"
-      - run: npm run dashboard # 最新データで dashboard.html を再生成（全社分を集計）
-      - run: npm run export # 統一料金CSV(data/parking-latest.csv)を再生成
+      # dashboard.html（14MB）と parking-latest.csv（17MB）は publish.yml で1日1回作る。
+      # 毎時作り直してコミットすると、派生物だけで git が月75MB太る
       - name: commit data if changed
+        # 途中で殺されても、そこまでの満空と巡回状態は残す（次回に同じ物件を叩き直さない）
+        if: always()
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           # prices.jsonl（価格時系列）と repark-crawl-state.json（巡回位置）を永続化。
           # 状態をコミットしないとローリングが毎回先頭に戻ってしまう。
-          git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml dashboard.html data/parking-latest.csv
+          git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml
           # 満空は data/vacancy-YYYY-MM.jsonl（月ごと）。古い月は変わらないのでgitが太らない。
           # 月初の1回目はまだ無いことがあるので、拾えなくても止めない。
-          git add data/vacancy-*.jsonl data/vacancy-lots.json || true
+          git add data/vacancy-*.jsonl data/vacancy-lots.jsonl || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: update npc+repark prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do

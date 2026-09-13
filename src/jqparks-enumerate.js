@@ -2,13 +2,14 @@
 // 県/市区ページには物件が無く、駅ページ（/station/{駅名}）にのみ /number/{code} が載る。
 // 駅ページ巡回は7日キャッシュ前提（初回のみ約222リクエスト）。
 import fs from "node:fs";
+import { cacheFresh, cacheAgeMs } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const TOP = "https://www.parking-kyushu.jp/";
 
 export async function getAllJqparksIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
+    const age = cacheAgeMs(cacheFile);
     if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const top = await politeFetch(TOP);

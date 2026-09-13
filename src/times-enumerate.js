@@ -4,6 +4,7 @@
 // 巡回状態の管理は repark-enumerate の汎用関数を共用する。
 
 import fs from "node:fs";
+import { cacheFresh, cacheAgeMs } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 
@@ -13,7 +14,7 @@ const DETAIL_RE = /https:\/\/times-info\.net\/P\d+-[a-z]+\/C\d+\/park-detail-BUK
 // 個別物件URL一覧を返す（キャッシュ優先）。
 export async function getAllParkUrls({ cacheFile, cacheMs }) {
   const abs = path.resolve(cacheFile);
-  if (fs.existsSync(abs) && Date.now() - fs.statSync(abs).mtimeMs < cacheMs) {
+  if (cacheFresh(abs, cacheMs)) {
     return fs.readFileSync(abs, "utf8").split("\n").filter(Boolean);
   }
   // index から子 sitemap を取得

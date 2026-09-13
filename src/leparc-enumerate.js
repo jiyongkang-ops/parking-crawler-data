@@ -3,13 +3,14 @@
 // を付けても同じ）。連続取得を拒否する意思表示とみなし、取得できる 2ページ＝
 // 上位40件のみを対象とする（全475件の一部）。総当たりでのID推測は行わない。
 import fs from "node:fs";
+import { cacheFresh, cacheAgeMs } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
 const LIST_URL = (start) => start === 0 ? "https://sasp.mapion.co.jp/b/leperc/attr/" : `https://sasp.mapion.co.jp/b/leperc/attr/?start=${start}`;
 
 export async function getAllLeparcIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   if (cacheFile && fs.existsSync(cacheFile)) {
-    const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
+    const age = cacheAgeMs(cacheFile);
     if (age < cacheMs) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const ids = new Set();

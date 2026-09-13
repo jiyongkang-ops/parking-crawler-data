@@ -6,7 +6,7 @@
 
 import { config } from "../config.js";
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let lastRequestAt = 0;
 const robotsCache = new Map(); // origin -> { rules, fetchedAt }
