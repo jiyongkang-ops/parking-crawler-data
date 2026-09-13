@@ -16,7 +16,7 @@ import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh } from "./cache-age.js";
 import {
-  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive,
+  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone,
 } from "./repark-enumerate.js";
 import { parseTimesDetail } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";

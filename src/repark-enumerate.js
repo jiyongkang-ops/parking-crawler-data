@@ -116,6 +116,10 @@ export function listHash(ids) {
 export function unparkGone(state, ids) {
   const h = listHash(ids);
   if (state._list === h) return 0;
+  // 記録が無い初回は、一覧が変わったかどうか分からない。起こさずに指紋だけ控える。
+  // ここで起こすと、変わっていない一覧に対して寝かせた全件（リパークで975件）を
+  // 叩き直すことになる
+  if (state._list === undefined) { state._list = h; return 0; }
   let n = 0;
   for (const id of ids) if (String(state[id] ?? "").startsWith("GONE|")) { delete state[id]; n++; }
   state._list = h;
