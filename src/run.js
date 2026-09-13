@@ -141,7 +141,8 @@ async function main() {
   const outFile = path.resolve(process.env.OUT_FILE || config.outFile);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const last = readLastSnapshots(outFile);
-  const now = new Date().toISOString();
+  // 繰り返し取得するときは取得のたびに進めるので let（満空の時刻がすべて同じになると意味が無い）
+  let now = new Date().toISOString();
 
   const stats = { processed: 0, written: 0, changed: 0, isNew: 0, vacancy: 0 };
   // 満空の置き場。料金とは別ファイルにする（追記の条件が違うため）。
@@ -219,17 +220,32 @@ async function main() {
     if (t.operator === "npc" && t.mode === "nationwide") {
       const url = locationUrl(JAPAN_BBOX, { limit: 2000 });
       if (cachedRecently(url)) { console.log(`[cache] NPC全国 スキップ`); continue; }
-      let res;
-      try { res = await politeFetch(url); } catch (e) { console.error(`[error] NPC全国: ${e.message}`); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); continue; }
-      let total = null;
-      try { total = JSON.parse(res.html).total; } catch { /* */ }
-      const records = parseNpcSearch(res.html, { label: "NPC全国" });
-      if (total != null && total > records.length) {
-        console.warn(`[warn] NPC全国: total=${total} だが ${records.length}件のみ取得。limit引上げ/ページングが必要`);
+      // NPCは1リクエストで全国1,700件ぶんの満空が返る。
+      // GitHub の定時実行は混むと3〜5時間ずれるので、実行時刻だけに頼ると時間帯が埋まらない
+      // （実測で24時間中10時間が空のままだった）。1回の実行の中で間隔をあけて繰り返し取り、
+      // 1回の実行で数時間ぶんの時間帯を埋める。追加は1回あたり1リクエストだけ。
+      const repeat = Math.max(1, Number(process.env.NPC_REPEAT) || 1);
+      const gapMs = (Number(process.env.NPC_INTERVAL_MIN) || 27) * 60_000;
+      let records = [];
+      for (let i = 0; i < repeat; i++) {
+        if (i > 0) {
+          console.log(`[NPC全国] ${gapMs / 60000}分待ってから ${i + 1}/${repeat} 回目`);
+          await new Promise((r) => setTimeout(r, gapMs));
+        }
+        let res;
+        try { res = await politeFetch(url); } catch (e) { console.error(`[error] NPC全国: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); continue; }
+        let total = null;
+        try { total = JSON.parse(res.html).total; } catch { /* */ }
+        records = parseNpcSearch(res.html, { label: "NPC全国" });
+        if (total != null && total > records.length) {
+          console.warn(`[warn] NPC全国: total=${total} だが ${records.length}件のみ取得。limit引上げ/ページングが必要`);
+        }
+        // 2回目以降は「今の時刻の満空」を採るのが目的。fetchedAt を更新して追記の判定に乗せる
+        now = new Date().toISOString();
+        records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
+        console.log(`[ok] NPC全国 ${i + 1}/${repeat} | ${records.length}物件`);
       }
-      records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
-      console.log(`[ok] NPC全国 | ${records.length}物件`);
       continue;
     }
 
