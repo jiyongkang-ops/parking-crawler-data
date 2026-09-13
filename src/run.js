@@ -16,7 +16,7 @@ import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh } from "./cache-age.js";
 import {
-  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive,
+  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone,
 } from "./repark-enumerate.js";
 import { parseTimesDetail } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -79,8 +79,29 @@ const STATE = {
   parknetCitiesCache: "data/parknet-cities.txt",
 };
 
-// 2026-08 追加分の「列挙→ローリングで詳細取得」型（挙動が同一なので表で持つ）
+// 「列挙 → 古い順に少しずつ詳細を取る」型は全社まったく同じ手順なので、表で持って1つのループで回す。
+// 以前は事業者ごとに同じ40行をコピーしていたため、2026-09 の「失敗しても時刻を進める」修正が
+// 6社に入らず、片方だけ直った状態になっていた。増やすときはここに1行足すだけにする。
+//   keyName : 解析関数に渡す名前（{ id } / { url } / { code } / { parkId }）
+//   minDelay: 既定より長く空ける社（タイムズは先方が商用botを名指しで断っているため）
+//   hours   : 満空が取れる社。巡回のたび「その時刻を見た」を記録して時間帯を均す
 const ROLLING_SITES = [
+  { op: "repark", label: "三井のリパーク", enumerate: getAllParkIds, detailUrl: reparkDetailUrl, parse: parseReparkDetail,
+    idsCache: STATE.reparkSitemapCache, stateFile: STATE.reparkCrawlState, defaultPerRun: 1000,
+    keyName: "parkId", hours: true },
+  { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
+    idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
+    keyName: "url", minDelay: config.timesMinDelayMs ?? 6000 },
+  { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
+    idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
+  { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
+    idsCache: STATE.naviparkCodesCache, stateFile: STATE.naviparkCrawlState, defaultPerRun: 2500, keyName: "code" },
+  { op: "ecolo", label: "エコロパーク", enumerate: getAllEcoloIds, detailUrl: ecoloDetailUrl, parse: parseEcoloDetail,
+    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500 },
+  { op: "kyotech", label: "キョウテク", enumerate: getAllKyotechIds, detailUrl: kyotechDetailUrl, parse: parseKyotechDetail,
+    idsCache: STATE.kyotechIdsCache, stateFile: STATE.kyotechCrawlState, defaultPerRun: 800 },
+  { op: "leparc", label: "ルパルク", enumerate: getAllLeparcIds, detailUrl: leparcDetailUrl, parse: parseLeparcDetail,
+    idsCache: STATE.leparcIdsCache, stateFile: STATE.leparcCrawlState, defaultPerRun: 500 },
   { op: "space24", label: "スペース二十四", enumerate: getAllSpace24Ids, detailUrl: space24Url, parse: parseSpace24Detail,
     idsCache: "data/space24-ids.txt", stateFile: "data/space24-crawl-state.json", defaultPerRun: 500 },
   { op: "jqparks", label: "JQパークス", enumerate: getAllJqparksIds, detailUrl: jqparksUrl, parse: parseJqparksDetail,
@@ -122,6 +143,9 @@ function readLastSnapshots(file) {
 /** 1回あたりの取得件数。<op>RollingCycleRuns があれば「1周を何回で終えるか」から割り出す。
  *  物件数が増えても周回数（＝観測時刻のずれ方）が変わらないようにするため。 */
 function rollingPerRun(op, total, fallback) {
+  // 動作確認用の上書き（ROLLING_PER_RUN=1 で1件だけ取る）
+  const forced = Number(process.env.ROLLING_PER_RUN);
+  if (Number.isFinite(forced) && forced > 0) return forced;
   const cycle = config[`${op}RollingCycleRuns`];
   if (!cycle) return fallback;
   return Math.max(1, Math.ceil(total / cycle));
@@ -281,234 +305,7 @@ async function main() {
       continue;
     }
 
-    // ---- repark 全国（ローリング巡回） ----
-    if (t.operator === "repark" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllParkIds({ cacheFile: STATE.reparkSitemapCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] repark sitemap: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.reparkCrawlState);
-      // 1周の回数は「生きている物件」で割る。404で寝かせた分（約970件）を含めると1周が短くなる
-      const liveCount = countLive(ids, state);
-      const perRun = rollingPerRun("repark", liveCount, config.reparkRollingPerRun ?? 1000);
-      // 満空が取れる事業者なので、今の時刻をまだ見ていない物件から先に回す
-      const batch = pickRolling(ids, state, perRun, { spreadHours: true, at: now });
-      const visited = ids.filter((id) => state[id]).length;
-      console.log(
-        `[repark全国] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(liveCount / perRun)}回実行`
-      );
-      // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
-      // 予算内で切り上げ、状態は50件ごとに書いておく
-      const budgetMs = (Number(process.env.ROLLING_BUDGET_MIN) || 45) * 60_000;
-      const startedAt = Date.now();
-      let done = 0;
-      for (const id of batch) {
-        if (Date.now() - startedAt > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}/${batch.length} 件で切り上げ`); break; }
-        const at = new Date().toISOString();   // この物件を取った時刻
-        let res;
-        try { res = await politeFetch(reparkDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, at, null, { hours: true }); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`); recordVisit(state, id, at, res, { hours: true }); continue; }
-        const rec = parseReparkDetail(res.html, { parkId: id });
-        rec._requestUrl = reparkDetailUrl(id);
-        handleRecord(rec, at);
-        // 「その時刻を見た」と記録するのは満空が取れたときだけ。ページが変わって満空が
-        // 読めなくなっても時間帯が埋まっていくと、止まっていることに気づけない
-        recordVisit(state, id, at, res, { hours: true, seen: !!rec.fullEmptyStatus });
-        if (++done % 50 === 0) saveCrawlState(STATE.reparkCrawlState, state);
-      }
-      saveCrawlState(STATE.reparkCrawlState, state);
-      continue;
-    }
-
-    // ---- タイムズ 全国（ローリング巡回） ----
-    // 先方が商用ボットを名指しブロックしている点に配慮し、間隔を長め(timesMinDelayMs)に。
-    if (t.operator === "times" && t.mode === "nationwide") {
-      let urls;
-      try {
-        urls = await getAllParkUrls({ cacheFile: STATE.timesUrlsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] times sitemap: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.timesCrawlState);
-      const perRun = config.timesRollingPerRun ?? 2000;
-      const delay = config.timesMinDelayMs ?? 6000;
-      const batch = pickRolling(urls, state, perRun);
-      const visited = urls.filter((u) => state[u]).length;
-      console.log(
-        `[タイムズ全国] 全${urls.length}件 / 既訪${visited}件 / 今回${batch.length}件取得(間隔${delay / 1000}秒)。` +
-        `1巡目安: 約${Math.ceil(urls.length / perRun)}回実行`
-      );
-      for (const url of batch) {
-        let res;
-        try { res = await politeFetch(url, { minDelay: delay }); } catch (e) { console.error(`  [error] ${url}: ${e.message}`); recordVisit(state, url, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${url}`); recordVisit(state, url, now, res); continue; }
-        const rec = parseTimesDetail(res.html, { url });
-        rec._requestUrl = url;
-        handleRecord(rec);
-        state[url] = now;
-      }
-      saveCrawlState(STATE.timesCrawlState, state);
-      continue;
-    }
-
-    // ---- 名鉄協商 全国（ローリング巡回） ----
-    if (t.operator === "mkp" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllMkpIds({ cacheFile: STATE.mkpIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] mkp sitemap: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.mkpCrawlState);
-      const perRun = config.mkpRollingPerRun ?? 2500;
-      const batch = pickRolling(ids, state, perRun);
-      const visited = ids.filter((id) => state[id]).length;
-      console.log(
-        `[名鉄協商全国] 全${ids.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(ids.length / perRun)}回実行`
-      );
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(mkpDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseMkpDetail(res.html, { id });
-        rec._requestUrl = mkpDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.mkpCrawlState, state);
-      continue;
-    }
-
-    // ---- ナビパーク 全国（ローリング巡回） ----
-    if (t.operator === "navipark" && t.mode === "nationwide") {
-      let codes;
-      try {
-        codes = await getAllNaviparkCodes({ cacheFile: STATE.naviparkCodesCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] navipark enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.naviparkCrawlState);
-      const perRun = config.naviparkRollingPerRun ?? 2500;
-      const batch = pickRolling(codes, state, perRun);
-      const visited = codes.filter((c) => state[c]).length;
-      console.log(
-        `[ナビパーク全国] 全${codes.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(codes.length / perRun)}回実行`
-      );
-      for (const code of batch) {
-        let res;
-        try { res = await politeFetch(naviparkDetailUrl(code)); } catch (e) { console.error(`  [error] ${code}: ${e.message}`); recordVisit(state, code, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${code}`); recordVisit(state, code, now, res); continue; }
-        const rec = parseNaviparkDetail(res.html, { code });
-        rec._requestUrl = naviparkDetailUrl(code);
-        handleRecord(rec);
-        state[code] = now;
-      }
-      saveCrawlState(STATE.naviparkCrawlState, state);
-      continue;
-    }
-
-    // ---- エコロパーク 全国（ローリング巡回） ----
-    if (t.operator === "ecolo" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllEcoloIds({ cacheFile: STATE.ecoloIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] ecolo enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.ecoloCrawlState);
-      const perRun = config.ecoloRollingPerRun ?? 2500;
-      const batch = pickRolling(ids, state, perRun);
-      const visited = ids.filter((id) => state[id]).length;
-      console.log(
-        `[エコロ全国] 全${ids.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(ids.length / perRun)}回実行`
-      );
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(ecoloDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseEcoloDetail(res.html, { id });
-        rec._requestUrl = ecoloDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.ecoloCrawlState, state);
-      continue;
-    }
-
-    // ---- キョウテク 全国（一覧→詳細ローリング） ----
-    if (t.operator === "kyotech" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllKyotechIds({ cacheFile: STATE.kyotechIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] kyotech enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.kyotechCrawlState);
-      const perRun = config.kyotechRollingPerRun ?? 800;
-      const batch = pickRolling(ids, state, perRun);
-      console.log(`[キョウテク] 全${ids.length}件 / 今回${batch.length}件取得`);
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(kyotechDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseKyotechDetail(res.html, { id });
-        rec._requestUrl = kyotechDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.kyotechCrawlState, state);
-      continue;
-    }
-
-    // ---- NTTル・パルク 全国（mapion一覧→詳細ローリング） ----
-    if (t.operator === "leparc" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllLeparcIds({ cacheFile: STATE.leparcIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] leparc enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.leparcCrawlState);
-      const perRun = config.leparcRollingPerRun ?? 500;
-      const batch = pickRolling(ids, state, perRun);
-      console.log(`[ル・パルク] 全${ids.length}件 / 今回${batch.length}件取得`);
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(leparcDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseLeparcDetail(res.html, { id });
-        rec._requestUrl = leparcDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.leparcCrawlState, state);
-      continue;
-    }
-
-    // ---- GSパーク 全国（エリア一覧に料金直載・毎回全エリア） ----
-    if (t.operator === "gspark" && t.mode === "nationwide") {
-      let codes = [];
-      try {
-        const fsMod = fs;
-        if (cacheFresh(STATE.gsparkAreasCache, 7 * 864e5)) {
-          codes = fsMod.readFileSync(STATE.gsparkAreasCache, "utf8").split("\n").filter(Boolean);
-        } else {
-          const res0 = await politeFetch("https://www.gs-park.com/time_parking/");
-          if (!res0.ok) throw new Error(`エリア一覧 HTTP ${res0.status}`);
-          codes = parseAreaCodes(res0.html);
-          if (!codes.length) throw new Error("エリアコード0件");
-          fsMod.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n");
-        }
-      } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); continue; }
-      console.log(`[GSパーク] エリア${codes.length}件を巡回`);
-      let count = 0;
-      for (const code of codes) {
-        for (let page = 1; page <= 30; page++) {
-          let res;
-          try { res = await politeFetch(areaListUrl(code, page)); } catch (e) { console.error(`  [error] ${code} p${page}: ${e.message}`); break; }
-          if (!res.ok || res.skippedReason) break;
-          const { records, hasNext } = parseGsparkList(res.html);
-          for (const rec of records) { rec._requestUrl = areaListUrl(code, page); handleRecord(rec); count++; }
-          if (!hasNext) break;
-        }
-      }
-      console.log(`[ok] GSパーク | ${count}物件`);
-      continue;
-    }
-
-    // ---- 2026-08 追加分: 列挙→ローリング詳細取得（6社共通） ----
+    // ---- 列挙 → 古い順に少しずつ詳細を取る（表にある全社で共通） ----
     const rolling = ROLLING_SITES.find((x) => x.op === t.operator);
     if (rolling && t.mode === "nationwide") {
       let ids;
@@ -516,22 +313,43 @@ async function main() {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] ${rolling.op} enumerate: ${e.message}`); continue; }
       const state = loadCrawlState(rolling.stateFile);
-      const perRun = rollingPerRun(rolling.op, ids.length, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
-      const batch = pickRolling(ids, state, perRun);
-      console.log(`[${rolling.label}] 全${ids.length}件 / 今回${batch.length}件取得`);
+      // 一覧が変わったら、404で寝かせていた物件を起こす（復活している見込みがあるため）
+      const woke = unparkGone(state, ids);
+      if (woke) console.log(`[${rolling.label}] 一覧が変わったので、寝かせていた${woke}件を起こす`);
+      // 1周の回数は「生きている物件」で割る。404で寝かせた分を含めると1周が短くなる
+      const liveCount = countLive(ids, state);
+      const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
+      const batch = pickRolling(ids, state, perRun, { spreadHours: !!rolling.hours, at: now });
+      const visited = ids.filter((id) => state[id]).length;
+      console.log(
+        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件 / 今回${batch.length}件取得。` +
+        `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRun))}回実行`
+      );
+      // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
+      // 予算内で切り上げ、状態は50件ごとに書いておく
+      const budgetMs = (Number(process.env.ROLLING_BUDGET_MIN) || 45) * 60_000;
+      const startedAt = Date.now();
+      const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
+      let done = 0;
       for (const id of batch) {
+        if (Date.now() - startedAt > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}/${batch.length} 件で切り上げ`); break; }
         const url = rolling.detailUrl(id);
-        const at = new Date().toISOString();
+        const at = new Date().toISOString();   // この物件を取った時刻
+        const mark = (r, seen) => recordVisit(state, id, at, r, { hours: !!rolling.hours, seen });
         let res;
-        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, at, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, at, res); continue; }
+        try { res = await politeFetch(url, fetchOpts); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); mark(null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`); mark(res); continue; }
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
-        try { rec = rolling.parse(res.html, { id }); } catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); recordVisit(state, id, at, res); continue; }
-        if (!rec || !rec.name) { recordVisit(state, id, at, res); continue; }
+        try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id }); }
+        catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); mark(res, false); continue; }
+        if (!rec || !rec.name) { mark(res, false); continue; }
         rec._requestUrl = url;
         handleRecord(rec, at);
-        recordVisit(state, id, at, res);
+        // 満空が取れる社では「その時刻を見た」と記録するのは満空が読めたときだけ。
+        // ページの作りが変わって読めなくなっても時間帯が埋まると、止まったことに気づけない
+        mark(res, rolling.hours ? !!rec.fullEmptyStatus : undefined);
+        if (++done % 50 === 0) saveCrawlState(rolling.stateFile, state);
       }
       saveCrawlState(rolling.stateFile, state);
       continue;

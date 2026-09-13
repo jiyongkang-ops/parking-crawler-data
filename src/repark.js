@@ -5,6 +5,7 @@
 //  2) <p class="unit-inner-quarter-charge"> / -note の対 → 時間帯別の単価
 
 import * as cheerio from "cheerio";
+import { emptyStatusLabel } from "./vacancy-label.js";
 
 const DETAIL_BASE = "https://www.repark.jp/parking_user/time/result/detail/";
 
@@ -82,7 +83,7 @@ export function parseReparkDetail(html, { parkId, label } = {}) {
   // 満空。詳細ページの hidden input に現在の状態が入っている（0=空車 1=混雑 2=満車）。
   // すでに料金のために取っているページなので、追加の取得は発生しない。
   const statusCode = $("#status").attr("value") ?? null;
-  const fullEmptyStatus = { 0: "空", 1: "混雑", 2: "満車" }[String(statusCode)] ?? null;
+  const fullEmptyStatus = emptyStatusLabel(statusCode);
 
   return {
     operator: "repark",
