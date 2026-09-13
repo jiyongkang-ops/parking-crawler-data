@@ -1,0 +1,45 @@
+# 派生物（dashboard.html・統一料金CSV）を1日1回作り直す。
+# もとは毎時の巡回のたびに作ってコミットしていたが、14MB＋17MBの派生物を
+# 1日24回コミットすると、それだけで git が月75MB・年1GB近く太る。
+# 中身は data/ からいつでも作り直せるので、日次で足りる。
+name: publish
+
+on:
+  schedule:
+    - cron: "40 21 * * *"   # UTC 21:40 = JST 6:40（studio-data の 7:30 より前）
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run dashboard
+      - run: npm run export
+      - name: commit if changed
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add dashboard.html data/parking-latest.csv
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: publish dashboard + csv ($(date -u +%Y-%m-%dT%H:%MZ))"
+            for i in $(seq 1 6); do
+              git pull --no-rebase --no-edit origin main || { git checkout --ours -- dashboard.html data/parking-latest.csv; git add -A; git commit --no-edit; }
+              if git push; then echo "pushed"; break; fi
+              echo "push retry $i"; sleep $((RANDOM % 8 + 3))
+              [ "$i" = 6 ] && { echo "push failed after retries"; exit 1; }
+            done
+          else
+            echo "変化なし。コミットしません。"
+          fi

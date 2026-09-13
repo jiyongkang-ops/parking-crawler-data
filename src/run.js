@@ -11,11 +11,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
-import { politeFetch } from "./polite-fetch.js";
+import { politeFetch, sleep } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
+import { cacheFresh } from "./cache-age.js";
 import {
-  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit,
+  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone,
 } from "./repark-enumerate.js";
 import { parseTimesDetail } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -78,8 +79,29 @@ const STATE = {
   parknetCitiesCache: "data/parknet-cities.txt",
 };
 
-// 2026-08 追加分の「列挙→ローリングで詳細取得」型（挙動が同一なので表で持つ）
+// 「列挙 → 古い順に少しずつ詳細を取る」型は全社まったく同じ手順なので、表で持って1つのループで回す。
+// 以前は事業者ごとに同じ40行をコピーしていたため、2026-09 の「失敗しても時刻を進める」修正が
+// 6社に入らず、片方だけ直った状態になっていた。増やすときはここに1行足すだけにする。
+//   keyName : 解析関数に渡す名前（{ id } / { url } / { code } / { parkId }）
+//   minDelay: 既定より長く空ける社（タイムズは先方が商用botを名指しで断っているため）
+//   hours   : 満空が取れる社。巡回のたび「その時刻を見た」を記録して時間帯を均す
 const ROLLING_SITES = [
+  { op: "repark", label: "三井のリパーク", enumerate: getAllParkIds, detailUrl: reparkDetailUrl, parse: parseReparkDetail,
+    idsCache: STATE.reparkSitemapCache, stateFile: STATE.reparkCrawlState, defaultPerRun: 1000,
+    keyName: "parkId", hours: true },
+  { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
+    idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
+    keyName: "url", minDelay: config.timesMinDelayMs ?? 6000 },
+  { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
+    idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
+  { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
+    idsCache: STATE.naviparkCodesCache, stateFile: STATE.naviparkCrawlState, defaultPerRun: 2500, keyName: "code" },
+  { op: "ecolo", label: "エコロパーク", enumerate: getAllEcoloIds, detailUrl: ecoloDetailUrl, parse: parseEcoloDetail,
+    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500 },
+  { op: "kyotech", label: "キョウテク", enumerate: getAllKyotechIds, detailUrl: kyotechDetailUrl, parse: parseKyotechDetail,
+    idsCache: STATE.kyotechIdsCache, stateFile: STATE.kyotechCrawlState, defaultPerRun: 800 },
+  { op: "leparc", label: "ルパルク", enumerate: getAllLeparcIds, detailUrl: leparcDetailUrl, parse: parseLeparcDetail,
+    idsCache: STATE.leparcIdsCache, stateFile: STATE.leparcCrawlState, defaultPerRun: 500 },
   { op: "space24", label: "スペース二十四", enumerate: getAllSpace24Ids, detailUrl: space24Url, parse: parseSpace24Detail,
     idsCache: "data/space24-ids.txt", stateFile: "data/space24-crawl-state.json", defaultPerRun: 500 },
   { op: "jqparks", label: "JQパークス", enumerate: getAllJqparksIds, detailUrl: jqparksUrl, parse: parseJqparksDetail,
@@ -121,6 +143,9 @@ function readLastSnapshots(file) {
 /** 1回あたりの取得件数。<op>RollingCycleRuns があれば「1周を何回で終えるか」から割り出す。
  *  物件数が増えても周回数（＝観測時刻のずれ方）が変わらないようにするため。 */
 function rollingPerRun(op, total, fallback) {
+  // 動作確認用の上書き（ROLLING_PER_RUN=1 で1件だけ取る）
+  const forced = Number(process.env.ROLLING_PER_RUN);
+  if (Number.isFinite(forced) && forced > 0) return forced;
   const cycle = config[`${op}RollingCycleRuns`];
   if (!cycle) return fallback;
   return Math.max(1, Math.ceil(total / cycle));
@@ -141,21 +166,33 @@ async function main() {
   const outFile = path.resolve(process.env.OUT_FILE || config.outFile);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const last = readLastSnapshots(outFile);
-  const now = new Date().toISOString();
+  const now = new Date().toISOString();   // 実行開始。個々の観測時刻は取得のたびに付ける
 
   const stats = { processed: 0, written: 0, changed: 0, isNew: 0, vacancy: 0 };
   // 満空の置き場。料金とは別ファイルにする（追記の条件が違うため）。
   // 名前・座標・台数は初回だけ入れ、以降は id で引く（同じ値を毎回書かない）
   // 月ごとに分ける。1本にすると1年で数百MBになり、毎回の巡回でコミットするgitが重くなる。
   // 先月以前のファイルは二度と変わらないので、gitはそれ以上太らない。
-  const vacancyFile = process.env.VACANCY_FILE || `data/vacancy-${now.slice(0, 7)}.jsonl`;
-  // 名前・座標・台数は時系列に毎回書くと1行が3倍になるので、別の1ファイルに最新だけ持つ。
+  // 月は**観測した時刻**（日本時間）から決める。実行開始時に決めると、4時間半まわる
+  // NPC の実行が月をまたいだとき、翌月の観測が前月のファイルに入る。
+  const vacancyFileOf = (atIso) => process.env.VACANCY_FILE
+    || `data/vacancy-${new Date(new Date(atIso).getTime() + 9 * 3600e3).toISOString().slice(0, 7)}.jsonl`;
+  // 名前・座標・台数は時系列に毎回書くと1行が3倍になるので、別ファイルに持つ。
   // 以前は「料金データに新規のときだけ書く」にしていたが、既に知っている物件では一度も
   // 書かれず、9,777観測のうち座標があるのは1件だけだった（＝地図に置けず使えなかった）。
-  const vacancyMetaFile = process.env.VACANCY_META_FILE || "data/vacancy-lots.json";
-  let vacMeta = {};
-  try { vacMeta = JSON.parse(fs.readFileSync(vacancyMetaFile, "utf8")); } catch { /* 初回 */ }
-  let vacMetaDirty = false;
+  // 追記型の jsonl（1行＝1物件の最新。同じ物件が複数行あれば最後を採る）。
+  // 1つの .json を複数のワークフローから書き換えると、衝突時に「自分側を採用」した方が
+  // もう一方の分を消す。追記型なら .gitattributes の union マージで両方残る。
+  const vacancyMetaFile = process.env.VACANCY_META_FILE || "data/vacancy-lots.jsonl";
+  const vacMeta = {};
+  try {
+    for (const line of fs.readFileSync(vacancyMetaFile, "utf8").split("\n")) {
+      if (!line) continue;
+      try { const j = JSON.parse(line); vacMeta[j.k] = j; } catch { /* 壊れた行は飛ばす */ }
+    }
+  } catch { /* 初回 */ }
+  // 料金は書かずに満空だけ残す回（crawl-npc.yml）。料金の時系列を2本にしない
+  const vacancyOnly = process.env.VACANCY_ONLY === "1";
 
   // CRAWL_ONLY=times / npc,repark などで対象事業者を絞れる（ワークフロー分割用）。
   const only = (process.env.CRAWL_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -163,9 +200,11 @@ async function main() {
     ? config.targets.filter((t) => only.includes(t.operator))
     : config.targets;
 
-  // 1物件分の処理（差分検知＋追記）。
-  function handleRecord(rec) {
-    rec.fetchedAt = now;
+  // 1物件分の処理（差分検知＋追記）。at はその物件を取った時刻。
+  // 実行開始時の1つの時刻を全物件に付けると、42分かかる巡回の629件が同一時刻になり、
+  // 時間帯の記録が最大45分ずれる（実際そうなっていた）。
+  function handleRecord(rec, at = now) {
+    rec.fetchedAt = at;
     // 料金は生データ（unitCharges / maxFees）のまま保持する。
     // 円/時や24時間最大などの正規化は保存せず、必要時に src/normalize.js で後計算する。
     const key = `${rec.operator}:${rec.parkId}`;
@@ -180,7 +219,7 @@ async function main() {
     }
     if (isNew) stats.isNew++;
     // 全国規模ではファイル肥大を防ぐため、新規 or 変動時のみ追記する。
-    if (!config.appendOnlyChanges || isNew || isChanged) {
+    if (!vacancyOnly && (!config.appendOnlyChanges || isNew || isChanged)) {
       fs.appendFileSync(outFile, JSON.stringify(rec) + "\n");
       stats.written++;
     }
@@ -190,15 +229,16 @@ async function main() {
     // 1物件あたりの観測回数の中央値が1回）。在車率の推定に使うには連続した観測が要る。
     // 1行を小さくして、1年回してもファイルが重くならないようにする。
     if (rec.fullEmptyStatus) {
-      fs.appendFileSync(vacancyFile, JSON.stringify({
-        at: now, op: rec.operator, id: rec.parkId, s: rec.fullEmptyStatus,
+      fs.appendFileSync(vacancyFileOf(at), JSON.stringify({
+        at, op: rec.operator, id: rec.parkId, s: rec.fullEmptyStatus,
       }) + "\n");
       stats.vacancy++;
-      // 名前・座標は別ファイルへ。変わったときだけ書き換える
+      // 名前・座標は別ファイルへ。変わったときだけ1行追記する
+      const m = { k: key, n: rec.name ?? null, la: rec.lat ?? null, ln: rec.lng ?? null, c: rec.capacity ?? null };
       const prevMeta = vacMeta[key];
-      if (!prevMeta || prevMeta.la !== rec.lat || prevMeta.ln !== rec.lng || prevMeta.c !== rec.capacity || prevMeta.n !== rec.name) {
-        vacMeta[key] = { n: rec.name ?? null, la: rec.lat ?? null, ln: rec.lng ?? null, c: rec.capacity ?? null };
-        vacMetaDirty = true;
+      if (!prevMeta || prevMeta.la !== m.la || prevMeta.ln !== m.ln || prevMeta.c !== m.c || prevMeta.n !== m.n) {
+        vacMeta[key] = m;
+        fs.appendFileSync(vacancyMetaFile, JSON.stringify(m) + "\n");
       }
     }
     last.set(key, rec);
@@ -219,17 +259,36 @@ async function main() {
     if (t.operator === "npc" && t.mode === "nationwide") {
       const url = locationUrl(JAPAN_BBOX, { limit: 2000 });
       if (cachedRecently(url)) { console.log(`[cache] NPC全国 スキップ`); continue; }
-      let res;
-      try { res = await politeFetch(url); } catch (e) { console.error(`[error] NPC全国: ${e.message}`); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); continue; }
-      let total = null;
-      try { total = JSON.parse(res.html).total; } catch { /* */ }
-      const records = parseNpcSearch(res.html, { label: "NPC全国" });
-      if (total != null && total > records.length) {
-        console.warn(`[warn] NPC全国: total=${total} だが ${records.length}件のみ取得。limit引上げ/ページングが必要`);
+      // NPCは1リクエストで全国1,700件ぶんの満空が返る。
+      // GitHub の定時実行は混むと3〜5時間ずれるので、実行時刻だけに頼ると時間帯が埋まらない
+      // （実測で24時間中10時間が空のままだった）。1回の実行の中で間隔をあけて繰り返し取り、
+      // 1回の実行で数時間ぶんの時間帯を埋める。追加は1回あたり1リクエストだけ。
+      const repeat = Math.max(1, Number(process.env.NPC_REPEAT) || 1);
+      // 0 を明示したときは待たない（|| だと 0 が既定の27分に化ける）
+      const gapMin = process.env.NPC_INTERVAL_MIN !== undefined && process.env.NPC_INTERVAL_MIN !== ""
+        ? Number(process.env.NPC_INTERVAL_MIN) : 27;
+      if (!Number.isFinite(gapMin) || gapMin < 0) throw new Error(`NPC_INTERVAL_MIN が数値ではありません: ${process.env.NPC_INTERVAL_MIN}`);
+      const gapMs = gapMin * 60_000;
+      let records = [];
+      for (let i = 0; i < repeat; i++) {
+        if (i > 0) {
+          console.log(`[NPC全国] ${gapMs / 60000}分待ってから ${i + 1}/${repeat} 回目`);
+          await sleep(gapMs);
+        }
+        let res;
+        try { res = await politeFetch(url); } catch (e) { console.error(`[error] NPC全国: ${e.message}`); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); continue; }
+        let total = null;
+        try { total = JSON.parse(res.html).total; } catch { /* */ }
+        records = parseNpcSearch(res.html, { label: "NPC全国" });
+        if (total != null && total > records.length) {
+          console.warn(`[warn] NPC全国: total=${total} だが ${records.length}件のみ取得。limit引上げ/ページングが必要`);
+        }
+        // 2回目以降は「今の時刻の満空」を採るのが目的。取った時刻をそのまま付ける
+        const at = new Date().toISOString();
+        records.forEach((r) => { r._requestUrl = url; handleRecord(r, at); });
+        console.log(`[ok] NPC全国 ${i + 1}/${repeat} | ${records.length}物件`);
       }
-      records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
-      console.log(`[ok] NPC全国 | ${records.length}物件`);
       continue;
     }
 
@@ -246,222 +305,7 @@ async function main() {
       continue;
     }
 
-    // ---- repark 全国（ローリング巡回） ----
-    if (t.operator === "repark" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllParkIds({ cacheFile: STATE.reparkSitemapCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] repark sitemap: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.reparkCrawlState);
-      const perRun = rollingPerRun("repark", ids.length, config.reparkRollingPerRun ?? 1000);
-      // 満空が取れる事業者なので、今の時刻をまだ見ていない物件から先に回す
-      const batch = pickRolling(ids, state, perRun, { spreadHours: true, at: now });
-      const visited = ids.filter((id) => state[id]).length;
-      console.log(
-        `[repark全国] 全${ids.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(ids.length / perRun)}回実行`
-      );
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(reparkDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null, { hours: true }); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`); recordVisit(state, id, now, res, { hours: true }); continue; }
-        const rec = parseReparkDetail(res.html, { parkId: id });
-        rec._requestUrl = reparkDetailUrl(id);
-        handleRecord(rec);
-        recordVisit(state, id, now, res, { hours: true });
-      }
-      saveCrawlState(STATE.reparkCrawlState, state);
-      continue;
-    }
-
-    // ---- タイムズ 全国（ローリング巡回） ----
-    // 先方が商用ボットを名指しブロックしている点に配慮し、間隔を長め(timesMinDelayMs)に。
-    if (t.operator === "times" && t.mode === "nationwide") {
-      let urls;
-      try {
-        urls = await getAllParkUrls({ cacheFile: STATE.timesUrlsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] times sitemap: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.timesCrawlState);
-      const perRun = config.timesRollingPerRun ?? 2000;
-      const delay = config.timesMinDelayMs ?? 6000;
-      const batch = pickRolling(urls, state, perRun);
-      const visited = urls.filter((u) => state[u]).length;
-      console.log(
-        `[タイムズ全国] 全${urls.length}件 / 既訪${visited}件 / 今回${batch.length}件取得(間隔${delay / 1000}秒)。` +
-        `1巡目安: 約${Math.ceil(urls.length / perRun)}回実行`
-      );
-      for (const url of batch) {
-        let res;
-        try { res = await politeFetch(url, { minDelay: delay }); } catch (e) { console.error(`  [error] ${url}: ${e.message}`); recordVisit(state, url, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${url}`); recordVisit(state, url, now, res); continue; }
-        const rec = parseTimesDetail(res.html, { url });
-        rec._requestUrl = url;
-        handleRecord(rec);
-        state[url] = now;
-      }
-      saveCrawlState(STATE.timesCrawlState, state);
-      continue;
-    }
-
-    // ---- 名鉄協商 全国（ローリング巡回） ----
-    if (t.operator === "mkp" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllMkpIds({ cacheFile: STATE.mkpIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] mkp sitemap: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.mkpCrawlState);
-      const perRun = config.mkpRollingPerRun ?? 2500;
-      const batch = pickRolling(ids, state, perRun);
-      const visited = ids.filter((id) => state[id]).length;
-      console.log(
-        `[名鉄協商全国] 全${ids.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(ids.length / perRun)}回実行`
-      );
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(mkpDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseMkpDetail(res.html, { id });
-        rec._requestUrl = mkpDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.mkpCrawlState, state);
-      continue;
-    }
-
-    // ---- ナビパーク 全国（ローリング巡回） ----
-    if (t.operator === "navipark" && t.mode === "nationwide") {
-      let codes;
-      try {
-        codes = await getAllNaviparkCodes({ cacheFile: STATE.naviparkCodesCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] navipark enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.naviparkCrawlState);
-      const perRun = config.naviparkRollingPerRun ?? 2500;
-      const batch = pickRolling(codes, state, perRun);
-      const visited = codes.filter((c) => state[c]).length;
-      console.log(
-        `[ナビパーク全国] 全${codes.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(codes.length / perRun)}回実行`
-      );
-      for (const code of batch) {
-        let res;
-        try { res = await politeFetch(naviparkDetailUrl(code)); } catch (e) { console.error(`  [error] ${code}: ${e.message}`); recordVisit(state, code, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${code}`); recordVisit(state, code, now, res); continue; }
-        const rec = parseNaviparkDetail(res.html, { code });
-        rec._requestUrl = naviparkDetailUrl(code);
-        handleRecord(rec);
-        state[code] = now;
-      }
-      saveCrawlState(STATE.naviparkCrawlState, state);
-      continue;
-    }
-
-    // ---- エコロパーク 全国（ローリング巡回） ----
-    if (t.operator === "ecolo" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllEcoloIds({ cacheFile: STATE.ecoloIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] ecolo enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.ecoloCrawlState);
-      const perRun = config.ecoloRollingPerRun ?? 2500;
-      const batch = pickRolling(ids, state, perRun);
-      const visited = ids.filter((id) => state[id]).length;
-      console.log(
-        `[エコロ全国] 全${ids.length}件 / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(ids.length / perRun)}回実行`
-      );
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(ecoloDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseEcoloDetail(res.html, { id });
-        rec._requestUrl = ecoloDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.ecoloCrawlState, state);
-      continue;
-    }
-
-    // ---- キョウテク 全国（一覧→詳細ローリング） ----
-    if (t.operator === "kyotech" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllKyotechIds({ cacheFile: STATE.kyotechIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] kyotech enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.kyotechCrawlState);
-      const perRun = config.kyotechRollingPerRun ?? 800;
-      const batch = pickRolling(ids, state, perRun);
-      console.log(`[キョウテク] 全${ids.length}件 / 今回${batch.length}件取得`);
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(kyotechDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseKyotechDetail(res.html, { id });
-        rec._requestUrl = kyotechDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.kyotechCrawlState, state);
-      continue;
-    }
-
-    // ---- NTTル・パルク 全国（mapion一覧→詳細ローリング） ----
-    if (t.operator === "leparc" && t.mode === "nationwide") {
-      let ids;
-      try {
-        ids = await getAllLeparcIds({ cacheFile: STATE.leparcIdsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] leparc enumerate: ${e.message}`); continue; }
-      const state = loadCrawlState(STATE.leparcCrawlState);
-      const perRun = config.leparcRollingPerRun ?? 500;
-      const batch = pickRolling(ids, state, perRun);
-      console.log(`[ル・パルク] 全${ids.length}件 / 今回${batch.length}件取得`);
-      for (const id of batch) {
-        let res;
-        try { res = await politeFetch(leparcDetailUrl(id)); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
-        const rec = parseLeparcDetail(res.html, { id });
-        rec._requestUrl = leparcDetailUrl(id);
-        handleRecord(rec);
-        state[id] = now;
-      }
-      saveCrawlState(STATE.leparcCrawlState, state);
-      continue;
-    }
-
-    // ---- GSパーク 全国（エリア一覧に料金直載・毎回全エリア） ----
-    if (t.operator === "gspark" && t.mode === "nationwide") {
-      let codes = [];
-      try {
-        const fsMod = fs;
-        if (fsMod.existsSync(STATE.gsparkAreasCache) && Date.now() - fsMod.statSync(STATE.gsparkAreasCache).mtimeMs < 7 * 864e5) {
-          codes = fsMod.readFileSync(STATE.gsparkAreasCache, "utf8").split("\n").filter(Boolean);
-        } else {
-          const res0 = await politeFetch("https://www.gs-park.com/time_parking/");
-          if (!res0.ok) throw new Error(`エリア一覧 HTTP ${res0.status}`);
-          codes = parseAreaCodes(res0.html);
-          if (!codes.length) throw new Error("エリアコード0件");
-          fsMod.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n");
-        }
-      } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); continue; }
-      console.log(`[GSパーク] エリア${codes.length}件を巡回`);
-      let count = 0;
-      for (const code of codes) {
-        for (let page = 1; page <= 30; page++) {
-          let res;
-          try { res = await politeFetch(areaListUrl(code, page)); } catch (e) { console.error(`  [error] ${code} p${page}: ${e.message}`); break; }
-          if (!res.ok || res.skippedReason) break;
-          const { records, hasNext } = parseGsparkList(res.html);
-          for (const rec of records) { rec._requestUrl = areaListUrl(code, page); handleRecord(rec); count++; }
-          if (!hasNext) break;
-        }
-      }
-      console.log(`[ok] GSパーク | ${count}物件`);
-      continue;
-    }
-
-    // ---- 2026-08 追加分: 列挙→ローリング詳細取得（6社共通） ----
+    // ---- 列挙 → 古い順に少しずつ詳細を取る（表にある全社で共通） ----
     const rolling = ROLLING_SITES.find((x) => x.op === t.operator);
     if (rolling && t.mode === "nationwide") {
       let ids;
@@ -469,21 +313,43 @@ async function main() {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] ${rolling.op} enumerate: ${e.message}`); continue; }
       const state = loadCrawlState(rolling.stateFile);
-      const perRun = rollingPerRun(rolling.op, ids.length, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
-      const batch = pickRolling(ids, state, perRun);
-      console.log(`[${rolling.label}] 全${ids.length}件 / 今回${batch.length}件取得`);
+      // 一覧が変わったら、404で寝かせていた物件を起こす（復活している見込みがあるため）
+      const woke = unparkGone(state, ids);
+      if (woke) console.log(`[${rolling.label}] 一覧が変わったので、寝かせていた${woke}件を起こす`);
+      // 1周の回数は「生きている物件」で割る。404で寝かせた分を含めると1周が短くなる
+      const liveCount = countLive(ids, state);
+      const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
+      const batch = pickRolling(ids, state, perRun, { spreadHours: !!rolling.hours, at: now });
+      const visited = ids.filter((id) => state[id]).length;
+      console.log(
+        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件 / 今回${batch.length}件取得。` +
+        `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRun))}回実行`
+      );
+      // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
+      // 予算内で切り上げ、状態は50件ごとに書いておく
+      const budgetMs = (Number(process.env.ROLLING_BUDGET_MIN) || 45) * 60_000;
+      const startedAt = Date.now();
+      const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
+      let done = 0;
       for (const id of batch) {
+        if (Date.now() - startedAt > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}/${batch.length} 件で切り上げ`); break; }
         const url = rolling.detailUrl(id);
+        const at = new Date().toISOString();   // この物件を取った時刻
+        const mark = (r, seen) => recordVisit(state, id, at, r, { hours: !!rolling.hours, seen });
         let res;
-        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); recordVisit(state, id, now, null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id}`); recordVisit(state, id, now, res); continue; }
+        try { res = await politeFetch(url, fetchOpts); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); mark(null); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`); mark(res); continue; }
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
-        try { rec = rolling.parse(res.html, { id }); } catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); recordVisit(state, id, now, res); continue; }
-        if (!rec || !rec.name) { recordVisit(state, id, now, res); continue; }
+        try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id }); }
+        catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); mark(res, false); continue; }
+        if (!rec || !rec.name) { mark(res, false); continue; }
         rec._requestUrl = url;
-        handleRecord(rec);
-        recordVisit(state, id, now, res);
+        handleRecord(rec, at);
+        // 満空が取れる社では「その時刻を見た」と記録するのは満空が読めたときだけ。
+        // ページの作りが変わって読めなくなっても時間帯が埋まると、止まったことに気づけない
+        mark(res, rolling.hours ? !!rec.fullEmptyStatus : undefined);
+        if (++done % 50 === 0) saveCrawlState(rolling.stateFile, state);
       }
       saveCrawlState(rolling.stateFile, state);
       continue;
@@ -552,7 +418,6 @@ async function main() {
     console.warn(`[skip] 未対応の target: ${JSON.stringify(t)}`);
   }
 
-  if (vacMetaDirty) fs.writeFileSync(vacancyMetaFile, JSON.stringify(vacMeta));
 
   console.log(
     `\n完了: ${stats.processed}物件処理 / 新規${stats.isNew} / 変動${stats.changed} / 追記${stats.written}行 / 満空${stats.vacancy}行 → ${process.env.OUT_FILE || config.outFile}`
