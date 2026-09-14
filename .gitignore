@@ -2,3 +2,6 @@ node_modules/
 *.log
 .DS_Store
 index.html
+
+# 巡回状態に取得日の記録は要らない（過去に誤って作っていた）
+data/*crawl-state.json.fetched
