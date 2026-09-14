@@ -54,7 +54,8 @@ export function saveCrawlState(stateFile, state) {
   const abs = path.resolve(stateFile);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, JSON.stringify(state, null, 0));
-  markFetched(abs);
+  // ここで markFetched は呼ばない。取得日の記録は「物件一覧」のためのもので、
+  // 巡回状態は毎回書き換わる別物（付けると不要な .fetched が毎回生まれる）
 }
 
 const ALL_HOURS = (1 << 24) - 1;
