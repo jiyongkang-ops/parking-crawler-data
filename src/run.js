@@ -319,20 +319,46 @@ async function main() {
       // 1周の回数は「生きている物件」で割る。404で寝かせた分を含めると1周が短くなる
       const liveCount = countLive(ids, state);
       const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
-      const batch = pickRolling(ids, state, perRun, { spreadHours: !!rolling.hours, at: now });
       const visited = ids.filter((id) => state[id]).length;
+      // 1回の実行を何回かに分け、間をあけて取る。
+      // GitHub の定時実行は混むと落ちることがあり、毎時の cron でも実測で24時間中18時間しか
+      // 発火していなかった（JST 7・14・17・18・21・22時が丸ごと空。2026-09-15）。
+      // 時間帯をそろえる pickRolling の spreadHours は「どの物件を取るか」を選ぶ仕掛けなので、
+      // 実行そのものが起きなかった時刻は埋められない。
+      // そこで NPC と同じように、1回の実行の中で間をあけて2回に分ける。
+      // **取る件数の合計は変えない**（相手先への負荷は据え置き）。1回の実行が2時間ぶんの
+      // 時間帯を埋めるので、cron が1回飛んでも穴が開かない。
+      const passes = Math.max(1, Number(process.env.ROLLING_PASSES) || (rolling.hours ? 2 : 1));
+      const gapMin = process.env.ROLLING_PASS_GAP_MIN !== undefined && process.env.ROLLING_PASS_GAP_MIN !== ""
+        ? Number(process.env.ROLLING_PASS_GAP_MIN) : 25;
+      if (!Number.isFinite(gapMin) || gapMin < 0) throw new Error(`ROLLING_PASS_GAP_MIN が数値ではありません: ${process.env.ROLLING_PASS_GAP_MIN}`);
+      const gapMs = gapMin * 60_000;
+      const perPass = Math.max(1, Math.ceil(perRun / passes));
       console.log(
-        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件 / 今回${batch.length}件取得。` +
-        `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRun))}回実行`
+        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件 / ` +
+        `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
+        `${passes > 1 ? `・${gapMin}分あける` : ""}）。1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRun))}回実行`
       );
       // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
-      // 予算内で切り上げ、状態は50件ごとに書いておく
+      // 予算内で切り上げ、状態は50件ごとに書いておく。
+      // 分割の待ち時間（pausedMs）は予算から除く。除かないと待った分だけ取得が削られる
       const budgetMs = (Number(process.env.ROLLING_BUDGET_MIN) || 45) * 60_000;
       const startedAt = Date.now();
+      let pausedMs = 0;
       const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
       let done = 0;
+      let out = false;
+      for (let pass = 0; pass < passes && !out; pass++) {
+        if (pass > 0) {
+          console.log(`[${rolling.label}] ${gapMin}分あけて ${pass + 1}/${passes} 回目`);
+          await sleep(gapMs);
+          pausedMs += gapMs;
+        }
+        // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
+        const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString() });
+        if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
-        if (Date.now() - startedAt > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}/${batch.length} 件で切り上げ`); break; }
+        if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }
         const url = rolling.detailUrl(id);
         const at = new Date().toISOString();   // この物件を取った時刻
         const mark = (r, seen) => recordVisit(state, id, at, r, { hours: !!rolling.hours, seen });
@@ -350,6 +376,8 @@ async function main() {
         // ページの作りが変わって読めなくなっても時間帯が埋まると、止まったことに気づけない
         mark(res, rolling.hours ? !!rec.fullEmptyStatus : undefined);
         if (++done % 50 === 0) saveCrawlState(rolling.stateFile, state);
+      }
+        saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）
       }
       saveCrawlState(rolling.stateFile, state);
       continue;
