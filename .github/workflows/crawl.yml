@@ -31,8 +31,10 @@ jobs:
   crawl:
     runs-on: ubuntu-latest
     # リパーク629件×4秒＝約42分＋前後の処理。クローラ側で45分の予算を持って切り上げる
-    # （ROLLING_BUDGET_MIN）ので、ここは余裕を見る。concurrency で重複は起きない
-    timeout-minutes: 75
+    # （ROLLING_BUDGET_MIN）ので、ここは余裕を見る。concurrency で重複は起きない。
+    # さらに1回の実行を2回に分けて25分あけるため（ROLLING_PASSES／時間帯の穴を塞ぐ）、
+    # 待ち時間ぶんを足して見る: 45分（取得）＋25分（待ち）＋前後 ＝ 100分
+    timeout-minutes: 100
     concurrency:
       group: crawl # 多重起動を防ぐ（節度）
       cancel-in-progress: false
@@ -45,6 +47,12 @@ jobs:
       - run: npm run crawl
         env:
           CRAWL_ONLY: "npc,repark" # タイムズは crawl-times.yml で別実行
+          # 1回の実行を2回に分け、間をあけて取る。取る件数の合計は変えない。
+          # 毎時の cron は混むと発火しないことがあり、実測で24時間中18時間しか動いて
+          # いなかった（JST 7・14・17・18・21・22時が空。2026-09-15）。2回に分けると
+          # 1回の実行が2時間ぶんの時間帯を埋めるので、1回飛んでも穴が開かない
+          ROLLING_PASSES: "2"
+          ROLLING_PASS_GAP_MIN: "25"
           # NPCは1リクエストで全国分が返る単発取得なので、既定の6時間キャッシュに
           # 当たると1時間おきに回しても6回に5回が空振りする。ここでは無効にする。
           PAGE_CACHE_MS: "0"
