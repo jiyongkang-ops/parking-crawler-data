@@ -15,14 +15,12 @@
 # 収集結果と巡回状態(data/)に変化があればコミットして次回に引き継ぐ。
 name: crawl-parking-prices
 
+# 起動は Cloud Scheduler（poc-aimo / asia-northeast1 の crawl-parking-vacancy-hourly、
+# 毎時07分JST）から workflow_dispatch で行う。GitHub の cron は毎時のはずが1日5〜10回しか
+# 発火せず（実測 2026-09-15）、時間帯に穴が空いたため。両方を生かすと起動が重なって
+# concurrency でどちらかがキャンセルされるので、cron は止めてある。
 on:
-  schedule:
-    # 毎時23分。cron は UTC だが毎時なので時差の影響を受けない。
-    # 0分ちょうどは世界中の定時実行が集中してGitHub側の遅れが大きいので避ける。
-    # それでも実行は2〜3時間ずれることがある。時間帯をそろえる仕掛けは実行時刻に
-    # 頼らず、クローラ側（pickRolling の spreadHours）で担保している。
-    - cron: "23 * * * *"
-  workflow_dispatch: {} # 手動実行も可
+  workflow_dispatch: {} # Cloud Scheduler と手動実行から
 
 permissions:
   contents: write
