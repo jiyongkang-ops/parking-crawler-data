@@ -91,7 +91,8 @@ const ROLLING_SITES = [
     keyName: "parkId", hours: true },
   { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
     idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
-    keyName: "url", minDelay: config.timesMinDelayMs ?? 6000 },
+    keyName: "url", minDelay: config.timesMinDelayMs ?? 6000,
+    hours: true },   // 2026-09: 詳細ページの周辺一覧から満空が読めるので、時間帯を均して回す
   { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
     idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
@@ -142,6 +143,15 @@ function readLastSnapshots(file) {
 
 /** 1回あたりの取得件数。<op>RollingCycleRuns があれば「1周を何回で終えるか」から割り出す。
  *  物件数が増えても周回数（＝観測時刻のずれ方）が変わらないようにするため。 */
+/** レポートスタジオが「厚く見てほしい」と渡してくる物件（data/priority-lots.json の byOp）。
+ *  登録現場と直近のレポート地点の500m圏。無ければ空＝いままでどおり全国ローリングだけ。 */
+function priorityIds(op) {
+  try {
+    const j = JSON.parse(fs.readFileSync("data/priority-lots.json", "utf8"));
+    const ids = j?.byOp?.[op];
+    return Array.isArray(ids) ? ids.map(String) : [];
+  } catch { return []; }
+}
 function rollingPerRun(op, total, fallback) {
   // 動作確認用の上書き（ROLLING_PER_RUN=1 で1件だけ取る）
   const forced = Number(process.env.ROLLING_PER_RUN);
@@ -241,6 +251,20 @@ async function main() {
         fs.appendFileSync(vacancyMetaFile, JSON.stringify(m) + "\n");
       }
     }
+    // 同じページに載っていた周辺の満空（タイムズ）。料金の時系列には混ぜず、観測だけ残す。
+    // 周辺の物件は後で自分のページも取られるので、名前・座標はそのとき更新される
+    for (const nb of rec.nearbyVacancy ?? []) {
+      if (!nb.parkId || !nb.status) continue;
+      const nkey = `${rec.operator}:${nb.parkId}`;
+      fs.appendFileSync(vacancyFileOf(at), JSON.stringify({ at, op: rec.operator, id: nb.parkId, s: nb.status }) + "\n");
+      stats.vacancy++;
+      const m = { k: nkey, n: nb.name ?? null, la: nb.lat ?? null, ln: nb.lng ?? null, c: null };
+      const pm = vacMeta[nkey];
+      if (!pm || (pm.la == null && m.la != null) || (!pm.n && m.n)) {
+        vacMeta[nkey] = { ...m, c: pm?.c ?? null, la: m.la ?? pm?.la ?? null, ln: m.ln ?? pm?.ln ?? null };
+        fs.appendFileSync(vacancyMetaFile, JSON.stringify(vacMeta[nkey]) + "\n");
+      }
+    }
     last.set(key, rec);
     stats.processed++;
   }
@@ -334,8 +358,9 @@ async function main() {
       if (!Number.isFinite(gapMin) || gapMin < 0) throw new Error(`ROLLING_PASS_GAP_MIN が数値ではありません: ${process.env.ROLLING_PASS_GAP_MIN}`);
       const gapMs = gapMin * 60_000;
       const perPass = Math.max(1, Math.ceil(perRun / passes));
+      const prio = priorityIds(rolling.op).length;
       console.log(
-        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件 / ` +
+        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件${prio ? ` / 優先${prio}件（3時間おき）` : ""} / ` +
         `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
         `${passes > 1 ? `・${gapMin}分あける` : ""}）。1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRun))}回実行`
       );
@@ -355,7 +380,8 @@ async function main() {
           pausedMs += gapMs;
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
-        const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString() });
+        const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
+          priority: priorityIds(rolling.op) });
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
         if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }
