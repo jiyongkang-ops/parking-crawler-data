@@ -11,6 +11,32 @@
 //   自動収集を歓迎していない点に配慮し、間隔は長め・低頻度で運用すること。
 
 const BASE = "https://times-info.net";
+import { emptyStatusLabel } from "./vacancy-label.js";
+
+/** 詳細ページの「周辺の駐車場」一覧（本駐車場を含む最大11件）から満空と座標を読む。
+ *  満空は <div class="s_bukIcon">N</div> の数値で、サイトの JS と同じ読み方（N & 7: 0=空 1=混雑 2=満車、それ以外は不明）。
+ *  ビット3（8）は「満空対応外」の印なので、立っていれば満空なしとする。
+ *  座標は同じ順で <div class="s_areaBukMapIcons">[{icon,lat,lon},…]</div> に入っている（件数が一致するときだけ信じる）。
+ *  料金のために既に取っているページなので、満空のために追加の取得は発生しない。 */
+export function parseTimesNearby(html) {
+  const items = [...html.matchAll(/<li class="s_areaBukListItem[\s\S]*?<\/li>/g)].map((m) => m[0]);
+  let icons = [];
+  try {
+    const raw = (html.match(/class="s_areaBukMapIcons"[^>]*>\s*([\[{][\s\S]*?)\s*<\/div>/) || [])[1];
+    if (raw) icons = JSON.parse(raw.replace(/&quot;/g, '"'));
+  } catch { icons = []; }
+  const aligned = Array.isArray(icons) && icons.length === items.length;
+  return items.map((it, i) => {
+    const buk = (it.match(/park-detail-(BUK\d+)/) || [])[1] ?? null;
+    const name = stripTags((it.match(/<\/span>\s*([^<]+?)\s*<\/p>/) || [])[1] ?? "") || null;
+    const code = Number((it.match(/s_bukIcon"[^>]*>\s*(\d+)\s*</) || [])[1]);
+    const status = Number.isFinite(code) && !(code & 8) ? emptyStatusLabel(code & 7) : null;
+    const self = /本駐車場<\/p>/.test(it);
+    const g = aligned ? icons[i] : null;
+    return { parkId: buk, name, status, self,
+      lat: g && Number.isFinite(g.lat) ? g.lat : null, lng: g && Number.isFinite(g.lon) ? g.lon : null };
+  }).filter((x) => x.parkId);
+}
 
 export function detailUrlFromParkId(parkId) {
   // parkId はフル URL を保持（県/市コードを含むため）。後方互換でそのまま返す。
@@ -100,18 +126,25 @@ export function parseTimesDetail(html, { url, label } = {}) {
     }
   }
 
+  // 満空と座標。周辺一覧の「本駐車場」の行が自分。周辺の他社・他店舗の満空も同じページで分かるので、
+  // 追加の取得なしに観測を増やせる（1ページで最大11件ぶん）
+  const nearby = parseTimesNearby(html);
+  const me = nearby.find((x) => x.self) ?? nearby.find((x) => x.parkId === parkId) ?? null;
   return {
     operator: "times",
     parkId,
     label: label ?? null,
     name,
+    fullEmptyStatus: me?.status ?? null,
     address,
-    lat: null, // タイムズは座標を静的HTMLに出さない（地図はJS描画）
-    lng: null,
+    lat: me?.lat ?? null,   // 静的HTMLには無いが、周辺一覧の地図データに本駐車場の座標が入っている
+    lng: me?.lng ?? null,
     capacity,
     openingHours: null,
     unitCharges,
     maxFees,
     sourceUrl: url ?? null,
+    // 同じページに載っていた周辺の満空（本駐車場を除く）。run.js が観測として書く
+    nearbyVacancy: nearby.filter((x) => !x.self && x.status && x.parkId !== parkId),
   };
 }

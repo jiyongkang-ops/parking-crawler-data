@@ -91,7 +91,8 @@ const ROLLING_SITES = [
     keyName: "parkId", hours: true },
   { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
     idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
-    keyName: "url", minDelay: config.timesMinDelayMs ?? 6000 },
+    keyName: "url", minDelay: config.timesMinDelayMs ?? 6000,
+    hours: true },   // 2026-09: 詳細ページの周辺一覧から満空が読めるので、時間帯を均して回す
   { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
     idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
@@ -248,6 +249,20 @@ async function main() {
       if (!prevMeta || prevMeta.la !== m.la || prevMeta.ln !== m.ln || prevMeta.c !== m.c || prevMeta.n !== m.n) {
         vacMeta[key] = m;
         fs.appendFileSync(vacancyMetaFile, JSON.stringify(m) + "\n");
+      }
+    }
+    // 同じページに載っていた周辺の満空（タイムズ）。料金の時系列には混ぜず、観測だけ残す。
+    // 周辺の物件は後で自分のページも取られるので、名前・座標はそのとき更新される
+    for (const nb of rec.nearbyVacancy ?? []) {
+      if (!nb.parkId || !nb.status) continue;
+      const nkey = `${rec.operator}:${nb.parkId}`;
+      fs.appendFileSync(vacancyFileOf(at), JSON.stringify({ at, op: rec.operator, id: nb.parkId, s: nb.status }) + "\n");
+      stats.vacancy++;
+      const m = { k: nkey, n: nb.name ?? null, la: nb.lat ?? null, ln: nb.lng ?? null, c: null };
+      const pm = vacMeta[nkey];
+      if (!pm || (pm.la == null && m.la != null) || (!pm.n && m.n)) {
+        vacMeta[nkey] = { ...m, c: pm?.c ?? null, la: m.la ?? pm?.la ?? null, ln: m.ln ?? pm?.ln ?? null };
+        fs.appendFileSync(vacancyMetaFile, JSON.stringify(vacMeta[nkey]) + "\n");
       }
     }
     last.set(key, rec);
