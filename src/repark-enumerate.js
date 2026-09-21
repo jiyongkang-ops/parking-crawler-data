@@ -134,13 +134,25 @@ export function countLive(allIds, state, nowMs = Date.now()) {
 
 /** 未取得 → 取得が古い順に N 件選ぶ。
  *  spreadHours を渡すと「その時刻をまだ見ていない物件」を先に回す（満空を時間帯ごと均等に採るため）。 */
-export function pickRolling(allIds, state, n, { spreadHours = false, at = null } = {}) {
+export function pickRolling(allIds, state, n, { spreadHours = false, at = null, priority = [], priorityMinAgeMs = 3 * 3600e3 } = {}) {
   // 状態の文字列は1回だけ読む（比較関数の中で毎回分解すると数十万回になる）
   const parsed = new Map(allIds.map((id) => [id, parseState(state[id])]));
   const st = (id) => parsed.get(id);
   // 消えた物件は寝かせる。期限が切れたら普通に戻る（本当に復活していれば取れる）
   const nowMs = new Date(at ?? Date.now()).getTime();
   const live = allIds.filter((id) => { const x = st(id); return !(x.gone && nowMs - x.t < GONE_MS); });
+  // 優先物件（レポートで実際に見ている周りの物件）は、ローリングの順番を待たずに先に取る。
+  // ただし前回から priorityMinAgeMs 空いているものだけ。毎時走っても同じ物件を毎時は叩かない
+  // （既定3時間おき＝1日8回。全国を毎時回すより先方の負荷を桁違いに抑えつつ、重みは1週間で十分に付く）。
+  // n とは別枠で足す。ここで n を食うと全国の1巡が遅れ、時間帯を均す仕掛けが崩れるため。
+  const liveSet = new Set(live);
+  const head = priority.filter((id) => liveSet.has(id) && nowMs - st(id).t >= priorityMinAgeMs)
+    .sort((a, b) => st(a).t - st(b).t);
+  const headSet = new Set(head);
+  const rest = pickRollingRest(live.filter((id) => !headSet.has(id)), st, n, { spreadHours, nowMs });
+  return head.concat(rest);
+}
+function pickRollingRest(live, st, n, { spreadHours, nowMs }) {
   if (!spreadHours) {
     return [...live].sort((a, b) => st(a).t - st(b).t).slice(0, n);
   }
