@@ -32,7 +32,7 @@ jobs:
     # （ROLLING_BUDGET_MIN）ので、ここは余裕を見る。concurrency で重複は起きない。
     # さらに1回の実行を2回に分けて25分あけるため（ROLLING_PASSES／時間帯の穴を塞ぐ）、
     # 待ち時間ぶんを足して見る: 45分（取得）＋25分（待ち）＋前後 ＝ 100分
-    timeout-minutes: 100
+    timeout-minutes: 120
     concurrency:
       group: crawl # 多重起動を防ぐ（節度）
       cancel-in-progress: false
@@ -42,9 +42,24 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
+      # レポートスタジオから「厚く見てほしい物件」（登録現場と直近のレポート地点の500m圏、約500件）を受け取る。
+      # これらは3時間おきに取る（ROLLING の別枠）。取れなければ前回コミットした一覧をそのまま使う。
+      - name: fetch priority lots from report studio
+        env:
+          KEY: ${{ secrets.STUDIO_PRIORITY_KEY }}
+        run: |
+          if [ -n "$KEY" ] && curl -sf --max-time 60 -H "x-cron-key: $KEY" \
+               https://advisor.aimo-parking.com/api/cron/priority-lots -o /tmp/priority.json \
+             && node -e "const j=require('/tmp/priority.json'); if(!j.byOp) process.exit(1); console.log('priority', JSON.stringify(j.counts))"; then
+            mv /tmp/priority.json data/priority-lots.json
+          else
+            echo "優先一覧を取れなかったので前回のものを使う（$(test -f data/priority-lots.json && echo あり || echo なし)）"
+          fi
       - run: npm run crawl
         env:
           CRAWL_ONLY: "npc,repark" # タイムズは crawl-times.yml で別実行
+          # 優先物件（約500件×4秒≒35分）を3時間おきに足すぶん、取得の予算を広げる
+          ROLLING_BUDGET_MIN: "55"
           # 1回の実行を2回に分け、間をあけて取る。取る件数の合計は変えない。
           # 毎時の cron は混むと発火しないことがあり、実測で24時間中18時間しか動いて
           # いなかった（JST 7・14・17・18・21・22時が空。2026-09-15）。2回に分けると
@@ -68,7 +83,7 @@ jobs:
           git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml data/*.fetched
           # 満空は data/vacancy-YYYY-MM.jsonl（月ごと）。古い月は変わらないのでgitが太らない。
           # 月初の1回目はまだ無いことがあるので、拾えなくても止めない。
-          git add data/vacancy-*.jsonl data/vacancy-lots.jsonl || true
+          git add data/vacancy-*.jsonl data/vacancy-lots.jsonl data/priority-lots.json || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: update npc+repark prices ($(date -u +%Y-%m-%dT%H:%MZ))"
             for i in $(seq 1 6); do

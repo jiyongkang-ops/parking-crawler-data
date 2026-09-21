@@ -142,6 +142,15 @@ function readLastSnapshots(file) {
 
 /** 1回あたりの取得件数。<op>RollingCycleRuns があれば「1周を何回で終えるか」から割り出す。
  *  物件数が増えても周回数（＝観測時刻のずれ方）が変わらないようにするため。 */
+/** レポートスタジオが「厚く見てほしい」と渡してくる物件（data/priority-lots.json の byOp）。
+ *  登録現場と直近のレポート地点の500m圏。無ければ空＝いままでどおり全国ローリングだけ。 */
+function priorityIds(op) {
+  try {
+    const j = JSON.parse(fs.readFileSync("data/priority-lots.json", "utf8"));
+    const ids = j?.byOp?.[op];
+    return Array.isArray(ids) ? ids.map(String) : [];
+  } catch { return []; }
+}
 function rollingPerRun(op, total, fallback) {
   // 動作確認用の上書き（ROLLING_PER_RUN=1 で1件だけ取る）
   const forced = Number(process.env.ROLLING_PER_RUN);
@@ -334,8 +343,9 @@ async function main() {
       if (!Number.isFinite(gapMin) || gapMin < 0) throw new Error(`ROLLING_PASS_GAP_MIN が数値ではありません: ${process.env.ROLLING_PASS_GAP_MIN}`);
       const gapMs = gapMin * 60_000;
       const perPass = Math.max(1, Math.ceil(perRun / passes));
+      const prio = priorityIds(rolling.op).length;
       console.log(
-        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件 / ` +
+        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件${prio ? ` / 優先${prio}件（3時間おき）` : ""} / ` +
         `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
         `${passes > 1 ? `・${gapMin}分あける` : ""}）。1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRun))}回実行`
       );
@@ -355,7 +365,8 @@ async function main() {
           pausedMs += gapMs;
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
-        const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString() });
+        const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
+          priority: priorityIds(rolling.op) });
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
         if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }
