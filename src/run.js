@@ -183,10 +183,11 @@ async function main() {
   // 名前・座標・台数は初回だけ入れ、以降は id で引く（同じ値を毎回書かない）
   // 月ごとに分ける。1本にすると1年で数百MBになり、毎回の巡回でコミットするgitが重くなる。
   // 先月以前のファイルは二度と変わらないので、gitはそれ以上太らない。
-  // 月は**観測した時刻**（日本時間）から決める。実行開始時に決めると、4時間半まわる
-  // NPC の実行が月をまたいだとき、翌月の観測が前月のファイルに入る。
+  // 日付は**観測した時刻**（日本時間）から決める。実行開始時に決めると、4時間半まわる
+  // NPC の実行が日をまたいだとき、翌日の観測が前日のファイルに入る。
   const vacancyFileOf = (atIso) => process.env.VACANCY_FILE
-    || `data/vacancy-${new Date(new Date(atIso).getTime() + 9 * 3600e3).toISOString().slice(0, 7)}.jsonl`;
+    // 日ごと（JST）に分ける。月ごとだと1か月で100MiBを超え、GitHub が push を拒否する（2026-09 は 9/26 に超える見込みだった）
+    || `data/vacancy-${new Date(new Date(atIso).getTime() + 9 * 3600e3).toISOString().slice(0, 10)}.jsonl`;
   // 名前・座標・台数は時系列に毎回書くと1行が3倍になるので、別ファイルに持つ。
   // 以前は「料金データに新規のときだけ書く」にしていたが、既に知っている物件では一度も
   // 書かれず、9,777観測のうち座標があるのは1件だけだった（＝地図に置けず使えなかった）。
@@ -244,7 +245,8 @@ async function main() {
       }) + "\n");
       stats.vacancy++;
       // 名前・座標は別ファイルへ。変わったときだけ1行追記する
-      const m = { k: key, n: rec.name ?? null, la: rec.lat ?? null, ln: rec.lng ?? null, c: rec.capacity ?? null };
+      // w: 世界測地系に換算済みの印（タイムズ。印の無い古い行は読む側で換算する）
+      const m = { k: key, n: rec.name ?? null, la: rec.lat ?? null, ln: rec.lng ?? null, c: rec.capacity ?? null, ...(rec.datum === "wgs84" ? { w: 1 } : {}) };
       const prevMeta = vacMeta[key];
       if (!prevMeta || prevMeta.la !== m.la || prevMeta.ln !== m.ln || prevMeta.c !== m.c || prevMeta.n !== m.n) {
         vacMeta[key] = m;
@@ -258,10 +260,12 @@ async function main() {
       const nkey = `${rec.operator}:${nb.parkId}`;
       fs.appendFileSync(vacancyFileOf(at), JSON.stringify({ at, op: rec.operator, id: nb.parkId, s: nb.status }) + "\n");
       stats.vacancy++;
-      const m = { k: nkey, n: nb.name ?? null, la: nb.lat ?? null, ln: nb.lng ?? null, c: null };
+      const m = { k: nkey, n: nb.name ?? null, la: nb.lat ?? null, ln: nb.lng ?? null, c: null, ...(nb.datum === "wgs84" ? { w: 1 } : {}) };
       const pm = vacMeta[nkey];
-      if (!pm || (pm.la == null && m.la != null) || (!pm.n && m.n)) {
-        vacMeta[nkey] = { ...m, c: pm?.c ?? null, la: m.la ?? pm?.la ?? null, ln: m.ln ?? pm?.ln ?? null };
+      // 換算済みの座標が来たら、旧測地系のままの控えを置き換える
+      if (!pm || (pm.la == null && m.la != null) || (!pm.n && m.n) || (m.w && !pm.w && m.la != null)) {
+        vacMeta[nkey] = m.w && m.la != null ? { ...m, c: pm?.c ?? null, n: m.n ?? pm?.n ?? null }
+          : { ...m, c: pm?.c ?? null, la: m.la ?? pm?.la ?? null, ln: m.ln ?? pm?.ln ?? null };
         fs.appendFileSync(vacancyMetaFile, JSON.stringify(vacMeta[nkey]) + "\n");
       }
     }
