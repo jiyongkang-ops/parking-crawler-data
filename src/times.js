@@ -18,6 +18,12 @@ import { emptyStatusLabel } from "./vacancy-label.js";
  *  ビット3（8）は「満空対応外」の印なので、立っていれば満空なしとする。
  *  座標は同じ順で <div class="s_areaBukMapIcons">[{icon,lat,lon},…]</div> に入っている（件数が一致するときだけ信じる）。
  *  料金のために既に取っているページなので、満空のために追加の取得は発生しない。 */
+/** 旧日本測地系（Tokyo Datum）→ 世界測地系（WGS84）の近似換算（誤差は数m〜十数m）。
+ *  タイムズのページの地図座標は旧測地系で、そのままだと南に約360m・東に約270mずれる（2026-09-24 点検で確認）。 */
+export function tokyoToWgs(lat, lng) {
+  return { lat: lat - 0.00010695 * lat + 0.000017464 * lng + 0.0046017,
+           lng: lng - 0.000046038 * lat - 0.000083043 * lng + 0.010040 };
+}
 export function parseTimesNearby(html) {
   const items = [...html.matchAll(/<li class="s_areaBukListItem[\s\S]*?<\/li>/g)].map((m) => m[0]);
   let icons = [];
@@ -32,9 +38,11 @@ export function parseTimesNearby(html) {
     const code = Number((it.match(/s_bukIcon"[^>]*>\s*(\d+)\s*</) || [])[1]);
     const status = Number.isFinite(code) && !(code & 8) ? emptyStatusLabel(code & 7) : null;
     const self = /本駐車場<\/p>/.test(it);
-    const g = aligned ? icons[i] : null;
+    const g0 = aligned ? icons[i] : null;
+    const g = g0 && Number.isFinite(g0.lat) && Number.isFinite(g0.lon) ? tokyoToWgs(g0.lat, g0.lon) : null;
     return { parkId: buk, name, status, self,
-      lat: g && Number.isFinite(g.lat) ? g.lat : null, lng: g && Number.isFinite(g.lon) ? g.lon : null };
+      // datum: 換算済みの印。これが無い古い行（2026-09-21〜24）は読む側で換算する
+      lat: g ? +g.lat.toFixed(6) : null, lng: g ? +g.lng.toFixed(6) : null, datum: g ? "wgs84" : null };
   }).filter((x) => x.parkId);
 }
 
@@ -137,8 +145,9 @@ export function parseTimesDetail(html, { url, label } = {}) {
     name,
     fullEmptyStatus: me?.status ?? null,
     address,
-    lat: me?.lat ?? null,   // 静的HTMLには無いが、周辺一覧の地図データに本駐車場の座標が入っている
+    lat: me?.lat ?? null,   // 静的HTMLには無いが、周辺一覧の地図データに本駐車場の座標が入っている（世界測地系に換算済み）
     lng: me?.lng ?? null,
+    datum: me?.datum ?? null,
     capacity,
     openingHours: null,
     unitCharges,

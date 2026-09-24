@@ -245,7 +245,8 @@ async function main() {
       }) + "\n");
       stats.vacancy++;
       // 名前・座標は別ファイルへ。変わったときだけ1行追記する
-      const m = { k: key, n: rec.name ?? null, la: rec.lat ?? null, ln: rec.lng ?? null, c: rec.capacity ?? null };
+      // w: 世界測地系に換算済みの印（タイムズ。印の無い古い行は読む側で換算する）
+      const m = { k: key, n: rec.name ?? null, la: rec.lat ?? null, ln: rec.lng ?? null, c: rec.capacity ?? null, ...(rec.datum === "wgs84" ? { w: 1 } : {}) };
       const prevMeta = vacMeta[key];
       if (!prevMeta || prevMeta.la !== m.la || prevMeta.ln !== m.ln || prevMeta.c !== m.c || prevMeta.n !== m.n) {
         vacMeta[key] = m;
@@ -259,10 +260,12 @@ async function main() {
       const nkey = `${rec.operator}:${nb.parkId}`;
       fs.appendFileSync(vacancyFileOf(at), JSON.stringify({ at, op: rec.operator, id: nb.parkId, s: nb.status }) + "\n");
       stats.vacancy++;
-      const m = { k: nkey, n: nb.name ?? null, la: nb.lat ?? null, ln: nb.lng ?? null, c: null };
+      const m = { k: nkey, n: nb.name ?? null, la: nb.lat ?? null, ln: nb.lng ?? null, c: null, ...(nb.datum === "wgs84" ? { w: 1 } : {}) };
       const pm = vacMeta[nkey];
-      if (!pm || (pm.la == null && m.la != null) || (!pm.n && m.n)) {
-        vacMeta[nkey] = { ...m, c: pm?.c ?? null, la: m.la ?? pm?.la ?? null, ln: m.ln ?? pm?.ln ?? null };
+      // 換算済みの座標が来たら、旧測地系のままの控えを置き換える
+      if (!pm || (pm.la == null && m.la != null) || (!pm.n && m.n) || (m.w && !pm.w && m.la != null)) {
+        vacMeta[nkey] = m.w && m.la != null ? { ...m, c: pm?.c ?? null, n: m.n ?? pm?.n ?? null }
+          : { ...m, c: pm?.c ?? null, la: m.la ?? pm?.la ?? null, ln: m.ln ?? pm?.ln ?? null };
         fs.appendFileSync(vacancyMetaFile, JSON.stringify(vacMeta[nkey]) + "\n");
       }
     }
