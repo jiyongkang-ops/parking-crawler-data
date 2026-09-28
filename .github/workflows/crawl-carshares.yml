@@ -1,0 +1,55 @@
+# 三井のカーシェアーズのステーション一覧（場所・台数・車種クラス）を週1回で1巡する。
+# 公開の「ステーションを探す」だけをたどる（予約・空き状況の会員ページには触れない）。src/carshares.js を参照。
+# 1巡は約5,000ページ×3秒で約4時間。1回の実行は200分で切り上げて続きは翌日に回し、
+# 1巡が終わってから7日たつまでは何もしない（毎日起動しても、実際に取るのは週に1〜2回）。
+# 週1なので GitHub の cron の遅れ（数時間）は問題にならない。
+name: crawl-carshares
+
+on:
+  schedule:
+    - cron: "0 18 * * *"   # 毎日 03:00 JST（遅れて始まってもよい）
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  crawl-carshares:
+    runs-on: ubuntu-latest
+    timeout-minutes: 230
+    concurrency:
+      group: crawl-carshares
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: node src/carshares.js
+        env:
+          CARSHARE_BUDGET_MIN: "200"
+          CARSHARE_CYCLE_DAYS: "7"
+      - name: commit data if changed
+        if: always()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          # 列挙失敗でファイルが無い社があっても他社のデータを失わないよう data/ 配下をまとめて追加
+          git add -A data/
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update carshares stations ($(date -u +%Y-%m-%dT%H:%MZ))"
+            for i in $(seq 1 6); do
+              if ! git pull --no-rebase --no-edit origin main; then
+                # 追記レースの衝突: jsonlはunionマージで自動解決、残り(状態ファイル等)は自分側を採用
+                git diff --name-only --diff-filter=U | xargs -r git checkout --ours --
+                git add -A
+                git commit --no-edit
+              fi
+              if git push; then echo "pushed"; break; fi
+              echo "push retry $i"; sleep $((RANDOM % 8 + 3))
+              [ "$i" = 6 ] && { echo "push failed after retries"; exit 1; }
+            done
+          else
+            echo "変化なし。コミットしません。"
+          fi

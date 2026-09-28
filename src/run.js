@@ -202,6 +202,15 @@ async function main() {
       try { const j = JSON.parse(line); vacMeta[j.k] = j; } catch { /* 壊れた行は飛ばす */ }
     }
   } catch { /* 初回 */ }
+  // カーシェア（タイムズカー）の有無。1行＝1物件の状態で、変わったときだけ追記（同じ物件は最後の行が最新）
+  const carShareFile = process.env.CARSHARE_FILE || "data/carshare-times.jsonl";
+  const csMeta = {};
+  try {
+    for (const line of fs.readFileSync(carShareFile, "utf8").split("\n")) {
+      if (!line) continue;
+      try { const j = JSON.parse(line); csMeta[j.k] = j; } catch { /* 壊れた行は飛ばす */ }
+    }
+  } catch { /* 初回 */ }
   // 料金は書かずに満空だけ残す回（crawl-npc.yml）。料金の時系列を2本にしない
   const vacancyOnly = process.env.VACANCY_ONLY === "1";
 
@@ -267,6 +276,17 @@ async function main() {
         vacMeta[nkey] = m.w && m.la != null ? { ...m, c: pm?.c ?? null, n: m.n ?? pm?.n ?? null }
           : { ...m, c: pm?.c ?? null, la: m.la ?? pm?.la ?? null, ln: m.ln ?? pm?.ln ?? null };
         fs.appendFileSync(vacancyMetaFile, JSON.stringify(vacMeta[nkey]) + "\n");
+      }
+    }
+    // タイムズカーの有無（タイムズのみ）。初めて見た物件は「無し」も1行残す（有無を確かめた印）
+    if (rec.operator === "times" && "carShare" in rec) {
+      const cs = { k: key, scd: rec.carShare?.scd ?? null, on: rec.carShare ? 1 : 0, n: rec.name ?? null, a: rec.address ?? null,
+        la: rec.lat ?? null, ln: rec.lng ?? null, at };
+      const pc = csMeta[key];
+      if (!pc || pc.on !== cs.on || pc.scd !== cs.scd || (pc.la == null && cs.la != null)) {
+        csMeta[key] = cs;
+        fs.appendFileSync(carShareFile, JSON.stringify(cs) + "\n");
+        stats.carShare = (stats.carShare ?? 0) + 1;
       }
     }
     last.set(key, rec);
