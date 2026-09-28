@@ -83,6 +83,12 @@ function parseMax(text) {
   };
 }
 
+/** タイムズカーの有無とステーション番号。印が無い・無効なら null */
+export function parseTimesCarShare(html) {
+  const on = /feature_list_txt--cShare[^"]*\bis-active\b/.test(html);
+  const scd = (html.match(/id="carshareStationLink"[^>]*href="[^"]*[?&]scd=([A-Za-z0-9]+)/) || [])[1] ?? null;
+  return on || scd ? { scd } : null;
+}
 export function parseTimesDetail(html, { url, label } = {}) {
   const parkId = bukCode(url ?? "");
 
@@ -137,6 +143,10 @@ export function parseTimesDetail(html, { url, label } = {}) {
   // 満空と座標。周辺一覧の「本駐車場」の行が自分。周辺の他社・他店舗の満空も同じページで分かるので、
   // 追加の取得なしに観測を増やせる（1ページで最大11件ぶん）
   const nearby = parseTimesNearby(html);
+  // タイムズカー（カーシェア）のステーションがこの駐車場にあるか。「設備」の欄の印（is-active で有り）と、
+  // 「ステーション情報を見る」のリンクのステーション番号（scd）。台数はこのページに無い（タイムズカー側は自動取得禁止の通信で読む）。
+  // 料金のために既に取っているページなので、追加の取得は発生しない。
+  const carShare = parseTimesCarShare(html);
   const me = nearby.find((x) => x.self) ?? nearby.find((x) => x.parkId === parkId) ?? null;
   return {
     operator: "times",
@@ -153,6 +163,7 @@ export function parseTimesDetail(html, { url, label } = {}) {
     unitCharges,
     maxFees,
     sourceUrl: url ?? null,
+    carShare,
     // 同じページに載っていた周辺の満空（本駐車場を除く）。run.js が観測として書く
     nearbyVacancy: nearby.filter((x) => !x.self && x.status && x.parkId !== parkId),
   };

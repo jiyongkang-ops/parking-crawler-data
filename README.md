@@ -28,6 +28,8 @@
 |---|---|
 | `data/prices*.jsonl` | 料金スナップショット（1行=1取得、**追記型**）。`prices.jsonl`=リパーク+NPC、`prices-times.jsonl`=タイムズ、`prices-ecolo.jsonl`、`prices-navipark.jsonl`、`prices-others.jsonl`=ザ・パーク+名鉄協商 |
 | `data/parking-latest.csv` | 全物件の**最新状態のみ**をフラット化したCSV（BOM付き・Excel可） |
+| `data/carshare-times.jsonl` | タイムズの駐車場にタイムズカー（カーシェア）があるか（`on`）とステーション番号（`scd`）。料金のために取っているページから読むので追加の取得なし。台数は無い。1行＝1物件の状態で、変わったときだけ追記 |
+| `data/carshare-mitsui.jsonl` | 三井のカーシェアーズのステーション（名前・住所・座標・台数・車種クラス別の台数）。`crawl-carshares.yml` で週1回1巡。変わったときだけ追記、見なくなったら `gone:1`。予約・空き状況は取らない。サイトポリシーが私的利用の範囲のため、社内の分析にとどめ転載しない |
 | `data/*-crawl-state.json` ほか | ローリング巡回の内部状態（分析には不要） |
 
 ### レコードスキーマ（JSONL 1行）
