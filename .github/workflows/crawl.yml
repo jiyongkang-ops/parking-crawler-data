@@ -41,14 +41,21 @@ jobs:
       cancel-in-progress: false
     steps:
       # タイムズの巡回の起動。GitHub の cron は約5時間遅れて始まり、タイムズの満空が日中に1回も取れていなかった
-      # （JST 17〜18・22〜0・3〜4時だけ。2026-09-27 確認）。毎時確実に動くこの巡回から、JST 10・14・21時の回だけ起動する。
-      # 回数は1日3回のままなので先方の負荷は変わらない。GITHUB_TOKEN からの workflow_dispatch は起動できる
-      - name: dispatch Times crawl at JST 10/14/21
+      # （JST 17〜18・22〜0・3〜4時だけ。2026-09-27 確認）。毎時確実に動くこの巡回から起動する。
+      # 起動する時刻は8時間おき（1日3回）で、毎日1時間ずつ後ろへずらす（2026-10-01）。
+      # 1回の巡回は45分で切り上げるので、10・14・21時に固定すると満空がその3つの時間帯にしか付かなかった。
+      # ずらすと8日で24時間すべてが埋まる（曜日も日ごとに変わる）。回数は1日3回のままなので先方の負荷は変わらない。
+      # GITHUB_TOKEN からの workflow_dispatch は起動できる
+      - name: dispatch Times crawl (every 8h, shifted 1h per day)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          H=$(TZ=Asia/Tokyo date +%-H)
-          case "$H" in 10|14|21) gh workflow run crawl-times.yml --ref main -R "$GITHUB_REPOSITORY" && echo "タイムズの巡回を起動（JST ${H}時）";; *) echo "タイムズの巡回は起動しない（JST ${H}時）";; esac
+          H=$(TZ=Asia/Tokyo date +%-H); D=$(TZ=Asia/Tokyo date +%-j)
+          if [ $(( (H + 24 - D % 8) % 8 )) -eq 2 ]; then
+            gh workflow run crawl-times.yml --ref main -R "$GITHUB_REPOSITORY" && echo "タイムズの巡回を起動（JST ${H}時）"
+          else
+            echo "タイムズの巡回は起動しない（JST ${H}時）"
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
