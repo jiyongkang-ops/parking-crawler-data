@@ -13,6 +13,8 @@ export async function getAllSpace24Ids({ cacheFile, cacheMs = 7 * 864e5 } = {}) 
   let lastPage = 200;
   for (let page = 1; page <= lastPage; page++) {
     const res = await politeFetch(LIST_URL(page));
+    // 1ページ目から取れないときは、その理由を出す（2026-10 から全ページが 403。0件と区別するため）
+    if (page === 1 && (!res.ok || res.skippedReason)) throw new Error(`スペース24一覧の取得に失敗: ${res.skippedReason ?? "HTTP " + res.status}`);
     if (!res.ok || res.skippedReason) break;
     if (page === 1) {
       // ページャの最大値（?page=150）から総ページ数を得る
