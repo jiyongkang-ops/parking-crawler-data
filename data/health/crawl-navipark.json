@@ -1,0 +1,14 @@
+{
+ "at": "2026-10-14T18:59:11.183Z",
+ "workflow": "crawl-navipark",
+ "only": "navipark",
+ "targets": [
+  {
+   "op": "navipark",
+   "label": "ナビパーク",
+   "ok": true,
+   "n": 676,
+   "reason": null
+  }
+ ]
+}
