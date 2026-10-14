@@ -1,0 +1,28 @@
+{
+ "at": "2026-10-14T21:23:41.807Z",
+ "workflow": "crawl-extra2",
+ "only": "space24,jqparks,parknet",
+ "targets": [
+  {
+   "op": "space24",
+   "label": "スペース二十四",
+   "ok": false,
+   "n": 0,
+   "reason": "一覧: スペース24一覧の取得に失敗: HTTP 403"
+  },
+  {
+   "op": "jqparks",
+   "label": "JQパークス",
+   "ok": true,
+   "n": 400,
+   "reason": null
+  },
+  {
+   "op": "parknet",
+   "label": "パークネット",
+   "ok": true,
+   "n": 283,
+   "reason": null
+  }
+ ]
+}
