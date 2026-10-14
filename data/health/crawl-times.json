@@ -1,0 +1,14 @@
+{
+ "at": "2026-10-14T17:53:02.366Z",
+ "workflow": "crawl-times",
+ "only": "times",
+ "targets": [
+  {
+   "op": "times",
+   "label": "タイムズ",
+   "ok": true,
+   "n": 451,
+   "reason": null
+  }
+ ]
+}
