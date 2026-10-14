@@ -1,0 +1,28 @@
+{
+ "at": "2026-10-14T19:42:29.698Z",
+ "workflow": "crawl-extra",
+ "only": "kyotech,leparc,gspark",
+ "targets": [
+  {
+   "op": "kyotech",
+   "label": "キョウテク",
+   "ok": true,
+   "n": 676,
+   "reason": null
+  },
+  {
+   "op": "leparc",
+   "label": "ルパルク",
+   "ok": true,
+   "n": 40,
+   "reason": null
+  },
+  {
+   "op": "gspark",
+   "label": "GSパーク全国",
+   "ok": true,
+   "n": 904,
+   "reason": null
+  }
+ ]
+}
