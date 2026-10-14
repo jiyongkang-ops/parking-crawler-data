@@ -1,0 +1,14 @@
+{
+ "at": "2026-10-14T15:39:21.146Z",
+ "workflow": "crawl-ecolo",
+ "only": "ecolo",
+ "targets": [
+  {
+   "op": "ecolo",
+   "label": "エコロパーク",
+   "ok": true,
+   "n": 676,
+   "reason": null
+  }
+ ]
+}
