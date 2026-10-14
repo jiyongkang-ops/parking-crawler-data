@@ -14,7 +14,7 @@ import { config } from "../config.js";
 import { politeFetch, sleep } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
-import { cacheFresh } from "./cache-age.js";
+import { cacheFresh, markFetched } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone,
 } from "./repark-enumerate.js";
@@ -171,6 +171,19 @@ function feeFingerprint(rec) {
   return JSON.stringify({ u, m });
 }
 
+// 事業者ごとの結果。巡回の最後に data/health/<ワークフロー名>.json に書き、Advisor が毎朝読んで
+// 失敗した事業者があれば Slack で知らせる（2026-10-14。スペース24が403・GSパークが未対応のまま、
+// ワークフローは「成功」で2か月気づけなかったため）。ok=false は「取れなかった」。
+const health = [];
+const hp = (op, label, ok, n, reason = null) => health.push({ op, label, ok, n, reason });
+function writeHealth() {
+  const name = (process.env.HEALTH_NAME || process.env.GITHUB_WORKFLOW || process.env.CRAWL_ONLY || "local").replace(/[^\w.-]+/g, "_");
+  try {
+    fs.mkdirSync("data/health", { recursive: true });
+    fs.writeFileSync(`data/health/${name}.json`, JSON.stringify({ at: new Date().toISOString(), workflow: name, only: process.env.CRAWL_ONLY || null, targets: health }, null, 1) + "\n");
+  } catch (e) { console.error(`[health] 書けませんでした: ${e.message}`); }
+}
+
 async function main() {
   // OUT_FILE で出力先を上書き可（ワークフロー分割時の push 競合回避用）。
   const outFile = path.resolve(process.env.OUT_FILE || config.outFile);
@@ -324,8 +337,8 @@ async function main() {
           await sleep(gapMs);
         }
         let res;
-        try { res = await politeFetch(url); } catch (e) { console.error(`[error] NPC全国: ${e.message}`); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); continue; }
+        try { res = await politeFetch(url); } catch (e) { console.error(`[error] NPC全国: ${e.message}`); hp("npc", "NPC全国", false, 0, e.message); continue; }
+        if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); hp("npc", "NPC全国", false, 0, res.skippedReason ?? "HTTP " + res.status); continue; }
         let total = null;
         try { total = JSON.parse(res.html).total; } catch { /* */ }
         records = parseNpcSearch(res.html, { label: "NPC全国" });
@@ -336,6 +349,7 @@ async function main() {
         const at = new Date().toISOString();
         records.forEach((r) => { r._requestUrl = url; handleRecord(r, at); });
         console.log(`[ok] NPC全国 ${i + 1}/${repeat} | ${records.length}物件`);
+        hp("npc", `NPC全国 ${i + 1}/${repeat}`, records.length > 0, records.length, records.length ? null : "0件");
       }
       continue;
     }
@@ -359,7 +373,7 @@ async function main() {
       let ids;
       try {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] ${rolling.op} enumerate: ${e.message}`); continue; }
+      } catch (e) { console.error(`[error] ${rolling.op} enumerate: ${e.message}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${e.message}`); continue; }
       const state = loadCrawlState(rolling.stateFile);
       // 一覧が変わったら、404で寝かせていた物件を起こす（復活している見込みがあるため）
       const woke = unparkGone(state, ids);
@@ -395,7 +409,7 @@ async function main() {
       const startedAt = Date.now();
       let pausedMs = 0;
       const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
-      let done = 0;
+      let done = 0, got = 0, tried = 0;
       let out = false;
       for (let pass = 0; pass < passes && !out; pass++) {
         if (pass > 0) {
@@ -410,6 +424,7 @@ async function main() {
       for (const id of batch) {
         if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }
         const url = rolling.detailUrl(id);
+        tried++;
         const at = new Date().toISOString();   // この物件を取った時刻
         const mark = (r, seen) => recordVisit(state, id, at, r, { hours: !!rolling.hours, seen });
         let res;
@@ -422,6 +437,7 @@ async function main() {
         if (!rec || !rec.name) { mark(res, false); continue; }
         rec._requestUrl = url;
         handleRecord(rec, at);
+        got++;
         // 満空が取れる社では「その時刻を見た」と記録するのは満空が読めたときだけ。
         // ページの作りが変わって読めなくなっても時間帯が埋まると、止まったことに気づけない
         mark(res, rolling.hours ? !!rec.fullEmptyStatus : undefined);
@@ -430,6 +446,39 @@ async function main() {
         saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）
       }
       saveCrawlState(rolling.stateFile, state);
+      // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功
+      hp(rolling.op, rolling.label, tried === 0 || got > 0, got, tried > 0 && got === 0 ? `${tried}件取りに行って0件` : null);
+      continue;
+    }
+
+    // ---- GSパーク 全国（エリア一覧に料金直載・毎回全巡回） ----
+    // 2026-10-14 復活。読み取り（gspark.js）と設定はあったのに、ここの処理が抜けていて「未対応」で飛ばされていた
+    if (t.operator === "gspark" && t.mode === "nationwide") {
+      let codes;
+      try {
+        if (cacheFresh(STATE.gsparkAreasCache, 7 * 864e5)) codes = fs.readFileSync(STATE.gsparkAreasCache, "utf8").split("\n").filter(Boolean);
+        else {
+          const top = await politeFetch("https://www.gs-park.com/time_parking/");
+          if (!top.ok || top.skippedReason) throw new Error(top.skippedReason ?? `HTTP ${top.status}`);
+          codes = parseAreaCodes(top.html);
+          if (!codes.length) throw new Error("エリアが0件（ページ構造変更の可能性）");
+          fs.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n"); markFetched(STATE.gsparkAreasCache);
+        }
+      } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); hp("gspark", t.label, false, 0, `一覧: ${e.message}`); continue; }
+      let count = 0;
+      for (const code of codes) {
+        for (let page = 1; page <= 30; page++) {
+          const url = areaListUrl(code, page);
+          let res;
+          try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${code} p${page}: ${e.message}`); break; }
+          if (!res.ok || res.skippedReason) break;
+          const { records, hasNext } = parseGsparkList(res.html);
+          for (const rec of records) { rec._requestUrl = url; handleRecord(rec); count++; }
+          if (!hasNext || !records.length) break;
+        }
+      }
+      console.log(`[ok] GSパーク全国 | ${count}物件（エリア${codes.length}）`);
+      hp("gspark", t.label, count > 0, count, count ? null : "0件");
       continue;
     }
 
@@ -438,7 +487,7 @@ async function main() {
       let cities;
       try {
         cities = await getAllParknetCities({ cacheFile: STATE.parknetCitiesCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); continue; }
+      } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); hp("parknet", "パークネット", false, 0, `一覧: ${e.message}`); continue; }
       console.log(`[パークネット] 市区${cities.length}件を巡回`);
       let count = 0;
       for (const line of cities) {
@@ -451,6 +500,7 @@ async function main() {
         for (const rec of parseParknetList(res.html)) { rec._requestUrl = url; handleRecord(rec); count++; }
       }
       console.log(`[ok] パークネット | ${count}物件`);
+      hp("parknet", "パークネット", count > 0, count, count ? null : "0件");
       continue;
     }
 
@@ -458,11 +508,12 @@ async function main() {
     if (t.operator === "mden" && t.mode === "nationwide") {
       const url = mdenListUrl();
       let res;
-      try { res = await politeFetch(url); } catch (e) { console.error(`[error] mden: ${e.message}`); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] mden: HTTP ${res.status}`); continue; }
+      try { res = await politeFetch(url); } catch (e) { console.error(`[error] mden: ${e.message}`); hp("mden", "エムデン", false, 0, e.message); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] mden: HTTP ${res.status}`); hp("mden", "エムデン", false, 0, res.skippedReason ?? `HTTP ${res.status}`); continue; }
       const records = parseMdenList(res.html);
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
       console.log(`[ok] エムデン・テクノパーキング | ${records.length}物件`);
+      hp("mden", "エムデン", records.length > 0, records.length, records.length ? null : "0件");
       continue;
     }
 
@@ -471,11 +522,12 @@ async function main() {
       const url = theparkUrl();
       if (cachedRecently(url)) { console.log(`[cache] ザ・パーク全国 スキップ`); continue; }
       let res;
-      try { res = await politeFetch(url); } catch (e) { console.error(`[error] ザ・パーク: ${e.message}`); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] ザ・パーク: ${res.skippedReason ?? "HTTP " + res.status}`); continue; }
+      try { res = await politeFetch(url); } catch (e) { console.error(`[error] ザ・パーク: ${e.message}`); hp("thepark", "ザ・パーク", false, 0, e.message); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] ザ・パーク: ${res.skippedReason ?? "HTTP " + res.status}`); hp("thepark", "ザ・パーク", false, 0, res.skippedReason ?? "HTTP " + res.status); continue; }
       const records = parseTheparkJson(res.html, { label: "ザ・パーク全国" });
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
       console.log(`[ok] ザ・パーク全国 | ${records.length}物件`);
+      hp("thepark", "ザ・パーク", records.length > 0, records.length, records.length ? null : "0件");
       continue;
     }
 
@@ -494,6 +546,7 @@ async function main() {
     }
 
     console.warn(`[skip] 未対応の target: ${JSON.stringify(t)}`);
+    hp(t.operator, t.label ?? t.operator, false, 0, "未対応の target（処理が無い）");
   }
 
 
@@ -502,4 +555,4 @@ async function main() {
   );
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().then(writeHealth).catch((e) => { console.error(e); hp("run", "巡回全体", false, 0, String(e?.message ?? e)); writeHealth(); process.exit(1); });

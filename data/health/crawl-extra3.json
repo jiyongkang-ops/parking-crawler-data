@@ -1,0 +1,77 @@
+{
+ "at": "2026-10-14T15:54:44.237Z",
+ "workflow": "crawl-extra3",
+ "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
+ "targets": [
+  {
+   "op": "tamapark",
+   "label": "タマパーク",
+   "ok": true,
+   "n": 200,
+   "reason": null
+  },
+  {
+   "op": "anabuki",
+   "label": "あなぶきパーク",
+   "ok": true,
+   "n": 400,
+   "reason": null
+  },
+  {
+   "op": "mden",
+   "label": "エムデン",
+   "ok": true,
+   "n": 391,
+   "reason": null
+  },
+  {
+   "op": "kintetsu",
+   "label": "近鉄不動産",
+   "ok": true,
+   "n": 170,
+   "reason": null
+  },
+  {
+   "op": "tokyulifia",
+   "label": "東急ライフィア",
+   "ok": true,
+   "n": 109,
+   "reason": null
+  },
+  {
+   "op": "seiwapark",
+   "label": "セイワパーク",
+   "ok": true,
+   "n": 339,
+   "reason": null
+  },
+  {
+   "op": "systempark",
+   "label": "システムパーク",
+   "ok": true,
+   "n": 287,
+   "reason": null
+  },
+  {
+   "op": "comnet",
+   "label": "コムパーク",
+   "ok": true,
+   "n": 196,
+   "reason": null
+  },
+  {
+   "op": "keio",
+   "label": "京王コインパーク",
+   "ok": true,
+   "n": 69,
+   "reason": null
+  },
+  {
+   "op": "odakyu",
+   "label": "小田急パーキング",
+   "ok": false,
+   "n": 0,
+   "reason": "一覧: 小田急パーキング一覧取得失敗: HTTP 403"
+  }
+ ]
+}
