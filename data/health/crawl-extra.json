@@ -1,5 +1,5 @@
 {
- "at": "2026-10-14T19:42:29.698Z",
+ "at": "2026-10-15T08:33:33.911Z",
  "workflow": "crawl-extra",
  "only": "kyotech,leparc,gspark",
  "targets": [
@@ -21,7 +21,7 @@
    "op": "gspark",
    "label": "GSパーク全国",
    "ok": true,
-   "n": 904,
+   "n": 903,
    "reason": null
   }
  ]
