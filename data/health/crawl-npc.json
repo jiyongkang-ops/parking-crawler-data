@@ -1,5 +1,5 @@
 {
- "at": "2026-10-15T17:09:35.736Z",
+ "at": "2026-10-15T22:17:03.263Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -7,42 +7,42 @@
    "op": "npc",
    "label": "NPC全国 1/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 2/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 3/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 4/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 5/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 6/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
