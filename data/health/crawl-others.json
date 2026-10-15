@@ -1,5 +1,5 @@
 {
- "at": "2026-10-15T13:14:24.866Z",
+ "at": "2026-10-15T18:23:41.459Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -7,7 +7,7 @@
    "op": "mkp",
    "label": "名鉄協商",
    "ok": true,
-   "n": 524,
+   "n": 519,
    "reason": null
   },
   {
