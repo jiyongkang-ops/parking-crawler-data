@@ -1,5 +1,5 @@
 {
- "at": "2026-10-15T10:24:23.391Z",
+ "at": "2026-10-15T17:09:35.736Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -7,77 +7,77 @@
    "op": "npc",
    "label": "NPC全国 1/11",
    "ok": true,
-   "n": 1689,
+   "n": 1690,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 2/11",
    "ok": true,
-   "n": 1689,
+   "n": 1690,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 3/11",
    "ok": true,
-   "n": 1689,
+   "n": 1690,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 4/11",
    "ok": true,
-   "n": 1689,
+   "n": 1690,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 5/11",
    "ok": true,
-   "n": 1689,
+   "n": 1690,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 6/11",
    "ok": true,
-   "n": 1689,
+   "n": 1690,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 7/11",
    "ok": true,
-   "n": 1689,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 8/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 9/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 10/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   },
   {
    "op": "npc",
    "label": "NPC全国 11/11",
    "ok": true,
-   "n": 1690,
+   "n": 1688,
    "reason": null
   }
  ]
