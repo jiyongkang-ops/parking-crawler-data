@@ -1,5 +1,5 @@
 {
- "at": "2026-10-15T07:47:50.722Z",
+ "at": "2026-10-15T08:58:05.740Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -14,7 +14,7 @@
    "op": "repark",
    "label": "三井のリパーク",
    "ok": true,
-   "n": 598,
+   "n": 751,
    "reason": null
   }
  ]
