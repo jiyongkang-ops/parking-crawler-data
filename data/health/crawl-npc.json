@@ -1,5 +1,5 @@
 {
- "at": "2026-10-16T16:54:31.500Z",
+ "at": "2026-10-16T21:54:09.902Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -75,10 +75,10 @@
   },
   {
    "op": "npc",
-   "label": "NPC全国",
-   "ok": false,
-   "n": 0,
-   "reason": "HTTP 502"
+   "label": "NPC全国 11/11",
+   "ok": true,
+   "n": 1689,
+   "reason": null
   }
  ]
 }
