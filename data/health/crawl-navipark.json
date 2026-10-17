@@ -1,5 +1,5 @@
 {
- "at": "2026-10-16T18:30:08.193Z",
+ "at": "2026-10-17T07:08:43.173Z",
  "workflow": "crawl-navipark",
  "only": "navipark",
  "targets": [
@@ -7,7 +7,7 @@
    "op": "navipark",
    "label": "ナビパーク",
    "ok": true,
-   "n": 674,
+   "n": 676,
    "reason": null
   }
  ]
