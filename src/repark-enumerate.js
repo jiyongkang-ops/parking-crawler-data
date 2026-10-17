@@ -132,6 +132,24 @@ export function countLive(allIds, state, nowMs = Date.now()) {
   return allIds.filter((id) => { const x = parseState(state[id]); return !(x.gone && nowMs - x.t < GONE_MS); }).length;
 }
 
+/** 優先物件の番号を、巡回の一覧の書き方に読み替える。
+ *  Advisor は満空の表（vacancy_lots.park_id）の番号で渡してくる。リパークは REP… で一覧と同じだが、
+ *  タイムズは BUK… の駐車場コードで、一覧・状態ファイルはページのURLで持っている。そのまま比べると
+ *  1件も当たらず、622件が優先されないまま最大16日前になっていた（2026-10-17 点検。本人指示: 直せるものは直して）。
+ *  keyOf（一覧の1件 → 番号）を渡すと番号どうしで照合し、一覧の書き方で返す。一覧に無い番号は missing に数える
+ *  （閉鎖や、周辺の満空だけで見えている物件。ログに出して、ずれに気づけるようにする）。 */
+export function matchPriority(want, allIds, keyOf = null) {
+  const byKey = new Map(allIds.map((id) => [keyOf ? keyOf(id) : id, id]));
+  const ids = [], seen = new Set();
+  let missing = 0;
+  for (const k of want) {
+    const id = byKey.get(String(k));
+    if (id === undefined) { missing++; continue; }
+    if (!seen.has(id)) { seen.add(id); ids.push(id); }
+  }
+  return { ids, missing };
+}
+
 /** 未取得 → 取得が古い順に N 件選ぶ。
  *  spreadHours を渡すと「その時刻をまだ見ていない物件」を先に回す（満空を時間帯ごと均等に採るため）。 */
 export function pickRolling(allIds, state, n, { spreadHours = false, at = null, priority = [], priorityMinAgeMs = 3 * 3600e3 } = {}) {
