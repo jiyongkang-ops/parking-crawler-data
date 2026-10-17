@@ -6,7 +6,8 @@
 #   毎回 3,000件ローリング（約5時間）→ 約2.4日で全国1巡。
 name: crawl-times
 
-# 起動は本体の巡回（crawl.yml、Cloud Scheduler から毎時07分JST）が8時間おき・毎日1時間ずつずらした回に workflow_dispatch で行う（2026-10-01〜）。
+# 起動は本体の巡回（crawl.yml、Cloud Scheduler から毎時07分JST）が、1日3回（昼9〜14時・夕方15〜20時・夜〜朝21〜翌8時を日ごとにずらす）
+# の回に workflow_dispatch で行う（2026-10-01〜8時間おき、2026-10-17〜昼と夕方を厚く）。
 # GitHub の cron は約5時間遅れて始まり、日中の満空が1回も取れなかったので止めた（2026-09-27）。
 on:
   workflow_dispatch: {}

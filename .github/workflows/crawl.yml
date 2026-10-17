@@ -42,19 +42,26 @@ jobs:
     steps:
       # タイムズの巡回の起動。GitHub の cron は約5時間遅れて始まり、タイムズの満空が日中に1回も取れていなかった
       # （JST 17〜18・22〜0・3〜4時だけ。2026-09-27 確認）。毎時確実に動くこの巡回から起動する。
-      # 起動する時刻は8時間おき（1日3回）で、毎日1時間ずつ後ろへずらす（2026-10-01）。
       # 1回の巡回は45分で切り上げるので、10・14・21時に固定すると満空がその3つの時間帯にしか付かなかった。
-      # ずらすと8日で24時間すべてが埋まる（曜日も日ごとに変わる）。回数は1日3回のままなので先方の負荷は変わらない。
+      # 2026-10-01〜: 8時間おき・毎日1時間ずつずらす（8日で24時間が一巡）。
+      # 2026-10-17〜: 昼と夕方を厚くする（本人指示「直して」）。それまでの観測は昔の固定（10・14・21時）のなごりで、
+      #   いちばん混む12〜13時が全体の1〜2%しかなかった。1日3回のうち
+      #     昼   9〜14時 … 6日で一巡（(D+5)%6）
+      #     夕方 15〜20時 … 昼のちょうど6時間後
+      #     夜〜朝 21〜翌8時 … 12日で一巡（(7D+11)%12 番目。毎日7つずつ進めて、前の日の回と近づかないようにする）
+      #   これで回と回の間はいつも6時間以上（最長19時間）、どの時間帯にも7つの曜日が回ってくる（1年を総当たりで確認）。
+      #   一巡の日数を7の倍数にしないので、同じ時間帯が同じ曜日ばかりにならない。回数は1日3回のままで先方の負荷は変わらない。
       # GITHUB_TOKEN からの workflow_dispatch は起動できる
-      - name: dispatch Times crawl (every 8h, shifted 1h per day)
+      - name: dispatch Times crawl (3 per day, weighted to daytime)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           H=$(TZ=Asia/Tokyo date +%-H); D=$(TZ=Asia/Tokyo date +%-j)
-          if [ $(( (H + 24 - D % 8) % 8 )) -eq 2 ]; then
-            gh workflow run crawl-times.yml --ref main -R "$GITHUB_REPOSITORY" && echo "タイムズの巡回を起動（JST ${H}時）"
+          A=$(( 9 + (D + 5) % 6 )); B=$(( A + 6 )); C=$(( (21 + (7 * D + 11) % 12) % 24 ))
+          if [ "$H" -eq "$A" ] || [ "$H" -eq "$B" ] || [ "$H" -eq "$C" ]; then
+            gh workflow run crawl-times.yml --ref main -R "$GITHUB_REPOSITORY" && echo "タイムズの巡回を起動（JST ${H}時・今日は ${A}・${B}・${C}時）"
           else
-            echo "タイムズの巡回は起動しない（JST ${H}時）"
+            echo "タイムズの巡回は起動しない（JST ${H}時・今日は ${A}・${B}・${C}時）"
           fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
