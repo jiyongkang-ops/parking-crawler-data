@@ -1,14 +1,14 @@
 {
- "at": "2026-10-17T14:13:49.358Z",
+ "at": "2026-10-17T18:56:38.902Z",
  "workflow": "crawl-ecolo",
  "only": "ecolo",
  "targets": [
   {
    "op": "ecolo",
    "label": "エコロパーク",
-   "ok": true,
-   "n": 676,
-   "reason": null
+   "ok": false,
+   "n": 0,
+   "reason": "257件取りに行って0件"
   }
  ]
 }
