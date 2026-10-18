@@ -16,9 +16,9 @@ import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched } from "./cache-age.js";
 import {
-  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone,
+  getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
 } from "./repark-enumerate.js";
-import { parseTimesDetail } from "./times.js";
+import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
 import { detailUrl as mkpDetailUrl, parseMkpDetail } from "./mkp.js";
 import { getAllMkpIds } from "./mkp-enumerate.js";
@@ -85,6 +85,7 @@ const STATE = {
 //   keyName : 解析関数に渡す名前（{ id } / { url } / { code } / { parkId }）
 //   minDelay: 既定より長く空ける社（タイムズは先方が商用botを名指しで断っているため）
 //   hours   : 満空が取れる社。巡回のたび「その時刻を見た」を記録して時間帯を均す
+//   priorityKey: 一覧の1件 → 優先物件の番号。一覧の書き方と Advisor の番号が違う社だけ付ける（2026-10-17）
 const ROLLING_SITES = [
   { op: "repark", label: "三井のリパーク", enumerate: getAllParkIds, detailUrl: reparkDetailUrl, parse: parseReparkDetail,
     idsCache: STATE.reparkSitemapCache, stateFile: STATE.reparkCrawlState, defaultPerRun: 1000,
@@ -92,7 +93,9 @@ const ROLLING_SITES = [
   { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
     idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
     keyName: "url", minDelay: config.timesMinDelayMs ?? 6000,
-    hours: true },   // 2026-09: 詳細ページの周辺一覧から満空が読めるので、時間帯を均して回す
+    hours: true,     // 2026-09: 詳細ページの周辺一覧から満空が読めるので、時間帯を均して回す
+    // 一覧はページのURL、優先物件は BUK… で届くので、URL から BUK を取り出して照合する（2026-10-17）
+    priorityKey: bukCode },
   { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
     idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
@@ -396,16 +399,29 @@ async function main() {
       if (!Number.isFinite(gapMin) || gapMin < 0) throw new Error(`ROLLING_PASS_GAP_MIN が数値ではありません: ${process.env.ROLLING_PASS_GAP_MIN}`);
       const gapMs = gapMin * 60_000;
       const perPass = Math.max(1, Math.ceil(perRun / passes));
-      const prio = priorityIds(rolling.op).length;
-      console.log(
-        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件${prio ? ` / 優先${prio}件（3時間おき）` : ""} / ` +
-        `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
-        `${passes > 1 ? `・${gapMin}分あける` : ""}）。1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRun))}回実行`
-      );
+      // 優先物件は一覧の書き方に読み替えてから渡す（タイムズは BUK… → ページのURL）。
+      // ログには「当たった件数」を出す。以前は届いた件数を出していたので、タイムズで1件も当たっていないのに
+      // 「優先622件」と表示され、気づけなかった（2026-10-17。本人指示: 直せるものは直して）
+      const want = priorityIds(rolling.op);
+      const { ids: prio, missing: prioMissing } = matchPriority(want, ids, rolling.priorityKey);
+      // 優先物件を取り直す間隔。毎時回るリパークは3時間おき。1日3回のタイムズで3時間にすると毎回621件を
+      // 取り直して全国の1巡が約25日に延びるので、事業者ごとに config で変えられるようにする（2026-10-17）
+      const prioMinAgeH = Number(config[`${rolling.op}PriorityMinAgeHours`]) || 3;
       // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
       // 予算内で切り上げ、状態は50件ごとに書いておく。
       // 分割の待ち時間（pausedMs）は予算から除く。除かないと待った分だけ取得が削られる
-      const budgetMs = (Number(process.env.ROLLING_BUDGET_MIN) || 45) * 60_000;
+      const budgetMin = Number(process.env.ROLLING_BUDGET_MIN) || 45;
+      const budgetMs = budgetMin * 60_000;
+      // 1巡の目安は「予算内で取れる件数」で割る。perRun だけで割ると、タイムズは45分（約450件）で
+      // 切り上げているのに「1巡目安: 約8回」と出て、実際の約16日（約50回）とかけ離れていた（2026-10-17）
+      const perRunCap = Math.min(perRun, Math.floor(budgetMs / (rolling.minDelay ?? config.minDelayMs)));
+      console.log(
+        `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件` +
+        `${want.length ? ` / 優先${prio.length}件（${prioMinAgeH}時間おき${prioMissing ? `・一覧に無い${prioMissing}件` : ""}）` : ""} / ` +
+        `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
+        `${passes > 1 ? `・${gapMin}分あける` : ""}・予算${budgetMin}分で約${perRunCap}件まで）。` +
+        `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRunCap))}回実行（優先の取り直しぶんは別）`
+      );
       const startedAt = Date.now();
       let pausedMs = 0;
       const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
@@ -419,7 +435,7 @@ async function main() {
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
         const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
-          priority: priorityIds(rolling.op) });
+          priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3 });
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
         if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }

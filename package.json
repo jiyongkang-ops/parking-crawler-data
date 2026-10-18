@@ -7,7 +7,8 @@
     "crawl": "node src/run.js",
     "dashboard": "node src/dashboard.js",
     "export": "node src/export-csv.js",
-    "analyze": "node analyzer/analyze.mjs"
+    "analyze": "node analyzer/analyze.mjs",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "cheerio": "^1.0.0"
