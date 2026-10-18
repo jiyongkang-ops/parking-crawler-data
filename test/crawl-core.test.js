@@ -485,45 +485,61 @@ function naviFiles(n) {
   return { codes, fetched, files: { "data/navipark-codes.txt": codes.join("\n") + "\n", "data/navipark-codes.txt.fetched": fetched } };
 }
 
-test("ナビパーク: robots.txt が 503 なら一覧を作り直さない（上書きしない・取得日を進めない）。health は ok:false", () => {
+// ナビパークの一覧づくりの守りは times-enumerate.js と同じ形（前の一覧の9割・14日で知らせる・失敗のあと20時間あける）。
+// 細かいことは test/navipark.test.js で確かめる。ここでは run.js を通しで動かしたときの形を見る
+test("ナビパーク: robots.txt が 503 なら一覧を作り直さない（上書きしない・取得日を進めない）。巡回も見送り、health は ok:false", () => {
   const { files, fetched } = naviFiles(12);
   const r = runCrawl({ env: { CRAWL_ONLY: "navipark" }, files, routes: { "*robots": { status: 503 }, "*": { status: 200, body: "<html></html>" } } });
-  assert.deepEqual(r.calls, ["https://www.navipark1.com/robots.txt"]);
+  assert.deepEqual(r.calls, ["https://www.navipark1.com/robots.txt"]);   // 一覧も物件も、本ページは1回も送らない
   assert.equal(readText(r.dir, "data/navipark-codes.txt"), files["data/navipark-codes.txt"]);
   assert.equal(readText(r.dir, "data/navipark-codes.txt.fetched"), fetched);
+  assert.match(readText(r.dir, "data/navipark-codes.txt.failed"), /robots\.txt に届かない（相手先の障害の可能性）（HTTP 503）/);
   assert.equal(r.health.length, 1);
   assert.deepEqual([r.health[0].op, r.health[0].ok, r.health[0].n], ["navipark", false, 0]);
-  assert.match(r.health[0].reason, /^一覧: ナビパーク: robots\.txt に届かない（相手先の障害の可能性）（HTTP 503）/);
+  assert.match(r.health[0].reason, /^robots\.txt に届かない（相手先の障害の可能性）のでこの回は見送り（HTTP 503）/);
 });
 
-test("ナビパーク: 取れた一覧が前の一覧の半分未満なら前の一覧を使い（取得日は進めない）、health で知らせる。0件で前も無ければ失敗", async () => {
+test("ナビパーク: robots.txt が 503 で前の一覧も無ければ、空の一覧を書かず health は ok:false（一覧: …）", () => {
+  const r = runCrawl({ env: { CRAWL_ONLY: "navipark" }, routes: { "*robots": { status: 503 }, "*": { status: 200, body: "<html></html>" } } });
+  assert.deepEqual(r.calls, ["https://www.navipark1.com/robots.txt"]);
+  assert.equal(fs.existsSync(path.join(r.dir, "data/navipark-codes.txt")), false);
+  assert.deepEqual([r.health[0].op, r.health[0].ok, r.health[0].n], ["navipark", false, 0]);
+  assert.match(r.health[0].reason, /^一覧: .*robots\.txt に届かない（相手先の障害の可能性）（HTTP 503）/);
+});
+
+test("ナビパーク: 取れた一覧が前の一覧の9割未満なら前の一覧を使う（取得日は進めない）。0件で前も無ければ失敗", async () => {
   const N = "https://www.navipark1.com";
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "navi-"));
-  const cacheFile = path.join(dir, "navipark-codes.txt");
-  const prev = Array.from({ length: 10 }, (_, i) => `P${i}`);
-  fs.writeFileSync(cacheFile, prev.join("\n") + "\n");
-  const routes = (codes) => ({ [`${N}/searchAreaList-13/`]: '<a href="/parkingList-13-101/">千代田区</a>',
-    [`${N}/parkingList-13-101/`]: codes.map((c) => `<a href="/parkingDetail/${c}.html">x</a>`).join("") });
-  _resetRobotsCache();
-  stubFetch(routes(["P1", "P2"]));                                          // 2件だけ（ほかの県は 404）
-  const got = await getAllNaviparkCodes({ cacheFile, cacheMs: 7 * 864e5 });
-  assert.deepEqual([...got], prev);
-  assert.match(got.staleReason, /一覧を作り直せていない: 一覧が2件しか取れなかった（前回10件）/);
-  assert.equal(fs.readFileSync(cacheFile, "utf8"), prev.join("\n") + "\n");
-  assert.equal(fs.existsSync(`${cacheFile}.fetched`), false);               // 取得日は進めない＝次の回に作り直す
-  // 半分以上取れれば書き直す
-  _resetRobotsCache();
-  stubFetch(routes(["P1", "P2", "P3", "P4", "P5", "NEW"]));
-  const ok = await getAllNaviparkCodes({ cacheFile, cacheMs: 7 * 864e5 });
-  assert.deepEqual(ok, ["P1", "P2", "P3", "P4", "P5", "NEW"]);
-  assert.equal(ok.staleReason, undefined);
-  assert.ok(fs.existsSync(`${cacheFile}.fetched`));
-  // 前の一覧も無く0件なら失敗（空の一覧は書かない）
-  const empty = path.join(dir, "empty.txt");
-  _resetRobotsCache();
-  stubFetch({});
-  await assert.rejects(getAllNaviparkCodes({ cacheFile: empty, cacheMs: 7 * 864e5 }), /一覧が0件しか取れなかった（前回0件）/);
-  assert.equal(fs.existsSync(empty), false);
+  try {
+    const cacheFile = path.join(dir, "navipark-codes.txt");
+    const prev = Array.from({ length: 10 }, (_, i) => `P${i}`);
+    fs.writeFileSync(cacheFile, prev.join("\n") + "\n");
+    const routes = (codes) => ({ [`${N}/searchAreaList-13/`]: '<a href="/parkingList-13-101/">千代田区</a>',
+      [`${N}/parkingList-13-101/`]: codes.map((c) => `<a href="/parkingDetail/${c}.html">x</a>`).join("") });
+    const emptyPref = "<html></html>";                                      // ほかの県は物件が無い（200 で市区のリンクが0件）
+    _resetRobotsCache();
+    stubFetch(routes(["P1", "P2"]), emptyPref);                              // 2件だけ
+    const got = await getAllNaviparkCodes({ cacheFile, cacheMs: 7 * 864e5 });
+    assert.deepEqual([...got], prev);
+    assert.match(got.staleReason, /一覧を作り直せていない（取得日不明[^）]*）: 一覧が 10件 → 2件に減った/);   // 取得日が分からないので知らせる
+    assert.equal(fs.readFileSync(cacheFile, "utf8"), prev.join("\n") + "\n");
+    assert.equal(fs.existsSync(`${cacheFile}.fetched`), false);               // 取得日は進めない＝次に作り直す
+    // 9割以上取れれば書き直す（失敗の記録は20時間あけるためのものなので、ここでは消してから試す）
+    fs.rmSync(`${cacheFile}.failed`);
+    _resetRobotsCache();
+    const nine = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "NEW"];
+    stubFetch(routes(nine), emptyPref);
+    const ok = await getAllNaviparkCodes({ cacheFile, cacheMs: 7 * 864e5 });
+    assert.deepEqual(ok, nine);
+    assert.equal(ok.staleReason, undefined);
+    assert.ok(fs.existsSync(`${cacheFile}.fetched`));
+    // 前の一覧も無く0件なら失敗（空の一覧は書かない）
+    const empty = path.join(dir, "empty.txt");
+    _resetRobotsCache();
+    stubFetch({}, emptyPref);
+    await assert.rejects(getAllNaviparkCodes({ cacheFile: empty, cacheMs: 7 * 864e5 }), /市区のリンクが1つもありません/);
+    assert.equal(fs.existsSync(empty), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("一覧が0件の回は health を ok:false にする（取る物件が無い＝成功にしない）", () => {
