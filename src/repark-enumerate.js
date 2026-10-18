@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
+import { writeFileAtomic } from "./write-atomic.js";
 
 const SITEMAP_URL = "https://www.repark.jp/sitemap_park.xml";
 
@@ -42,18 +43,29 @@ export async function getAllParkIds({ cacheFile, cacheMs }) {
 // こうすると実行がいつ走ろうと、24時間ぶんの穴が順に埋まっていく。
 export function loadCrawlState(stateFile) {
   const abs = path.resolve(stateFile);
-  if (!fs.existsSync(abs)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(abs, "utf8"));
-  } catch {
-    return {};
+  let state = {};
+  if (fs.existsSync(abs)) {
+    try { state = JSON.parse(fs.readFileSync(abs, "utf8")); } catch { state = {}; }
   }
+  openedStates.set(abs, state);
+  return state;
+}
+
+// この実行で読み込んだ巡回状態（絶対パス -> 状態）。巡回が止められたとき・途中の例外で落ちたときに
+// flushCrawlStates で書き出す。観測（料金・満空）は取るたびに追記しているが、状態は50件ごとと各回の終わりにしか
+// 書いていないので、その間に取った物件が「取っていない」ことになり、次の回にまた取りに行っていた（2026-10-18）
+const openedStates = new Map();
+/** 読み込んだ巡回状態をすべて書き出す（書き終わった社をもう一度書いても中身は同じ）。書いた数を返す */
+export function flushCrawlStates() {
+  for (const [abs, state] of openedStates) saveCrawlState(abs, state);
+  return openedStates.size;
 }
 
 export function saveCrawlState(stateFile, state) {
   const abs = path.resolve(stateFile);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
-  fs.writeFileSync(abs, JSON.stringify(state, null, 0));
+  // 一時ファイルに書いてから置き換える。書いている途中で止められても、壊れた JSON を残さない（2026-10-18）
+  writeFileAtomic(abs, JSON.stringify(state, null, 0));
   // ここで markFetched は呼ばない。取得日の記録は「物件一覧」のためのもので、
   // 巡回状態は毎回書き換わる別物（付けると不要な .fetched が毎回生まれる）
 }

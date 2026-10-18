@@ -24,9 +24,12 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
-      - run: npm run crawl
+      # exec で node を手順のいちばん上のプロセスにする（中身は package.json の crawl と同じ）。ランナーは時間切れ・取り消しのとき
+      # 手順のいちばん上にだけ SIGINT を送るので、npm run crawl だと node に届かず、止めた後も取得と追記が続いていた（2026-10-18 点検）。
+      # node は SIGINT を受けると、そこまでの巡回状態と health（巡回全体 NG）を書いてすぐ終わる（src/run.js の最後）
+      - run: exec node src/run.js
         # ジョブの時間切れ（350分）より10分早く巡回を止め、下のコミットの手順の時間を残す。
-        # ジョブごと時間切れになると、コミットの手順も動かずにその回の観測が消える（2026-10-18）
+        # ジョブごと時間切れにすると、コミットの手順の時間が残らず、その回の観測を失うおそれがある（2026-10-18）
         timeout-minutes: 340
         env:
           CRAWL_ONLY: "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu"
@@ -36,6 +39,12 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
+          # 巡回（node）が残っていたら止めてから git add する。ふつうは上の exec で巡回の手順と一緒に終わっているが、
+          # 残っていると git pull の間も満空の共有ファイルに追記し続け、pull とコミットが失敗する（2026-10-18 点検）
+          if pkill -INT -f 'node src/run.js'; then
+            for i in $(seq 1 20); do pgrep -f 'node src/run.js' >/dev/null || break; sleep 1; done
+            pkill -KILL -f 'node src/run.js' || true
+          fi
           # 列挙失敗でファイルが無い社があっても他社のデータを失わないよう data/ 配下をまとめて追加
           git add -A data/
           if ! git diff --cached --quiet; then
