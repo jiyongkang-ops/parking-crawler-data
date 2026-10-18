@@ -11,6 +11,15 @@ import { politeFetch } from "./polite-fetch.js";
 
 const SITEMAP_URL = "https://www.repark.jp/sitemap_park.xml";
 
+/** sitemap（www 版の detail URL）から park= の値だけを重複なく拾う。一覧のキャッシュ（XML のまま）を読むときにも使う */
+export function parkIdsFromSitemap(xml) {
+  const ids = new Set();
+  const re = /result\/detail\/\?park=(REP\d+)/g;
+  let m;
+  while ((m = re.exec(String(xml)))) ids.add(m[1]);
+  return [...ids];
+}
+
 // sitemap をローカルにキャッシュし、parkId 一覧を返す。
 export async function getAllParkIds({ cacheFile, cacheMs }) {
   let xml = null;
@@ -26,12 +35,7 @@ export async function getAllParkIds({ cacheFile, cacheMs }) {
     fs.writeFileSync(abs, xml);
     markFetched(abs);
   }
-  // www 版の detail URL から park= の値だけを重複なく拾う
-  const ids = new Set();
-  const re = /result\/detail\/\?park=(REP\d+)/g;
-  let m;
-  while ((m = re.exec(xml))) ids.add(m[1]);
-  return [...ids];
+  return parkIdsFromSitemap(xml);
 }
 
 // ローリング状態（parkId -> 最終取得ISO、または "ISO|時間帯マスク36進"）を読み書き。
@@ -59,12 +63,30 @@ export function saveCrawlState(stateFile, state) {
 }
 
 const ALL_HOURS = (1 << 24) - 1;
-/** 消えた物件（404）を寝かせる期間。
+/** 消えた物件（404）を寝かせる期間の下限。
  *  もとは「一覧を7日ごとに作り直すから7日」としていたが、実際に作り直してみると
  *  リパークの一覧は2か月変わっておらず、404の975件がそのまま載っていた。
- *  7日ごとに975件の404を投げ直すだけになるので、時間では長めに置き、
- *  **一覧の中身が変わったときに起こす**（unparkGone）のを主な復帰の合図にする。 */
+ *  7日ごとに975件の404を投げ直すだけになるので、時間では長めに置く。
+ *  一覧に新しく載った番号は、期限を待たずに起こす（unparkGone）。 */
 const GONE_MS = 30 * 864e5;
+/** 寝かせる期間を物件ごとにずらす幅（日）。30日＋（番号のハッシュ％31）日＝30〜60日 */
+const GONE_SPREAD_DAYS = 31;
+
+/** 物件ごとの寝かせる期間（30〜60日）。番号だけから決まる（毎回同じ値）。
+ *  一律30日だと、同じ日に寝かせた物件が30日後に一斉に起きる。リパークでは 9/12 に寝かせた約975件が
+ *  10/12 に一度に起き、2回の巡回で962件の404をまとめて投げ、その回の取得と満空の観測が約800行失われた。
+ *  10/12 に寝かせ直した964件も 11/11 に同じ山になるところだった。番号のハッシュで31日に散らすと、
+ *  1日あたり約31件（毎時の回で1〜2件）にならされる。状態の値の形（"GONE|ISO"）は変えない（studio-index.mjs が読む） */
+export function goneMsOf(id) {
+  // FNV-1a（32ビット）。番号の末尾の数字が並んでいても散るように、最後にもう一度かき混ぜる
+  let h = 0x811c9dc5;
+  const s = String(id);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13;
+  return GONE_MS + ((h >>> 0) % GONE_SPREAD_DAYS) * 864e5;
+}
+/** 寝かせている最中か（GONE で、期限がまだ来ていない） */
+const sleeping = (id, x, nowMs) => x.gone && nowMs - x.t < goneMsOf(id);
 /** 日本時間の「時」。stampState と pickRolling で同じ位置のビットを使うために1か所に置く */
 const jstHour = (ms) => new Date(ms + 9 * 3600e3).getUTCHours();
 /** 24時間ぜんぶ見終わったマスクは「まだ何も見ていない」と同じ扱い（次の一巡に入る） */
@@ -174,25 +196,27 @@ export function listHash(ids) {
   return `${ids.length}:${(h >>> 0).toString(36)}`;
 }
 
-/** 一覧が変わったら、寝かせていた物件を起こす。
- *  先方が物件を出し入れしたということなので、404だったものが復活している見込みがある。
- *  逆に一覧が変わらないうちは、何度叩いても404のままなので起こさない。 */
-export function unparkGone(state, ids) {
+/** 一覧に新しく載った物件のうち、寝かせていたものを起こす。
+ *  先方が物件を載せ直したということなので、404だったものが復活している見込みがある。
+ *  以前は一覧が1件でも変わると、一覧の中の寝かせた物件を全部起こしていた。あなぶきパークでは 10/12 に一覧が
+ *  792→793 件に1件増えただけで寝かせた68件を起こし、68件すべてがまた404だった。そこで前の一覧（prevIds。
+ *  run.js が一覧を作り直す前のファイルから読む）と比べ、前の一覧に無く今回載った番号だけを起こす。
+ *  前の一覧が分からないときは何も起こさない（寝かせる期限 goneMsOf が切れれば普通に戻る） */
+export function unparkGone(state, ids, prevIds = null) {
   const h = listHash(ids);
   if (state._list === h) return 0;
-  // 記録が無い初回は、一覧が変わったかどうか分からない。起こさずに指紋だけ控える。
-  // ここで起こすと、変わっていない一覧に対して寝かせた全件（リパークで975件）を
-  // 叩き直すことになる
-  if (state._list === undefined) { state._list = h; return 0; }
+  // 記録が無い初回は、一覧が変わったかどうか分からない。起こさずに指紋だけ控える
+  if (state._list === undefined || !prevIds?.length) { state._list = h; return 0; }
+  const before = new Set(prevIds);
   let n = 0;
-  for (const id of ids) if (String(state[id] ?? "").startsWith("GONE|")) { delete state[id]; n++; }
+  for (const id of ids) if (!before.has(id) && String(state[id] ?? "").startsWith("GONE|")) { delete state[id]; n++; }
   state._list = h;
   return n;
 }
 
 /** 生きている（寝かせていない）物件の数。1周の回数を決めるのに使う */
 export function countLive(allIds, state, nowMs = Date.now()) {
-  return allIds.filter((id) => { const x = parseState(state[id]); return !(x.gone && nowMs - x.t < GONE_MS); }).length;
+  return allIds.filter((id) => !sleeping(id, parseState(state[id]), nowMs)).length;
 }
 
 /** 優先物件の番号を、巡回の一覧の書き方に読み替える。
@@ -221,7 +245,7 @@ export function pickRolling(allIds, state, n, { spreadHours = false, at = null, 
   const st = (id) => parsed.get(id);
   // 消えた物件は寝かせる。期限が切れたら普通に戻る（本当に復活していれば取れる）
   const nowMs = new Date(at ?? Date.now()).getTime();
-  const live = allIds.filter((id) => { const x = st(id); return !(x.gone && nowMs - x.t < GONE_MS); });
+  const live = allIds.filter((id) => !sleeping(id, st(id), nowMs));
   // 優先物件（レポートで実際に見ている周りの物件）は、ローリングの順番を待たずに先に取る。
   // ただし前回から priorityMinAgeMs 空いているものだけ。毎時走っても同じ物件を毎時は叩かない
   // （既定3時間おき＝1日8回。全国を毎時回すより先方の負荷を桁違いに抑えつつ、重みは1週間で十分に付く）。

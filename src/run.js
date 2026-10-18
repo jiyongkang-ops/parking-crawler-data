@@ -17,7 +17,7 @@ import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
-  isTransient, recordTransient, makeBreaker, pickDropped,
+  isTransient, recordTransient, makeBreaker, pickDropped, parkIdsFromSitemap,
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -88,10 +88,11 @@ const STATE = {
 //   hours   : 満空が取れる社。巡回のたび「その時刻を見た」を記録して時間帯を均す
 //   priorityKey: 一覧の1件 → 優先物件の番号。一覧の書き方と Advisor の番号が違う社だけ付ける（2026-10-17）
 //   confirmDropped: 一覧から消えた物件を、一覧を作り直したあと1回だけ取りに行き、閉鎖（404）を確かめる（2026-10-18）
+//   readList: 一覧のキャッシュ（idsCache）の中身 → 番号の配列。1行1件でない社だけ付ける（リパークは sitemap の XML のまま持つ）
 const ROLLING_SITES = [
   { op: "repark", label: "三井のリパーク", enumerate: getAllParkIds, detailUrl: reparkDetailUrl, parse: parseReparkDetail,
     idsCache: STATE.reparkSitemapCache, stateFile: STATE.reparkCrawlState, defaultPerRun: 1000,
-    keyName: "parkId", hours: true },
+    keyName: "parkId", hours: true, readList: parkIdsFromSitemap },
   { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
     idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
     keyName: "url", minDelay: config.timesMinDelayMs ?? 6000,
@@ -140,6 +141,14 @@ const ROLLING_SITES = [
   { op: "odakyu", label: "小田急パーキング", enumerate: getAllOdakyuIds, detailUrl: odakyuUrl, parse: parseOdakyuDetail,
     idsCache: "data/odakyu-ids.txt", stateFile: "data/odakyu-crawl-state.json", defaultPerRun: 100 },
 ];
+
+/** 一覧を作り直す前のファイルから、前の一覧を読む（unparkGone で「新しく載った番号」を見分けるため）。無ければ null */
+function readPrevList(rolling) {
+  try {
+    const text = fs.readFileSync(rolling.idsCache, "utf8");
+    return rolling.readList ? rolling.readList(text) : text.split("\n").filter(Boolean);
+  } catch { return null; }
+}
 
 function readLastSnapshots(file) {
   const last = new Map();
@@ -397,13 +406,15 @@ async function main() {
     const rolling = ROLLING_SITES.find((x) => x.op === t.operator);
     if (rolling && t.mode === "nationwide") {
       let ids;
+      const prevIds = readPrevList(rolling);   // 作り直す前の一覧（作り直すと上書きされるので先に読む）
       try {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
       } catch (e) { const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${m}`); continue; }
       const state = loadCrawlState(rolling.stateFile);
-      // 一覧が変わったら、404で寝かせていた物件を起こす（復活している見込みがあるため）
-      const woke = unparkGone(state, ids);
-      if (woke) console.log(`[${rolling.label}] 一覧が変わったので、寝かせていた${woke}件を起こす`);
+      // 一覧に新しく載った物件のうち、404で寝かせていたものを起こす（復活している見込みがあるため）。
+      // 一覧が変わっても、前から載っている寝かせた物件は起こさない（寝かせる期限は物件ごとに30〜60日。goneMsOf）
+      const woke = unparkGone(state, ids, prevIds);
+      if (woke) console.log(`[${rolling.label}] 一覧に新しく載った${woke}件は寝かせていたので起こす`);
       // 1周の回数は「生きている物件」で割る。404で寝かせた分を含めると1周が短くなる
       const liveCount = countLive(ids, state);
       const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);

@@ -3,6 +3,8 @@
 //   ・403 で断られているスペース二十四・小田急パーキングに毎回一覧を取りに行っていた。ルパルクも 403 と分かっている3ページ目を叩いていた
 //   ・robots.txt に届かない（相手先が落ちている）ときも「制限なし」として本ページを取りに行き、エコロでは45分間に257回送っていた。
 //     robots.txt が 403（断られている）でも本ページを送っていた
+//   ・404 で寝かせた物件が一律30日で一斉に起き、リパークで2回の巡回に962件の 404 をまとめて投げていた。
+//     一覧が1件変わるだけで寝かせた物件を全部起こしていた（あなぶきパークで68件）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -16,7 +18,7 @@ import { config } from "../config.js";
 process.env.LIST_REFRESH_MAX = "1000";
 const { getAllLeparcIds } = await import("../src/leparc-enumerate.js");
 const { politeFetch, fetchErrorText, _resetRobotsCache } = await import("../src/polite-fetch.js");
-const { isTransient, listHash } = await import("../src/repark-enumerate.js");
+const { isTransient, listHash, goneMsOf, unparkGone, countLive, pickRolling, parkIdsFromSitemap } = await import("../src/repark-enumerate.js");
 config.minDelayMs = 0;   // テストでは待たない
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -225,4 +227,65 @@ test("通しの巡回: 本ページが全部 503 なら8件で打ち切り、8�
   assert.equal(health[0].ok, false);
   assert.equal(health[0].kind, "transient");
   assert.match(health[0].reason, /8件続けて取れず。最後は HTTP 503/);
+});
+
+// ---- 3. 404 の一斉取り直しをならす ----
+
+test("寝かせる期間は番号ごとに30〜60日に散り、同じ日に寝かせた964件が1日あたり約30件ずつ起きる", () => {
+  // 10/12 に寝かせたリパークの964件と同じ形の番号
+  const ids = Array.from({ length: 964 }, (_, i) => `REP${String(10000 + i * 97).padStart(7, "0")}`);
+  const days = ids.map((id) => goneMsOf(id) / 864e5);
+  for (const d of days) assert.ok(Number.isInteger(d) && d >= 30 && d <= 60, String(d));
+  assert.equal(goneMsOf(ids[0]), goneMsOf(ids[0]));          // 毎回同じ（番号だけで決まる）
+  const perDay = new Map();
+  for (const d of days) perDay.set(d, (perDay.get(d) ?? 0) + 1);
+  assert.equal(perDay.size, 31);                              // 31日に散る
+  assert.ok(Math.max(...perDay.values()) <= 60, `1日の最大 ${Math.max(...perDay.values())}件`);   // 一律30日なら964件が1日に来る
+  // 寝かせた日から30日たっても、起きるのは30日の組だけ
+  const at = "2026-10-12T02:00:00.000Z";
+  const state = Object.fromEntries(ids.map((id) => [id, `GONE|${at}`]));
+  const after30 = Date.parse(at) + 30 * 864e5 + 3600e3;
+  assert.equal(countLive(ids, state, after30), perDay.get(30));
+  const picked = pickRolling(ids, state, 2000, { at: new Date(after30).toISOString() });
+  assert.equal(picked.length, perDay.get(30));
+  // 61日たてば全部起きる
+  assert.equal(countLive(ids, state, Date.parse(at) + 61 * 864e5), ids.length);
+});
+
+test("一覧に新しく載った番号だけを起こし、前から載っている寝かせた物件は起こさない", () => {
+  const G = "GONE|2026-10-12T00:00:00.000Z";
+  const prev = ["A", "B", "C"];
+  const now = ["A", "B", "C", "D", "E"];
+  const state = { _list: listHash(prev), A: "2026-10-17T00:00:00.000Z", B: G, D: G };
+  assert.equal(unparkGone(state, now, prev), 1);              // D だけ（B は前から載っている）
+  assert.equal(state.B, G);
+  assert.equal(state.D, undefined);
+  assert.equal(state._list, listHash(now));
+  assert.equal(unparkGone(state, now, prev), 0);              // 同じ一覧ではもう起こさない
+  // 前の一覧が分からなければ起こさない（期限が切れれば普通に戻る）
+  const s2 = { _list: listHash(prev), B: G, D: G };
+  assert.equal(unparkGone(s2, now, null), 0);
+  assert.equal(s2.D, G);
+  // 初回（指紋が無い）は控えるだけ
+  const s3 = { D: G };
+  assert.equal(unparkGone(s3, now, prev), 0);
+  assert.equal(s3.D, G);
+});
+
+test("通しの巡回: 一覧を作り直す前のファイルと比べ、新しく載った寝かせた物件だけを起こす（リパークは sitemap の XML から読む）", () => {
+  const xml = (ids) => `<urlset>${ids.map((i) => `<url><loc>https://www.repark.jp/parking_user/time/result/detail/?park=${i}</loc></url>`).join("")}</urlset>`;
+  assert.deepEqual(parkIdsFromSitemap(xml(["REP0000001", "REP0000002"])), ["REP0000001", "REP0000002"]);
+  const prev = ["REP0000001", "REP0000002", "REP0000003"];
+  const now = ["REP0000001", "REP0000002", "REP0000003", "REP0000004"];
+  const G = `GONE|${new Date(Date.now() - 864e5).toISOString()}`;
+  const state = { _list: listHash(prev), REP0000001: new Date().toISOString() + "|0", REP0000002: new Date().toISOString() + "|0", REP0000003: G, REP0000004: G };
+  const { calls, dir, log } = runCrawl({ env: { CRAWL_ONLY: "repark", ROLLING_PER_RUN: "5" },
+    files: { "data/repark-sitemap.xml": xml(prev), "data/repark-crawl-state.json": JSON.stringify(state) },   // .fetched が無い＝作り直す
+    routes: { "https://www.repark.jp/sitemap_park.xml": { status: 200, body: xml(now) }, "*": { status: 404 } } });
+  assert.match(log, /一覧に新しく載った1件は寝かせていたので起こす/);
+  const after = JSON.parse(fs.readFileSync(path.join(dir, "data/repark-crawl-state.json"), "utf8"));
+  assert.equal(after.REP0000003, G);                          // 前から載っている → 起こさない（取りに行かない）
+  assert.ok(!calls.some((u) => u.includes("REP0000003")));
+  assert.ok(calls.some((u) => u.includes("REP0000004")));     // 新しく載った → 起こして確かめる（404 なので寝かせ直す）
+  assert.match(after.REP0000004, /^GONE\|/);
 });
