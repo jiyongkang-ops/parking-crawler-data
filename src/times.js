@@ -52,7 +52,8 @@ export function detailUrlFromParkId(parkId) {
 }
 
 // BUKコード（物件の安定キー）を URL から取り出す
-function bukCode(url) {
+// 優先物件（BUK… で届く）を巡回の一覧（URL）と照合するのにも使う（2026-10-17）
+export function bukCode(url) {
   const m = url.match(/park-detail-(BUK\d+)/);
   return m ? m[1] : url;
 }
