@@ -22,8 +22,11 @@ jobs:
   crawl-times:
     runs-on: ubuntu-latest
     # 取得90分（クローラ側で切り上げ）＋ npm ci・一覧の作り直し（7日に1回）・コミットと push のやり直しで数分
-    # （実測: 45分の予算のころは1回46〜49分。前後は4分以内）。ここで殺されるとコミットの手順が動かず、
-    # その回の観測が丸ごと消えるので、30分の余裕を見る（2026-10-17。以前は350分）。
+    # （実測: 45分の予算のころは1回46〜49分、90分にした10/18は91〜94分。前後は4分以内）。30分の余裕を見る（2026-10-17。以前は350分）。
+    # 2026-10-17 まではここで殺されるとコミットの手順が動かず、その回の観測が丸ごと消えた。
+    # 2026-10-18〜: 巡回の手順は110分で止める。止めるときに node へ直接 SIGINT が届くよう `exec node src/run.js` で動かし、
+    #   node はそこまでの巡回状態と health（巡回全体 NG）を書いてすぐ終わる。コミットの手順は if: always() で必ず動かすので、
+    #   途中の例外・時間切れ・手での取り消しのどれでも、そこまでの観測・巡回状態・health がコミットされる。
     # 起動（crawl.yml）の回と回の間は最短6時間なので、120分かかっても次の回とは重ならない（2年分を計算で確認）
     timeout-minutes: 120
     concurrency:
@@ -35,7 +38,13 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
-      - run: npm run crawl
+      # exec で node を手順のいちばん上のプロセスにする（中身は package.json の crawl と同じ）。ランナーは時間切れ・取り消しのとき
+      # 手順のいちばん上にだけ SIGINT を送るので、npm run crawl だと node に届かず、止めた後も取得と追記が続いていた（2026-10-18 点検）。
+      # node は SIGINT を受けると、そこまでの巡回状態と health（巡回全体 NG）を書いてすぐ終わる（src/run.js の最後）
+      - run: exec node src/run.js
+        # ジョブの時間切れ（120分）より10分早く巡回を止め、下のコミットの手順の時間を残す。
+        # ジョブごと時間切れにすると、コミットの手順の時間が残らず、その回の観測を失うおそれがある（2026-10-18）
+        timeout-minutes: 110
         env:
           CRAWL_ONLY: "times"
           OUT_FILE: "data/prices-times.jsonl"
@@ -47,9 +56,16 @@ jobs:
           # 待ちの25分だけジョブが延びる（取れる件数は増えない）ので、1回に固定する（2026-10-17）
           ROLLING_PASSES: "1"
       - name: commit data if changed
+        if: always()   # 途中で殺されても、そこまでの観測は残す
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
+          # 巡回（node）が残っていたら止めてから git add する。ふつうは上の exec で巡回の手順と一緒に終わっているが、
+          # 残っていると git pull の間も満空の共有ファイルに追記し続け、pull とコミットが失敗する（2026-10-18 点検）
+          if pkill -INT -f 'node src/run.js'; then
+            for i in $(seq 1 20); do pgrep -f 'node src/run.js' >/dev/null || break; sleep 1; done
+            pkill -KILL -f 'node src/run.js' || true
+          fi
           # 列挙失敗でファイルが無い社があっても他社のデータを失わないよう data/ 配下をまとめて追加
           git add -A data/
           if ! git diff --cached --quiet; then

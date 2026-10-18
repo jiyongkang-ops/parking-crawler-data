@@ -59,6 +59,8 @@ import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
 import { getAllKeioIds } from "./keio-enumerate.js";
 import { detailUrl as odakyuUrl, parseOdakyuDetail } from "./odakyu.js";
 import { getAllOdakyuIds } from "./odakyu-enumerate.js";
+import { flushCrawlStates } from "./repark-enumerate.js";
+import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
 import { gapFilled } from "./record-gap.js";
 
@@ -208,11 +210,45 @@ const health = [];
 // extra … 足りないときだけ足す項目（kind: "blocked" など）。Advisor は op・label・ok・n・reason だけを読む
 const hp = (op, label, ok, n, reason = null, extra = null) => health.push({ op, label, ok, n, reason, ...(extra ?? {}) });
 function writeHealth() {
-  const name = (process.env.HEALTH_NAME || process.env.GITHUB_WORKFLOW || process.env.CRAWL_ONLY || "local").replace(/[^\w.-]+/g, "_");
+  const name = healthName();
+  writeHealthFile(name, { at: new Date().toISOString(), workflow: name, only: process.env.CRAWL_ONLY || null, targets: health });
+}
+function healthName() {
+  return (process.env.HEALTH_NAME || process.env.GITHUB_WORKFLOW || process.env.CRAWL_ONLY || "local").replace(/[^\w.-]+/g, "_");
+}
+function writeHealthFile(name, body) {
   try {
     fs.mkdirSync("data/health", { recursive: true });
-    fs.writeFileSync(`data/health/${name}.json`, JSON.stringify({ at: new Date().toISOString(), workflow: name, only: process.env.CRAWL_ONLY || null, targets: health }, null, 1) + "\n");
+    writeFileAtomic(`data/health/${name}.json`, JSON.stringify(body, null, 1) + "\n");
   } catch (e) { console.error(`[health] 書けませんでした: ${e.message}`); }
+}
+// 落ちた回（途中の例外・止められた）の health。前の回の事業者ごとの結果（targets）と at はそのまま残し、
+// 「巡回全体 NG」の1行だけを足す（at は進めない。落ちた時刻は failedAt）。
+// 以前は落ちるまでに済んだ事業者だけで前の回の行を丸ごと置き換えていたので、Advisor の crawl-health が
+// 続いている失敗（スペース二十四など）を「また取れるようになった」と知らせて記録を消し、studio-index は
+// 一覧型（パークネット・ザ・パークなど）の「最後に確かめた日」を料金の記録の日に戻して「60日より前」の印を
+// 誤って付けていた（2026-10-18 点検）。落ちるまでに済んだ事業者の結果は partial に残す（読む側は使わない。調べるとき用）
+function writeFailedHealth(reason) {
+  const name = healthName();
+  const run = { op: "run", label: "巡回全体", ok: false, n: 0, reason };
+  let prev = null;
+  try { prev = JSON.parse(fs.readFileSync(`data/health/${name}.json`, "utf8")); } catch { /* 初回・壊れている */ }
+  const now = new Date().toISOString();
+  if (!prev?.at || !Array.isArray(prev.targets)) {
+    // 前の回の結果が無い（初回など）。落ちるまでに済んだ事業者と「巡回全体 NG」を書く
+    writeHealthFile(name, { at: now, workflow: name, only: process.env.CRAWL_ONLY || null, targets: [...health, run] });
+    return;
+  }
+  // 前の回も落ちていたときの「巡回全体」は今回のものに置き換える（同じ行が積み重ならないように）
+  writeHealthFile(name, { ...prev, targets: [...prev.targets.filter((t) => t.op !== "run"), run], failedAt: now, partial: health });
+}
+// 落ちたときの後始末。読み込んだ巡回状態を書き出し（50件ごとの保存の間に取った物件のぶん）、health に「巡回全体 NG」を足す
+function onFailure(reason) {
+  try {
+    const n = flushCrawlStates();
+    if (n) console.error(`[stop] 巡回状態 ${n}件を書き出しました`);
+  } catch (e) { console.error(`[stop] 巡回状態を書けませんでした: ${e.message}`); }
+  writeFailedHealth(reason);
 }
 
 async function main() {
@@ -726,4 +762,21 @@ async function main() {
   );
 }
 
-main().then(writeHealth).catch((e) => { console.error(e); hp("run", "巡回全体", false, 0, String(e?.message ?? e)); writeHealth(); process.exit(1); });
+// 止められたとき（巡回の手順の時間切れ・ジョブの取り消し）。GitHub のランナーは手順を止めるとき、手順のいちばん上の
+// プロセスにだけ SIGINT を送り、7.5秒後に SIGTERM、さらに2.5秒後に kill する（その下のプロセスには何も届かない）。
+// ワークフローの巡回の手順は `exec node src/run.js` で node 自身をいちばん上にしているので、ここに届く。
+// 以前の `npm run crawl` では bash だけが止まり、node は残って共有の満空ファイルに追記し続けたため、
+// コミットの手順の git pull が「Your local changes … would be overwritten」で失敗し、その回の観測が何も残らなかった（2026-10-18 点検）。
+// 観測は取るたびに追記済みなので、巡回状態と health を書いてすぐ終わる（取得の途中でも待たない）
+let stopping = false;
+for (const [sig, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+  process.on(sig, () => {
+    if (stopping) process.exit(code);
+    stopping = true;
+    console.error(`[stop] ${sig} を受けました。ここまでの巡回状態と health を書いて終わります`);
+    onFailure(`${sig} で止められました（巡回の手順の時間切れか、取り消し）`);
+    process.exit(code);
+  });
+}
+
+main().then(writeHealth).catch((e) => { console.error(e); onFailure(String(e?.message ?? e)); process.exit(1); });
