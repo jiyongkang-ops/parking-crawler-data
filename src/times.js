@@ -90,15 +90,103 @@ export function parseTimesCarShare(html) {
   const scd = (html.match(/id="carshareStationLink"[^>]*href="[^"]*[?&]scd=([A-Za-z0-9]+)/) || [])[1] ?? null;
   return on || scd ? { scd } : null;
 }
+
+// ---- 住所 ------------------------------------------------------------------
+// 以前は題名の「最初のかっこ」を住所にしていた。名前にかっこがある施設（「タイムズJR札幌病院（上層階）」
+// 「京都駅ビル（西）」など）では、題名が「名前（上層階）（北海道札幌市…）の時間貸駐車場…」になるので、
+// 「上層階」「平面」「第２」「B1」などを住所として保存していた（最新の行で344件。2026-10-18 点検）。
+// 住所が出ないうえ、国土地理院が別の地名に当てて遠くに置かれる原因になっていた。
+// 住所の中のかっこ（「北海道札幌市白石区本通（北）…」「…鶴馬（大字）…」）でも途中で切れていた（34件）。
+const PREFS = "北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県"
+  + "|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県"
+  + "|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県"
+  + "|宮崎県|鹿児島県|沖縄県";
+// 都道府県のすぐ後に市区町村郡が続くもの。「京都府立医大」「東京都庁」のような名前のかっこは住所にしない
+const PREF_ADDR = new RegExp(`^(?:${PREFS}).{0,10}?[市区町村郡]`);
+// 都道府県が無くても、市区町村郡で始まり番地（数字）のあるもの（例: 札幌市中央区北3条西2）
+const MUNI_ADDR = /^[^\d０-９]{1,10}?[市区町村郡].*(?:[0-9０-９]|丁目|番地)/;
+// 市・区・郡で始まるだけの、ゆるい形（例: 中央区銀座）。題名の最後のかっこにだけ使う。
+// 町・村は「さがみ信用金庫緑町支店」のような名前にも出るので、ここでは使わない
+const MUNI_LOOSE = /^[^\d０-９]{1,5}?[市区郡]/;
+// 市区町村の字を含んでも住所ではない言葉（「京都市総合教育センター」「西宮市立北口」「第2区画」「〜支店」など）
+const NOT_ADDR = /(?:センター|病院|医院|駐車|パーキング|専用|ビル|モール|大学|学校|公園|ホテル|役所|役場|区画|支店|銀行|金庫|店$|[都道府県市区町村]立)/;
+
+const isPrefAddress = (s) => PREF_ADDR.test(s);
+const isMuniAddress = (s) => MUNI_ADDR.test(s) && !NOT_ADDR.test(s);
+
+/** 題名のかっこを外側ごと拾う（右から読むので、住所の中のかっこや名前の閉じ忘れに強い）。 */
+function bracketGroups(s) {
+  const out = [];
+  let depth = 0, end = -1;
+  for (let i = s.length - 1; i >= 0; i--) {
+    const c = s[i];
+    if (c === "）" || c === ")") { if (depth++ === 0) end = i; }
+    else if ((c === "（" || c === "(") && depth > 0 && --depth === 0) {
+      out.unshift({ text: s.slice(i + 1, end).trim(), start: i, end: end + 1 });
+    }
+  }
+  return out;
+}
+
+/** 題名（"名前（住所）の時間貸駐車場・満車/空車・料金情報 ｜タイムズ駐車場検索"）から住所を選ぶ。
+ *  1) 都道府県で始まるかっこ（複数あれば「の時間貸」に近い方）
+ *  2) 無ければ、市区町村郡と番地（数字）を含むかっこ
+ *  3) それも無ければ、「の時間貸」の直前のかっこ。ただし住所らしくなければ null（「上層階」「第２」「B1」「南」は住所にしない）
+ *  戻り値 { address, start }（start は名前の終わり＝住所のかっこの位置） */
+export function timesTitleAddress(title) {
+  const t = String(title ?? "");
+  const cut = t.indexOf("の時間貸");
+  const head = (cut >= 0 ? t.slice(0, cut) : t.split("｜")[0]).trimEnd();
+  const groups = bracketGroups(head);
+  const pick = (g) => (g ? { address: g.text, start: g.start } : null);
+  // 外側ごと拾えたかっこを先に見る。かっこが閉じていない題名でも以前より悪くならないよう、
+  // 以前と同じ読み方（開きから最初の閉じまで）のかっこも後ろに候補として足す
+  const flat = [...head.matchAll(/[（(](.+?)[)）]/g)].map((m) => ({ text: m[1].trim(), start: m.index, end: m.index + m[0].length }));
+  const rev = [...groups].reverse().concat([...flat].reverse());
+  const last = groups.length && groups[groups.length - 1].end === head.length ? groups[groups.length - 1] : null;
+  return pick(rev.find((g) => isPrefAddress(g.text)))
+    ?? pick(rev.find((g) => isMuniAddress(g.text)))
+    ?? (last && MUNI_LOOSE.test(last.text) && !NOT_ADDR.test(last.text) ? pick(last) : null)
+    ?? { address: null, start: -1 };
+}
+
+/** 本文「基本情報」の住所の行（<span itemprop="addressRegion|addressLocality|streetAddress">）。
+ *  名前のかっこに左右されないので題名より確か。住所らしくなければ null（題名から選ぶ） */
+export function timesBodyAddress(html) {
+  const i = html.indexOf("p-basicInfo_table_td_address_txt");
+  if (i < 0) return null;
+  const end = html.indexOf("</p>", i);
+  const block = html.slice(i, end > i ? end : i + 2000);
+  const parts = [...block.matchAll(/itemprop="(?:addressRegion|addressLocality|streetAddress)"[^>]*>([\s\S]*?)<\/span>/g)]
+    .map((m) => stripTags(m[1])).filter(Boolean);
+  const text = parts.length
+    ? parts.join("")
+    // itemprop が無い作りなら、まとまりの文字をそのまま使う（「地図を見る」の画像は文字を持たない）
+    : stripTags((block.match(/^[^>]*>([\s\S]*?)<\/span>\s*(?:<a\b|$)/) || [])[1] ?? "").replace(/\s+/g, "");
+  return text && (isPrefAddress(text) || isMuniAddress(text)) ? text : null;
+}
+
+// 相手先が混み合っているときのページ（HTTP 200 で料金も住所も無い）。
+// 以前は名前「ただいま大変混み合っております」・料金0件の行として記録され、その物件の最新の料金を上書きしていた（2026-10-02 に2件）
+const BUSY_PAGE = /ただいま大変混み合っております/;
+
 export function parseTimesDetail(html, { url, label } = {}) {
   const parkId = bukCode(url ?? "");
 
   // 名称・住所（title: "〇〇（住所）の時間貸駐車場…"）
   const title = (html.match(/<title>([^<]+)<\/title>/) || [])[1] || "";
   const h1 = (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || [])[1];
-  const tm = title.match(/^(.+?)[（(](.+?)[)）]/);
-  const name = (h1 ? stripTags(h1) : tm?.[1]) || title.split("｜")[0] || null;
-  const address = tm?.[2] ?? null;
+  if (BUSY_PAGE.test(title) || (h1 && BUSY_PAGE.test(stripTags(h1)))) {
+    // 例外にすると run.js が [parse error] として記録に書かずに飛ばす（料金の記録を上書きしない）
+    const e = new Error("相手先が混み合っているページ（料金・住所なし）");
+    e.transient = true;
+    throw e;
+  }
+  const fromTitle = timesTitleAddress(title);
+  const titleName = fromTitle.start > 0 ? title.slice(0, fromTitle.start).trim() : (title.match(/^(.+?)[（(]/) || [])[1];
+  const name = (h1 ? stripTags(h1) : titleName) || title.split("｜")[0] || null;
+  // 本文の住所の行を先に使い、無ければ題名から選ぶ
+  const address = timesBodyAddress(html) ?? fromTitle.address;
 
   // 収容台数: "駐車場台数395台"
   const capM = html.match(/(?:駐車場台数|収容台数)\D{0,6}(\d+)\s*台/);
