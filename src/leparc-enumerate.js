@@ -4,7 +4,7 @@
 // 上位40件のみを対象とする（全475件の一部）。総当たりでのID推測は行わない。
 import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
-import { politeFetch } from "./polite-fetch.js";
+import { politeFetch, throwIfRobotsSkipped } from "./polite-fetch.js";
 
 // 取りに行くのは start=0・20 の2ページだけ。3ページ目（start=40）以降は 403 と分かっているので送らない。
 // 以前はループが start<2000 のままで、7日ごとの一覧の作り直しのたびに 403 の3ページ目を1回叩いていた（2026-10-18）
@@ -18,6 +18,7 @@ export async function getAllLeparcIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   const ids = new Set();
   for (let start = 0; start < MAX_START; start += 20) {
     const res = await politeFetch(LIST_URL(start));
+    throwIfRobotsSkipped(res, "ル・パルク一覧");   // 「0件（ページ構造変更の可能性）」と取り違えない
     if (!res.ok) break;
     const found = [...res.html.matchAll(/\/b\/leperc\/info\/(NRP\d+)\//g)].map((m) => m[1]);
     const before = ids.size;

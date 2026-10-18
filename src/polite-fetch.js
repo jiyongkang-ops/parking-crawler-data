@@ -158,5 +158,16 @@ export async function politeFetch(url, opts = {}) {
   return { ok: res.ok, status: res.status, html, location: res.headers.get("location") };
 }
 
+/** 取れなかった理由の短い文。robots.txt で見送ったときは status が null なので、「HTTP null」ではなく見送りの理由を出す */
+export function failText(res) {
+  if (res?.skippedReason) return `${res.skippedReason}${res.robotsError ? `（${res.robotsError}）` : ""}`;
+  return `HTTP ${res?.status}`;
+}
+
+/** robots.txt で断られた・届かない（本ページを送っていない）なら例外にする。一覧の作り直しで、残りのページも同じ答えになるとき用 */
+export function throwIfRobotsSkipped(res, label) {
+  if (res?.blocked || res?.transient) throw new Error(`${label}: ${failText(res)}`);
+}
+
 /** テスト用: robots.txt の控えを消す */
 export function _resetRobotsCache() { robotsCache.clear(); lastRequestAt = 0; }

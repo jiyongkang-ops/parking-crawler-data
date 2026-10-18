@@ -5,7 +5,7 @@
 // 毎回 N 件だけ」取得するローリング方式で、数日かけて全国を1巡する。
 
 import fs from "node:fs";
-import { cacheFresh, markFetched } from "./cache-age.js";
+import { cacheFresh, markFetched, keepPrevIfShrunk } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 
@@ -21,21 +21,22 @@ export function parkIdsFromSitemap(xml) {
 }
 
 // sitemap をローカルにキャッシュし、parkId 一覧を返す。
+// 取れた sitemap の物件が前の一覧の半分未満（途中で切れた・作りが変わったなど。0件を含む）なら、前の一覧を使い続ける
+// （keepPrevIfShrunk。取得日は進めず、health で知らせる）。欠けた sitemap で上書きすると7日間その分を回らなくなるため
 export async function getAllParkIds({ cacheFile, cacheMs }) {
-  let xml = null;
   const abs = path.resolve(cacheFile);
-  if (cacheFresh(abs, cacheMs)) {
-    xml = fs.readFileSync(abs, "utf8");
-  } else {
-    const res = await politeFetch(SITEMAP_URL);
-    if (res.skippedReason) throw new Error(`sitemap: ${res.skippedReason}`);
-    if (!res.ok) throw new Error(`sitemap HTTP ${res.status}`);
-    xml = res.html;
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, xml);
-    markFetched(abs);
-  }
-  return parkIdsFromSitemap(xml);
+  const prev = fs.existsSync(abs) ? parkIdsFromSitemap(fs.readFileSync(abs, "utf8")) : [];
+  if (prev.length && cacheFresh(abs, cacheMs)) return prev;
+  const res = await politeFetch(SITEMAP_URL);
+  if (res.skippedReason) throw new Error(`sitemap: ${res.skippedReason}`);
+  if (!res.ok) throw new Error(`sitemap HTTP ${res.status}`);
+  const ids = parkIdsFromSitemap(res.html);
+  const kept = keepPrevIfShrunk("リパーク", ids, prev);
+  if (kept) return kept;
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, res.html);
+  markFetched(abs);
+  return ids;
 }
 
 // ローリング状態（parkId -> 最終取得ISO、または "ISO|時間帯マスク36進"）を読み書き。
@@ -167,6 +168,36 @@ export function recordTransient(state, key, atIso, { hours = false } = {}) {
 export function makeBreaker(limit = 8) {
   let streak = 0;
   return { fail: () => ++streak >= limit, ok: () => { streak = 0; }, get streak() { return streak; } };
+}
+
+/** 一斉の閉鎖の歯止め（2026-10-18 の点検）。先方がサイトの作り替えや保守で、全ページを同じ所（/misc/404.php や /）へ
+ *  転送したり 404 を返したりすると、その回に取った物件が全部 GONE（30〜60日寝かせ、studio-index.mjs の相場からも外れる）になる。
+ *  一覧はほとんど変わらないので unparkGone でも起こされない。
+ *  answered() … 「前は生きていた物件」（run.js の watch。一覧に載っていて、取った記録があり、寝かせていないもの）で先方が答えた1件。
+ *  closed(id, prev, watch) … 閉鎖とみなして印を付けた1件（prev は印を付ける前の状態の値）。数えるのは watch の分だけ。
+ *    一覧から外れた物件・一覧から消えた物件の確かめ・寝かせた物件の起き抜け・初めての物件は、閉鎖が多くて当たり前なので数えない
+ *    （数えると、正しい閉鎖が続いただけで止まり、戻した物件が次の回も先頭に来て巡回が進まなくなる）。
+ *    watch の閉鎖が min 件以上、かつ answered の ratio 以上になったら true を返す。
+ *  restore(state) … この回に付けた閉鎖の印を、数えなかった分も含めて全部前の値に戻し、戻した件数を返す
+ *    （確かめられていない閉鎖で相場から外さない。正しい閉鎖は次の回以降にまた確かめる）。
+ *  名鉄協商の最初の数回は正しい閉鎖が約22%（今の状態ファイルで試すと、30件を超えてからの割合は最大26%）なので止まらない */
+export function makeMassGone({ min = 30, ratio = 0.5 } = {}) {
+  let answered = 0, counted = 0;
+  const marked = new Map();
+  return {
+    answered: () => { answered++; },
+    closed(id, prev, watch = true) {
+      if (!marked.has(id)) marked.set(id, prev);
+      if (!watch) return false;
+      counted++;
+      return counted >= min && counted >= answered * ratio;
+    },
+    restore(state) {
+      for (const [id, prev] of marked) { if (prev === undefined) delete state[id]; else state[id] = prev; }
+      const n = marked.size; marked.clear(); return n;
+    },
+    get stats() { return { answered, closed: counted, marked: marked.size }; },
+  };
 }
 
 /** 一覧から消えた物件のうち、今の一覧を作ってから一度も確かめていないもの（古い順に max 件）。

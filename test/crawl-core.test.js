@@ -8,6 +8,10 @@
 //   ・名鉄協商の552件（一覧の22%）は掲載終了で /misc/404.php へ転送されていたのに、転送先を読んで「名前なし」で黙って飛ばし、
 //     毎回取りに行っていた
 //   ・料金の記録は料金が変わったときしか書かないので、あとで読めた住所・名前・座標が記録に入らなかった（エコロの76件は住所が一度も無い）
+// 2回目の点検（同じ日）で見つかったこと:
+//   ・カーシェアーズは robots.txt に届かないと残りの一覧を全部「済み」にし、見なかった全ステーションに gone を書いていた
+//   ・ナビパークは robots.txt に届かないと0件の一覧を書いて7日間止まり、health は成功のままだった
+//   ・転送・404 による閉鎖が一斉に起きる（先方のサイトの作り替え・保守）と、その回に取った物件が全部寝かされる
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -24,7 +28,9 @@ const { parseMkpDetail, isClosedRedirect: isMkpClosedRedirect } = await import("
 const { gapFilled, looksLikeAddress } = await import("../src/record-gap.js");
 const { parseEcoloDetail } = await import("../src/ecolo.js");
 const { politeFetch, fetchErrorText, _resetRobotsCache } = await import("../src/polite-fetch.js");
-const { isTransient, listHash, goneMsOf, unparkGone, countLive, pickRolling, parkIdsFromSitemap } = await import("../src/repark-enumerate.js");
+const { isTransient, listHash, goneMsOf, unparkGone, countLive, pickRolling, parkIdsFromSitemap, makeMassGone } = await import("../src/repark-enumerate.js");
+const { getAllNaviparkCodes } = await import("../src/navipark-enumerate.js");
+const { getAllKyotechIds } = await import("../src/kyotech-enumerate.js");
 config.minDelayMs = 0;   // テストでは待たない
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -47,8 +53,9 @@ function stubFetch(routes, fallback = { status: 404 }) {
 }
 
 /** run.js を別のプロセスで通しで動かす。fetch は routes で差し替える（どの URL を呼んだかを控える）。
- *  files … 作業ディレクトリに置くファイル（data/… の相対パス → 中身）。戻り値は { calls, health, log, dir } */
-function runCrawl({ env = {}, routes = {}, files = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), "crawl-core-")) }) {
+ *  files … 作業ディレクトリに置くファイル（data/… の相対パス → 中身）。戻り値は { calls, health, log, dir }。
+ *  script … 動かす本体（既定は run.js。carshares.js も同じ形で試す）。status … 終了コードの見込み */
+function runCrawl({ env = {}, routes = {}, files = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), "crawl-core-")), script = "src/run.js", status = 0 }) {
   fs.mkdirSync(path.join(dir, "data"), { recursive: true });
   for (const [f, body] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
@@ -76,14 +83,15 @@ globalThis.fetch = async function stub(url, opts) {
     headers: { get: (k) => (k.toLowerCase() === "location" ? r.location ?? null : null) } };
 };
 `);
-  const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT, "src/run.js")], {
+  const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT, script)], {
     cwd: dir, encoding: "utf8", timeout: 60_000,
     env: { ...process.env, HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl", ...env },
   });
   const log = `${p.stdout}\n${p.stderr}`;
-  assert.equal(p.status, 0, log);
+  assert.equal(p.status, status, log);
   const calls = fs.readFileSync(callsFile, "utf8").split("\n").filter(Boolean);
-  const health = JSON.parse(fs.readFileSync(path.join(dir, "data/health/test.json"), "utf8")).targets;
+  const hf = path.join(dir, "data/health/test.json");
+  const health = fs.existsSync(hf) ? JSON.parse(fs.readFileSync(hf, "utf8")).targets : null;
   return { calls, health, log, dir };
 }
 
@@ -401,4 +409,240 @@ test("通しの巡回: 住所が後から読めたら1回だけ記録に足し�
   assert.equal(r2.calls.filter((u) => u === E).length, 1);
   assert.equal(rows().length, 2);                                // 2回目は足さない
   assert.match(r2.log, /追記0行/);
+});
+
+// ---- 6. 2回目の点検の指摘 ----
+
+const CS = "https://www.carshares.jp";
+const csStation = (i, p) => ({ k: `mitsui:${i}`, n: `S${i}`, a: null, la: 35, ln: 139, cars: 1, cls: {}, path: p, at: "2026-10-13T00:00:00.000Z" });
+const csPage = (i) => `<h1 class="mainTitle01">S${i}</h1><a href="/reserve/?station_id=${i}">予約</a>このステーションのクルマ（1台）
+<meta itemprop="latitude" content="35"><meta itemprop="longitude" content="139">料金プランの詳細`;
+const csFiles = (rows, state) => ({ "data/carshares-crawl-state.json": JSON.stringify(state),
+  "data/carshare-mitsui.jsonl": rows.map((r) => JSON.stringify(r)).join("\n") + "\n" });
+const readText = (dir, f) => fs.readFileSync(path.join(dir, f), "utf8");
+
+test("カーシェアーズ: 巡の途中で robots.txt が 503 なら、そのページを列に戻して打ち切る（gone を書かない・列は減らない・終了コード 1）", () => {
+  // 巡の途中（一覧の残り30・全20ステーションのうち8を見た）
+  const rows = Array.from({ length: 20 }, (_, i) => csStation(i + 1, `/station/tokyo/c${i % 4}/s${i + 1}/`));
+  const state = { cycleStart: "2026-10-20T00:00:00.000Z", cycleEnd: null, queue: Array.from({ length: 30 }, (_, i) => `/station/tokyo/c${i}/`),
+    done: ["/station/tokyo/"], seen: rows.slice(0, 8).map((r) => r.k) };
+  const files = csFiles(rows, state);
+  const r = runCrawl({ script: "src/carshares.js", status: 1, env: { CARSHARE_DELAY_MS: "0" }, files,
+    routes: { "*robots": { status: 503 }, "*": { status: 200, body: "<html></html>" } } });
+  assert.deepEqual(r.calls, [`${CS}/robots.txt`]);                       // 本ページは1回も送らない
+  assert.equal(readText(r.dir, "data/carshare-mitsui.jsonl"), files["data/carshare-mitsui.jsonl"]);   // gone の行は0件
+  const after = JSON.parse(readText(r.dir, "data/carshares-crawl-state.json"));
+  assert.deepEqual(after.queue, state.queue);                            // 列は減らない（見送ったページも先頭に戻す）
+  assert.deepEqual(after.done, state.done);
+  assert.deepEqual(after.seen, state.seen);
+  assert.equal(after.cycleEnd, null);
+  assert.doesNotMatch(r.log, /1巡終わり/);
+  assert.match(r.log, /robots\.txt に届かない（相手先の障害の可能性）（HTTP 503）。この回は打ち切り/);
+  assert.match(r.log, /取得 0ページ.*残りの一覧 30・打ち切り: robots\.txt に届かない/);
+});
+
+test("カーシェアーズ: 不調で取れないページは1回だけ列の最後で取り直し、2回とも取れなければその下のステーションは gone にしない", () => {
+  const rows = [csStation(1, "/station/tokyo/a/s1/"), csStation(2, "/station/tokyo/a/s2/"), csStation(3, "/station/tokyo/b/s3/"),
+    csStation(4, "/station/tokyo/b/s4/"), csStation(5, "/station/osaka/c/s5/"), csStation(6, "/station/osaka/c/s6/")];
+  const state = { cycleStart: "2026-10-20T00:00:00.000Z", cycleEnd: null,
+    queue: ["/station/tokyo/a/", "/station/tokyo/b/", "/station/osaka/c/"], done: ["/station/"], seen: [] };
+  const r = runCrawl({ script: "src/carshares.js", env: { CARSHARE_DELAY_MS: "0" }, files: csFiles(rows, state), routes: {
+    [`${CS}/robots.txt`]: { status: 200, body: "User-agent: *\nDisallow: /pdf/\n" },
+    [`${CS}/station/tokyo/a/`]: { status: 200, body: '<a href="/station/tokyo/a/s1/">S1</a>' },   // s2 は載っていない＝無くなった
+    [`${CS}/station/tokyo/a/s1/`]: { status: 200, body: csPage(1) },
+    [`${CS}/station/tokyo/b/`]: { status: 503, body: "busy" },                                   // 2回とも取れない
+    [`${CS}/station/osaka/c/`]: { status: 404 },                                                 // 一覧ごと無くなった
+  } });
+  assert.deepEqual(r.calls.filter((u) => !u.endsWith("/robots.txt")).map((u) => u.slice(CS.length)),
+    ["/station/tokyo/a/", "/station/tokyo/b/", "/station/osaka/c/", "/station/tokyo/a/s1/", "/station/tokyo/b/"]);
+  const gone = readText(r.dir, "data/carshare-mitsui.jsonl").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.gone).map((x) => x.k);
+  assert.deepEqual(gone.sort(), ["mitsui:2", "mitsui:5", "mitsui:6"]);  // 3・4（取れなかった b の下）は書かない
+  const after = JSON.parse(readText(r.dir, "data/carshares-crawl-state.json"));
+  assert.ok(after.cycleEnd);
+  assert.deepEqual([after.lastCycle.gone, after.lastCycle.failedPages, after.lastCycle.kept], [3, 1, 2]);
+  assert.deepEqual([after.retried, after.failed], [[], []]);             // 次の巡には持ち越さない
+  assert.match(r.log, /取れなかった1ページの下の2件は、無くなったとしない/);
+});
+
+test("カーシェアーズ: 不調が続いたら打ち切り、1巡終わりにしない（終了コード 1）", () => {
+  const rows = [csStation(1, "/station/tokyo/a/s1/")];
+  const queue = ["/station/p1/", "/station/p2/", "/station/p3/", "/station/p4/"];
+  const r = runCrawl({ script: "src/carshares.js", status: 1, env: { CARSHARE_DELAY_MS: "0", CARSHARE_BREAKER: "3" },
+    files: csFiles(rows, { cycleStart: "2026-10-20T00:00:00.000Z", cycleEnd: null, queue, done: [], seen: [] }),
+    routes: { "*robots": { status: 200, body: "" }, "*": { status: 502 } } });
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 3);
+  const after = JSON.parse(readText(r.dir, "data/carshares-crawl-state.json"));
+  assert.deepEqual(after.queue, ["/station/p3/", "/station/p4/", "/station/p1/", "/station/p2/"]);
+  assert.equal(after.cycleEnd, null);
+  assert.equal(readText(r.dir, "data/carshare-mitsui.jsonl").split("\n").filter(Boolean).length, 1);   // gone は書かない
+  assert.match(r.log, /相手先の不調（3ページ続けて取れず。最後は HTTP 502）。この回は打ち切り/);
+});
+
+/** ナビパークの一覧（前の一覧 n 件。取得日は8日前＝作り直す時期） */
+function naviFiles(n) {
+  const codes = Array.from({ length: n }, (_, i) => `N${String(i + 1).padStart(4, "0")}`);
+  const fetched = new Date(Date.now() - 8 * 864e5).toISOString();
+  return { codes, fetched, files: { "data/navipark-codes.txt": codes.join("\n") + "\n", "data/navipark-codes.txt.fetched": fetched } };
+}
+
+test("ナビパーク: robots.txt が 503 なら一覧を作り直さない（上書きしない・取得日を進めない）。health は ok:false", () => {
+  const { files, fetched } = naviFiles(12);
+  const r = runCrawl({ env: { CRAWL_ONLY: "navipark" }, files, routes: { "*robots": { status: 503 }, "*": { status: 200, body: "<html></html>" } } });
+  assert.deepEqual(r.calls, ["https://www.navipark1.com/robots.txt"]);
+  assert.equal(readText(r.dir, "data/navipark-codes.txt"), files["data/navipark-codes.txt"]);
+  assert.equal(readText(r.dir, "data/navipark-codes.txt.fetched"), fetched);
+  assert.equal(r.health.length, 1);
+  assert.deepEqual([r.health[0].op, r.health[0].ok, r.health[0].n], ["navipark", false, 0]);
+  assert.match(r.health[0].reason, /^一覧: ナビパーク: robots\.txt に届かない（相手先の障害の可能性）（HTTP 503）/);
+});
+
+test("ナビパーク: 取れた一覧が前の一覧の半分未満なら前の一覧を使い（取得日は進めない）、health で知らせる。0件で前も無ければ失敗", async () => {
+  const N = "https://www.navipark1.com";
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "navi-"));
+  const cacheFile = path.join(dir, "navipark-codes.txt");
+  const prev = Array.from({ length: 10 }, (_, i) => `P${i}`);
+  fs.writeFileSync(cacheFile, prev.join("\n") + "\n");
+  const routes = (codes) => ({ [`${N}/searchAreaList-13/`]: '<a href="/parkingList-13-101/">千代田区</a>',
+    [`${N}/parkingList-13-101/`]: codes.map((c) => `<a href="/parkingDetail/${c}.html">x</a>`).join("") });
+  _resetRobotsCache();
+  stubFetch(routes(["P1", "P2"]));                                          // 2件だけ（ほかの県は 404）
+  const got = await getAllNaviparkCodes({ cacheFile, cacheMs: 7 * 864e5 });
+  assert.deepEqual([...got], prev);
+  assert.match(got.staleReason, /一覧を作り直せていない: 一覧が2件しか取れなかった（前回10件）/);
+  assert.equal(fs.readFileSync(cacheFile, "utf8"), prev.join("\n") + "\n");
+  assert.equal(fs.existsSync(`${cacheFile}.fetched`), false);               // 取得日は進めない＝次の回に作り直す
+  // 半分以上取れれば書き直す
+  _resetRobotsCache();
+  stubFetch(routes(["P1", "P2", "P3", "P4", "P5", "NEW"]));
+  const ok = await getAllNaviparkCodes({ cacheFile, cacheMs: 7 * 864e5 });
+  assert.deepEqual(ok, ["P1", "P2", "P3", "P4", "P5", "NEW"]);
+  assert.equal(ok.staleReason, undefined);
+  assert.ok(fs.existsSync(`${cacheFile}.fetched`));
+  // 前の一覧も無く0件なら失敗（空の一覧は書かない）
+  const empty = path.join(dir, "empty.txt");
+  _resetRobotsCache();
+  stubFetch({});
+  await assert.rejects(getAllNaviparkCodes({ cacheFile: empty, cacheMs: 7 * 864e5 }), /一覧が0件しか取れなかった（前回0件）/);
+  assert.equal(fs.existsSync(empty), false);
+});
+
+test("一覧が0件の回は health を ok:false にする（取る物件が無い＝成功にしない）", () => {
+  // リパークの sitemap が作りの変更で0件になった。前の一覧も無いので失敗にする
+  const r = runCrawl({ env: { CRAWL_ONLY: "repark" },
+    routes: { "https://www.repark.jp/sitemap_park.xml": { status: 200, body: "<urlset></urlset>" } } });
+  assert.equal(r.health[0].ok, false);
+  assert.match(r.health[0].reason, /一覧が0件しか取れなかった（前回0件）/);
+  assert.equal(fs.existsSync(path.join(r.dir, "data/repark-sitemap.xml")), false);
+});
+
+test("一覧の取得失敗の理由: robots.txt で見送ったときは「HTTP null」ではなく見送りの理由を出す", async () => {
+  _resetRobotsCache();
+  stubFetch({ "https://kte.ne.jp/robots.txt": { status: 503 } });
+  await assert.rejects(getAllKyotechIds({}), /一覧取得失敗: robots\.txt に届かない（相手先の障害の可能性）（HTTP 503）/);
+});
+
+test("一斉の閉鎖の歯止め: 前は生きていた物件の閉鎖が min 件以上かつ答えた数の半分以上で止め、この回の印を全部前の値に戻す", () => {
+  const g = makeMassGone({ min: 3, ratio: 0.5 });
+  const state = { a: "t1", b: "t2", c: "t3", d: undefined, e: "GONE|old" };
+  for (let i = 0; i < 3; i++) g.answered();
+  assert.equal(g.closed("a", state.a), false);                             // 1件
+  assert.equal(g.closed("d", undefined, false), false);                    // 初めての物件は数えない
+  assert.equal(g.closed("e", state.e, false), false);                      // 寝かせた物件の起き抜けも数えない
+  assert.equal(g.closed("b", state.b), false);                             // 2件
+  for (const k of ["a", "b", "c", "d", "e"]) state[k] = "GONE|now";
+  g.answered();
+  assert.equal(g.closed("c", "t3"), true);                                 // 3件・答えた4件の75%
+  assert.deepEqual(g.stats, { answered: 4, closed: 3, marked: 5 });
+  assert.equal(g.restore(state), 5);                                       // 数えなかった分も戻す
+  assert.deepEqual(state, { a: "t1", b: "t2", c: "t3", e: "GONE|old" });
+  // 割合が足りなければ止めない
+  const h = makeMassGone({ min: 3, ratio: 0.5 });
+  for (let i = 0; i < 10; i++) h.answered();
+  for (const id of ["a", "b", "c", "d"]) assert.equal(h.closed(id, "t"), false);   // 4件・10件中40%
+});
+
+const MK = (id) => `https://mkp.jp/search/detail/${id}`;
+/** 名鉄協商の一覧 n 件と、全件「前は取れていた」状態（古い順） */
+function mkpFiles(n) {
+  const ids = Array.from({ length: n }, (_, i) => `00${String(1000 + i)}-0`);
+  const state = { _list: listHash(ids), ...Object.fromEntries(ids.map((id, i) => [id, new Date(Date.now() - (n - i) * 3600e3).toISOString()])) };
+  return { ids, state, files: { "data/mkp-ids.txt": ids.join("\n") + "\n", "data/mkp-ids.txt.fetched": new Date().toISOString(),
+    "data/mkp-crawl-state.json": JSON.stringify(state) } };
+}
+
+test("通しの巡回: 全ページが /misc/404.php へ転送される（作り替え・保守）と、30件で止めて閉鎖の印を戻す。health は mass-gone", () => {
+  const { ids, state, files } = mkpFiles(45);
+  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "45" }, files,
+    routes: { "*": { status: 302, location: "../../../misc/404.php" } } });
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 30);   // 30件目で止める（残り15件は送らない）
+  assert.deepEqual(JSON.parse(readText(r.dir, "data/mkp-crawl-state.json")), state);   // 印は全部戻す（日付も進めない）
+  assert.equal(r.health[0].ok, false);
+  assert.equal(r.health[0].kind, "mass-gone");
+  assert.equal(r.health[0].restored, 30);
+  assert.match(r.health[0].reason, /閉鎖とみなした物件が多すぎる（前は取れていた物件30件のうち30件が 404・掲載終了の転送）。.*閉鎖の印30件を戻して打ち切り/);
+  assert.ok(!r.calls.includes(MK(ids[30])));
+});
+
+test("通しの巡回: 止めたときは、数えなかった物件（一覧から外れた物件など）に付けた印も戻す（エコロ: 全ページが / へ転送）", () => {
+  const ids = Array.from({ length: 40 }, (_, i) => String(5000 + i));
+  const dropped = Array.from({ length: 10 }, (_, i) => String(9000 + i));    // 一覧から外れた物件（いちばん古い＝先に取る）
+  const state = { _list: listHash(ids),
+    ...Object.fromEntries(dropped.map((id, i) => [id, new Date(Date.now() - (100 - i) * 864e5).toISOString()])),
+    ...Object.fromEntries(ids.map((id, i) => [id, new Date(Date.now() - (50 - i) * 3600e3).toISOString()])) };
+  const r = runCrawl({ env: { CRAWL_ONLY: "ecolo", ROLLING_PER_RUN: "50" },
+    files: { "data/ecolo-ids.txt": ids.join("\n") + "\n", "data/ecolo-ids.txt.fetched": new Date().toISOString(), "data/ecolo-crawl-state.json": JSON.stringify(state) },
+    routes: { "*robots": { status: 200, body: "" }, "*": { status: 301, location: "https://service.ecolocity.co.jp/" } } });
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 40);   // 外れた10件＋一覧の30件で止める
+  assert.deepEqual(JSON.parse(readText(r.dir, "data/ecolo-crawl-state.json")), state);
+  assert.deepEqual([r.health[0].kind, r.health[0].restored], ["mass-gone", 40]);
+});
+
+test("通しの巡回: 404 が一斉に返ったときも同じく止める（転送の無い社）", () => {
+  const ids = Array.from({ length: 40 }, (_, i) => `REP${String(i + 1).padStart(7, "0")}`);
+  const xml = `<urlset>${ids.map((i) => `<url><loc>https://www.repark.jp/parking_user/time/result/detail/?park=${i}</loc></url>`).join("")}</urlset>`;
+  const state = { _list: listHash(ids), ...Object.fromEntries(ids.map((id, i) => [id, `${new Date(Date.now() - (50 - i) * 3600e3).toISOString()}|0`])) };
+  const r = runCrawl({ env: { CRAWL_ONLY: "repark", ROLLING_PER_RUN: "40" },
+    files: { "data/repark-sitemap.xml": xml, "data/repark-sitemap.xml.fetched": new Date().toISOString(), "data/repark-crawl-state.json": JSON.stringify(state) },
+    routes: { "*": { status: 404 } } });
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 30);
+  assert.deepEqual(JSON.parse(readText(r.dir, "data/repark-crawl-state.json")), state);
+  assert.equal(r.health[0].kind, "mass-gone");
+});
+
+test("通しの巡回: 寝かせた期限が切れた物件（起き抜け）がまた 404 でも一斉の閉鎖に数えず、寝かせ直す", () => {
+  const ids = Array.from({ length: 40 }, (_, i) => `REP${String(i + 1).padStart(7, "0")}`);
+  const xml = `<urlset>${ids.map((i) => `<url><loc>https://www.repark.jp/parking_user/time/result/detail/?park=${i}</loc></url>`).join("")}</urlset>`;
+  const old = `GONE|${new Date(Date.now() - 70 * 864e5).toISOString()}`;          // 60日を過ぎて起きている
+  const state = { _list: listHash(ids), ...Object.fromEntries(ids.map((id) => [id, old])) };
+  const r = runCrawl({ env: { CRAWL_ONLY: "repark", ROLLING_PER_RUN: "40" },
+    files: { "data/repark-sitemap.xml": xml, "data/repark-sitemap.xml.fetched": new Date().toISOString(), "data/repark-crawl-state.json": JSON.stringify(state) },
+    routes: { "*": { status: 404 } } });
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 40);
+  const after = JSON.parse(readText(r.dir, "data/repark-crawl-state.json"));
+  for (const id of ids) assert.ok(after[id].startsWith("GONE|") && after[id] !== old, id);   // 今の日付で寝かせ直す
+  assert.notEqual(r.health[0].kind, "mass-gone");
+});
+
+test("通しの巡回: 正しい閉鎖が2割ほど（名鉄協商の最初の回と同じ）なら止めず、閉鎖は寝かせる", () => {
+  const { ids, files } = mkpFiles(100);
+  const closed = new Set(ids.filter((_, i) => i % 9 === 0 || i % 9 === 4));   // 23件
+  const routes = Object.fromEntries(ids.map((id) => [MK(id), closed.has(id) ? { status: 302, location: "../../../misc/404.php" } : { status: 200, body: mkpPage(`P${id}`) }]));
+  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "100" }, files, routes });
+  const after = JSON.parse(readText(r.dir, "data/mkp-crawl-state.json"));
+  assert.equal(ids.filter((id) => String(after[id]).startsWith("GONE|")).length, closed.size);
+  assert.deepEqual([r.health[0].ok, r.health[0].n, r.health[0].kind], [true, 100 - closed.size, undefined]);
+});
+
+test("通しの巡回: 一覧から消えた物件の確かめ（ほとんど 404 で当たり前）は一斉の閉鎖に数えない", () => {
+  const { list, state, files } = timesFiles(5);
+  // 一覧から消えた35件（一覧を作る前に取ったもの）。確かめると全部 404
+  const dropped = Array.from({ length: 35 }, (_, i) => TU(900 + i));
+  for (const u of dropped) state[u] = `${new Date(Date.now() - 40 * 864e5).toISOString()}|0`;
+  files["data/times-crawl-state.json"] = JSON.stringify(state);
+  const routes = Object.fromEntries(dropped.map((u) => [u, { status: 404 }]));
+  const r = runCrawl({ env: { CRAWL_ONLY: "times", ROLLING_PER_RUN: "5" }, files, routes: { ...routes, "*": { status: 200, body: "<html></html>" } } });
+  const after = JSON.parse(readText(r.dir, "data/times-crawl-state.json"));
+  assert.equal(dropped.filter((u) => String(after[u]).startsWith("GONE|")).length, 35);
+  assert.notEqual(r.health[0].kind, "mass-gone");
+  for (const u of list) assert.ok(r.calls.includes(u));                   // 一覧の物件もいつもどおり取る
 });

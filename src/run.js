@@ -17,7 +17,7 @@ import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
-  isTransient, recordTransient, makeBreaker, pickDropped, parkIdsFromSitemap,
+  isTransient, recordTransient, makeBreaker, makeMassGone, pickDropped, parkIdsFromSitemap,
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -497,6 +497,10 @@ async function main() {
       const breakerN = Number(process.env.ROLLING_BREAKER) || 8;
       const breaker = makeBreaker(breakerN);
       let broke = null, retried = 0, brokeKind = null;
+      // 一斉の閉鎖の歯止め（makeMassGone の説明）。前は生きていた物件の閉鎖（404・410・掲載終了の転送）が
+      // 30件以上、かつ答えが返った数の半分以上になったら、この回に付けた閉鎖の印を全部戻して打ち切る。MASS_GONE_MIN・MASS_GONE_RATIO で変えられる
+      const massGone = makeMassGone({ min: Number(process.env.MASS_GONE_MIN) || 30, ratio: Number(process.env.MASS_GONE_RATIO) || 0.5 });
+      let massRestored = 0;
       for (let pass = 0; pass < passes && !out; pass++) {
         if (pass > 0) {
           console.log(`[${rolling.label}] ${gapMin}分あけて ${pass + 1}/${passes} 回目`);
@@ -526,6 +530,21 @@ async function main() {
           out = true; break;
         }
         tried++;
+        // 一斉の閉鎖の歯止めに数える物件か。前は生きていた物件（今の一覧に載っていて、取った記録があり、寝かせていない）だけ。
+        // 一覧から消えた物件の確かめ（confirm）・一覧から外れた物件（dropped）・寝かせた物件の起き抜け・初めての物件は、
+        // 閉鎖が多くて当たり前なので数えない（止めたときに印を戻すのは、数えない分も含めて全部）。prevState は印を付ける前の値
+        const prevState = state[id];
+        const watch = prevState !== undefined && !String(prevState).startsWith("GONE|") && listed.has(id) && !confirmSet.has(id);
+        const tripIfMassGone = () => {
+          if (!massGone.closed(id, prevState, watch)) return false;
+          const { answered, closed } = massGone.stats;
+          massRestored = massGone.restore(state);
+          broke = `閉鎖とみなした物件が多すぎる（前は取れていた物件${answered}件のうち${closed}件が 404・掲載終了の転送）。` +
+            `先方のサイトの作り替え・保守の見込みがあるので、この回に付けた閉鎖の印${massRestored}件を戻して打ち切り`;
+          brokeKind = "mass-gone";
+          console.warn(`  [mass-gone] ${rolling.label}: ${broke}。${done}件取れたところで止める`);
+          return true;
+        };
         // 相手先の不調。1回目は時刻を進めず次の回に取り直す。続いたら打ち切る
         if (isTransient(res)) {
           const why = err ?? `HTTP ${res.status}`;
@@ -543,16 +562,21 @@ async function main() {
           continue;
         }
         breaker.ok();
-        // 閉じた物件をトップへ転送する社（エコロ）。404 と同じく寝かせる
+        if (watch) massGone.answered();
+        // 閉じた物件をトップへ転送する社（エコロ・名鉄協商）。404 と同じく寝かせる
         if (rolling.goneOnRedirect && res.status >= 300 && res.status < 400 && rolling.goneOnRedirect(res.location)) {
           console.log(`  [gone] ${id} → ${res.location}（転送＝掲載終了）`); mark({ status: 404 }); nGone++;
           if (confirmSet.has(id)) confirmGone++;
+          if (tripIfMassGone()) { out = true; break; }
           continue;
         }
         if (!res.ok || res.skippedReason) {
           console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`);
-          if (confirmSet.has(id) && (res.status === 404 || res.status === 410)) confirmGone++;
-          mark(res); continue;
+          const closed = res.status === 404 || res.status === 410;
+          if (confirmSet.has(id) && closed) confirmGone++;
+          mark(res);
+          if (closed && tripIfMassGone()) { out = true; break; }
+          continue;
         }
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
@@ -575,16 +599,20 @@ async function main() {
         saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）
       }
       saveCrawlState(rolling.stateFile, state);
-      if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた`);
+      if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた${massRestored ? "（一斉の閉鎖とみなしたので、この回の印は戻した）" : ""}`);
+      if (massRestored) console.warn(`[${rolling.label}] 一斉の閉鎖とみなして、この回に付けた閉鎖の印 ${massRestored}件を前の値に戻した`);
       if (noName) console.warn(`[${rolling.label}] 取れたのに名前が読めなかった物件 ${noName}件${noName > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
       if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す`);
-      if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた`);
+      if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた${massRestored ? "（一斉の閉鎖とみなしたので、印は戻した）" : ""}`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
       // 不調で打ち切った回も失敗として知らせる（2026-10-02 は半分取れたので「成功」になり、気づけなかった）。
-      // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js）も知らせる
-      hp(rolling.op, rolling.label, !broke && !ids.staleReason && (tried === 0 || got > 0), got,
-        broke ?? ids.staleReason ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null),
-        { tried, noName, ...(brokeKind ? { kind: brokeKind } : {}) });
+      // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js・cache-age.js の keepPrevIfShrunk）も知らせる。
+      // 一覧が0件の回も失敗（以前は「取る物件が無かった回」として成功になる作りで、2026-10-18 の点検の試しでは、ナビパークが0件の一覧で
+      // 7日止まっても health は成功のままだった）
+      hp(rolling.op, rolling.label, !broke && !ids.staleReason && ids.length > 0 && (tried === 0 || got > 0), got,
+        broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
+          ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null),
+        { tried, noName, ...(brokeKind ? { kind: brokeKind } : {}), ...(massRestored ? { restored: massRestored } : {}) });
       continue;
     }
 
