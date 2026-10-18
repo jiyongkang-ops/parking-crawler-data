@@ -60,6 +60,7 @@ import { getAllKeioIds } from "./keio-enumerate.js";
 import { detailUrl as odakyuUrl, parseOdakyuDetail } from "./odakyu.js";
 import { getAllOdakyuIds } from "./odakyu-enumerate.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
+import { gapFilled } from "./record-gap.js";
 
 const STATE = {
   reparkSitemapCache: "data/repark-sitemap.xml",
@@ -153,6 +154,9 @@ function readPrevList(rolling) {
   } catch { return null; }
 }
 
+// 満空が取れる社。名前・座標は満空の控え（vacancy-lots.jsonl）に残るので、料金の記録に座標だけを足すことはしない（record-gap.js）
+const VACANCY_OPS = new Set(["npc", ...ROLLING_SITES.filter((x) => x.hours).map((x) => x.op)]);
+
 function readLastSnapshots(file) {
   const last = new Map();
   if (!fs.existsSync(file)) return last;
@@ -218,7 +222,7 @@ async function main() {
   const last = readLastSnapshots(outFile);
   const now = new Date().toISOString();   // 実行開始。個々の観測時刻は取得のたびに付ける
 
-  const stats = { processed: 0, written: 0, changed: 0, isNew: 0, vacancy: 0 };
+  const stats = { processed: 0, written: 0, changed: 0, isNew: 0, vacancy: 0, filled: 0 };
   // 満空の置き場。料金とは別ファイルにする（追記の条件が違うため）。
   // 名前・座標・台数は初回だけ入れ、以降は id で引く（同じ値を毎回書かない）
   // 月ごとに分ける。1本にすると1年で数百MBになり、毎回の巡回でコミットするgitが重くなる。
@@ -278,10 +282,17 @@ async function main() {
       console.log(`  [CHANGED] ${key} (${rec.name})`);
     }
     if (isNew) stats.isNew++;
+    // 料金は同じでも、前の記録に無かった名前・住所・座標（満空の無い社だけ）が読めたら1回だけ足す（record-gap.js）。
+    // 料金の変動ではないので changedFromPrev は付けず、変動の件数にも数えない。足したあとは前の記録に入っているので2回目は足さない
+    const filled = prev && !isChanged ? gapFilled(prev, rec, { coords: !VACANCY_OPS.has(rec.operator) }) : null;
     // 全国規模ではファイル肥大を防ぐため、新規 or 変動時のみ追記する。
-    if (!vacancyOnly && (!config.appendOnlyChanges || isNew || isChanged)) {
+    if (!vacancyOnly && (!config.appendOnlyChanges || isNew || isChanged || filled)) {
       fs.appendFileSync(outFile, JSON.stringify(rec) + "\n");
       stats.written++;
+      if (filled) {
+        stats.filled++;
+        if (stats.filled <= 20) console.log(`  [FILLED] ${key} (${rec.name}) ${filled}が読めたので記録に足す`);
+      }
     }
     // 満空は料金と別に、巡回のたびに残す。
     // 料金の指紋（feeFingerprint）に満空は入っていないので、上の追記に混ぜると
@@ -682,7 +693,8 @@ async function main() {
 
 
   console.log(
-    `\n完了: ${stats.processed}物件処理 / 新規${stats.isNew} / 変動${stats.changed} / 追記${stats.written}行 / 満空${stats.vacancy}行 → ${process.env.OUT_FILE || config.outFile}`
+    `\n完了: ${stats.processed}物件処理 / 新規${stats.isNew} / 変動${stats.changed} / 追記${stats.written}行` +
+    `${stats.filled ? `（うち名前・住所・座標の補記${stats.filled}行）` : ""} / 満空${stats.vacancy}行 → ${process.env.OUT_FILE || config.outFile}`
   );
 }
 

@@ -1,7 +1,7 @@
 // エコロパーク（エコロシティ / service.ecolocity.co.jp）詳細ページのパーサ ---
 // 料金はサーバ描画の静的HTML。基本情報テーブル（c-table）の各セルに th/td 対で入る。
 //   台数 → 収容台数、料金 → <br>区切りで料金行（多くは「最大」料金）。
-//   住所は地図iframeの q= パラメータから取得（詳細ページに住所行が無いため）。
+//   住所は見出しの上の住所欄（p-coin-parking-detail__address）。無ければ地図iframeの q= パラメータから取る。
 // robots.txt は制限なし（空）。列挙は先方のサイトマップ（ecolo-enumerate）。
 // 閉じた物件は 404 ではなく 301 でトップへ転送される（run.js の goneOnRedirect で閉鎖として扱う）。
 
@@ -52,13 +52,19 @@ export function parseEcoloDetail(html, { id, label } = {}) {
     ?? (cellText(html, "料金") != null ? (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || [])[1] : undefined);
   const name = (h1 ? h1.replace(/<[^>]+>/g, "").trim() : "") || null;
 
-  // 住所: 地図iframe q="{名称},{住所}"
+  // 住所: 見出しの上の住所欄（「〒631-0036 奈良県奈良市学園北2-1-15」。郵便番号は外す）。
+  // 以前は地図 iframe の q="{名称},{住所}" からだけ取っていたが、地図の無いページ（奈良・兵庫などの76件）では
+  // 住所が一度も入らず、座標が付かないので Advisor の相場から落ちていた（2026-10-18 に 9649・9802 で確かめた。
+  // どちらも地図が無く、住所欄はあった）。住所欄が無いときは地図の q= を使い、都道府県名が無ければ「名称,」のあとをそのまま使う
   let address = null;
-  const q = html.match(/maps\/embed[^"']*?q=([^"'&]+)/);
+  const ad = html.match(/<p[^>]*p-coin-parking-detail__address[^>]*>([\s\S]*?)<\/p>/);
+  if (ad) address = ad[1].replace(/<[^>]+>/g, "").replace(/〒\s*\d{3}-?\d{4}/, "").replace(/\s+/g, " ").trim() || null;
+  const q = address ? null : html.match(/maps\/embed[^"']*?q=([^"'&]+)/);
   if (q) {
-    const dec = decodeURIComponent(q[1]);
+    let dec = q[1];
+    try { dec = decodeURIComponent(dec); } catch { /* 戻せない書き方はそのまま */ }
     const am = dec.match(/([^,]*[都道府県][^,]+)$/);
-    address = am ? am[1].trim() : null;
+    address = am ? am[1].trim() : (dec.includes(",") ? dec.slice(dec.lastIndexOf(",") + 1).trim() || null : null);
   }
 
   const capCell = cellText(html, "台数");

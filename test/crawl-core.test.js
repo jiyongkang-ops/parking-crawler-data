@@ -7,6 +7,7 @@
 //     一覧が1件変わるだけで寝かせた物件を全部起こしていた（あなぶきパークで68件）
 //   ・名鉄協商の552件（一覧の22%）は掲載終了で /misc/404.php へ転送されていたのに、転送先を読んで「名前なし」で黙って飛ばし、
 //     毎回取りに行っていた
+//   ・料金の記録は料金が変わったときしか書かないので、あとで読めた住所・名前・座標が記録に入らなかった（エコロの76件は住所が一度も無い）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -20,6 +21,8 @@ import { config } from "../config.js";
 process.env.LIST_REFRESH_MAX = "1000";
 const { getAllLeparcIds } = await import("../src/leparc-enumerate.js");
 const { parseMkpDetail, isClosedRedirect: isMkpClosedRedirect } = await import("../src/mkp.js");
+const { gapFilled, looksLikeAddress } = await import("../src/record-gap.js");
+const { parseEcoloDetail } = await import("../src/ecolo.js");
 const { politeFetch, fetchErrorText, _resetRobotsCache } = await import("../src/polite-fetch.js");
 const { isTransient, listHash, goneMsOf, unparkGone, countLive, pickRolling, parkIdsFromSitemap } = await import("../src/repark-enumerate.js");
 config.minDelayMs = 0;   // テストでは待たない
@@ -45,8 +48,7 @@ function stubFetch(routes, fallback = { status: 404 }) {
 
 /** run.js を別のプロセスで通しで動かす。fetch は routes で差し替える（どの URL を呼んだかを控える）。
  *  files … 作業ディレクトリに置くファイル（data/… の相対パス → 中身）。戻り値は { calls, health, log, dir } */
-function runCrawl({ env = {}, routes = {}, files = {} }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crawl-core-"));
+function runCrawl({ env = {}, routes = {}, files = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), "crawl-core-")) }) {
   fs.mkdirSync(path.join(dir, "data"), { recursive: true });
   for (const [f, body] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
@@ -337,4 +339,57 @@ test("通しの巡回: 名鉄協商の掲載終了（302 → /misc/404.php）は
   assert.match(log, /\[gone\] 001145-0 → \.\.\/\.\.\/\.\.\/misc\/404\.php/);
   assert.match(log, /\[no name\] 009999-0: 名前が読めない（HTTP 200/);
   assert.deepEqual([health[0].ok, health[0].n, health[0].tried, health[0].noName], [true, 1, 3, 1]);
+});
+
+// ---- 5. 後から読めた住所・名前・座標を記録に残す ----
+
+test("補記の条件: 前に無かった名前・住所らしい住所・（満空の無い社だけ）座標が入ったときだけ", () => {
+  const fee = { unitCharges: [], maxFees: [{ scope: "全日", condition: "24時間", amountYen: 800 }] };
+  const base = { operator: "ecolo", parkId: "9649", name: "P", address: null, lat: null, lng: null, ...fee };
+  assert.equal(gapFilled(base, { ...base, address: "奈良県奈良市学園北2-1-15" }), "住所");
+  assert.equal(gapFilled({ ...base, name: null }, { ...base, name: "P" }), "名前");
+  assert.equal(gapFilled({ ...base, address: "コインパーキング" }, { ...base, address: "奈良市大森町44" }), "住所");   // 住所らしくない → 住所らしい
+  assert.equal(gapFilled({ ...base, address: "奈良市大森町44" }, { ...base, address: "奈良県奈良市大森町44" }), null);   // 値が変わっただけ
+  assert.equal(gapFilled(base, { ...base, lat: 35.1, lng: 136.9 }), "座標");
+  assert.equal(gapFilled(base, { ...base, lat: 35.1, lng: 136.9 }, { coords: false }), null);   // 満空のある社は座標を見ない
+  assert.equal(gapFilled({ ...base, lat: 0, lng: 0 }, { ...base, lat: 35.1, lng: 136.9 }), "座標");   // 0,0 は「無い」
+  assert.equal(gapFilled(base, { ...base, address: "", lat: 0, lng: 0 }), null);
+  assert.equal(gapFilled(null, base), null);                    // 初めての物件は「新規」で書く（ここでは数えない）
+  assert.equal(looksLikeAddress("北海道札幌市中央区"), true);
+  assert.equal(looksLikeAddress("エコロパーク"), false);
+});
+
+test("エコロの住所: 地図の無いページは住所欄から、地図の q= に都道府県名が無ければ「名称,」のあとを読む", () => {
+  const head = `<p class="p-coin-parking-detail__address"> 〒630-8131 奈良県奈良市大森町44</p>
+<div class="p-coin-parking-detail__title-wrap"><h1 class="p-coin-parking-detail__title">エコロパーク 奈良市大森町第1駐車場</h1></div>`;
+  const fee = `<table><tr><th>料金</th><td>全日 最大 24時間 600円</td></tr></table>`;
+  assert.equal(parseEcoloDetail(head + fee, { id: "9802" }).address, "奈良県奈良市大森町44");
+  const map = (q) => `<h1 class="p-coin-parking-detail__title">エコロパーク 姫路伊伝居第1駐車場</h1>${fee}
+<iframe src="https://www.google.com/maps/embed/v1/place?key=x&q=${encodeURIComponent(q)}"></iframe>`;
+  assert.equal(parseEcoloDetail(map("エコロパーク 姫路伊伝居第1駐車場,姫路市伊伝居123"), { id: "9960" }).address, "姫路市伊伝居123");
+  assert.equal(parseEcoloDetail(map("エコロパーク サウンドおしあげ,東京都墨田区押上3-2-1"), { id: "5563" }).address, "東京都墨田区押上3-2-1");
+  assert.equal(parseEcoloDetail(map("エコロパーク どこか"), { id: "1" }).address, null);
+});
+
+test("通しの巡回: 住所が後から読めたら1回だけ記録に足し（changedFromPrev なし・変動に数えない）、2回目は足さない", () => {
+  const E = "https://service.ecolocity.co.jp/park/coin-parking/9649/";
+  const page = `<p class="p-coin-parking-detail__address"> 〒631-0036 奈良県奈良市学園北2-1-15</p>
+<h1 class="p-coin-parking-detail__title">エコロパーク 学園北2丁目第1駐車場</h1>
+<table><tr><th>台数</th><td>13台</td></tr><tr><th>料金</th><td>全日 最大 24時間 600円</td></tr></table>`;
+  const rec = parseEcoloDetail(page, { id: "9649" });
+  const prev = { ...rec, address: null, fetchedAt: "2026-07-01T00:00:00.000Z" };   // 7/1 の記録（住所なし・料金は同じ）
+  const files = { "data/ecolo-ids.txt": "9649\n", "data/ecolo-ids.txt.fetched": new Date().toISOString(),
+    "data/prices-test.jsonl": JSON.stringify(prev) + "\n" };
+  const routes = { [E]: { status: 200, body: page } };
+  const r1 = runCrawl({ env: { CRAWL_ONLY: "ecolo" }, files, routes });
+  const rows = () => fs.readFileSync(path.join(r1.dir, "data/prices-test.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(rows().length, 2);
+  assert.equal(rows()[1].address, "奈良県奈良市学園北2-1-15");
+  assert.equal(rows()[1].changedFromPrev, undefined);
+  assert.match(r1.log, /\[FILLED\] ecolo:9649 .*住所が読めたので記録に足す/);
+  assert.match(r1.log, /変動0 \/ 追記1行（うち名前・住所・座標の補記1行）/);
+  const r2 = runCrawl({ env: { CRAWL_ONLY: "ecolo" }, routes, dir: r1.dir });   // 同じ作業場所でもう1回
+  assert.equal(r2.calls.filter((u) => u === E).length, 1);
+  assert.equal(rows().length, 2);                                // 2回目は足さない
+  assert.match(r2.log, /追記0行/);
 });
