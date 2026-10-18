@@ -21,7 +21,7 @@ import {
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
-import { detailUrl as mkpDetailUrl, parseMkpDetail } from "./mkp.js";
+import { detailUrl as mkpDetailUrl, parseMkpDetail, isClosedRedirect as isMkpClosedRedirect } from "./mkp.js";
 import { getAllMkpIds } from "./mkp-enumerate.js";
 import { detailUrl as naviparkDetailUrl, parseNaviparkDetail } from "./navipark.js";
 import { getAllNaviparkCodes } from "./navipark-enumerate.js";
@@ -101,8 +101,11 @@ const ROLLING_SITES = [
     priorityKey: bukCode,
     // 一覧（sitemap）から消えた物件は閉鎖の印が付かないまま Advisor の相場に残っていた（64件。2026-10-18）
     confirmDropped: true },
+  // 名鉄協商は掲載を終えた物件を 302 で /misc/404.php へ転送する。転送を追って 404.php を読み、名前が読めないまま
+  // 毎回取りに行っていた（552件・一覧の22%・1日約450リクエスト。2026-10-18 に3件を確かめた）。エコロと同じく閉鎖として寝かせる
   { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
-    idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
+    idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500,
+    goneOnRedirect: isMkpClosedRedirect },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
     idsCache: STATE.naviparkCodesCache, stateFile: STATE.naviparkCrawlState, defaultPerRun: 2500, keyName: "code" },
   // エコロは閉じた物件を 404 ではなく 301 でトップ（/ や /park/）へ転送する。転送を追うとトップのページを物件として
@@ -477,7 +480,7 @@ async function main() {
       const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
         ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
         : undefined;
-      let done = 0, got = 0, tried = 0, nGone = 0;
+      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0;
       let out = false;
       // 相手先の不調（5xx・429・403・タイムアウト）が続いたら、この回は打ち切る（makeBreaker の説明）
       const breakerN = Number(process.env.ROLLING_BREAKER) || 8;
@@ -544,7 +547,12 @@ async function main() {
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
         try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id }); }
         catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); mark(res, false); continue; }
-        if (!rec || !rec.name) { mark(res, false); continue; }
+        // 取れたのに名前が読めない（ページの作りが違う・掲載終了の雛形など）。以前は何も出さずに飛ばしていたので、
+        // 名鉄協商の552件が毎回むだに取られていることに3か月気づけなかった。番号を出し（1回20件まで）、health に件数を残す
+        if (!rec || !rec.name) {
+          if (++noName <= 20) console.warn(`  [no name] ${id}: 名前が読めない（HTTP ${res.status}・${(res.html ?? "").length}バイト）`);
+          mark(res, false); continue;
+        }
         rec._requestUrl = url;
         handleRecord(rec, at);
         got++;
@@ -557,14 +565,15 @@ async function main() {
       }
       saveCrawlState(rolling.stateFile, state);
       if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた`);
+      if (noName) console.warn(`[${rolling.label}] 取れたのに名前が読めなかった物件 ${noName}件${noName > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
       if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す`);
       if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
       // 不調で打ち切った回も失敗として知らせる（2026-10-02 は半分取れたので「成功」になり、気づけなかった）。
       // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js）も知らせる
       hp(rolling.op, rolling.label, !broke && !ids.staleReason && (tried === 0 || got > 0), got,
-        broke ?? ids.staleReason ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件` : null),
-        { tried, ...(brokeKind ? { kind: brokeKind } : {}) });
+        broke ?? ids.staleReason ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null),
+        { tried, noName, ...(brokeKind ? { kind: brokeKind } : {}) });
       continue;
     }
 

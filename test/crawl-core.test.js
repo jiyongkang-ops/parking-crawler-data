@@ -5,6 +5,8 @@
 //     robots.txt が 403（断られている）でも本ページを送っていた
 //   ・404 で寝かせた物件が一律30日で一斉に起き、リパークで2回の巡回に962件の 404 をまとめて投げていた。
 //     一覧が1件変わるだけで寝かせた物件を全部起こしていた（あなぶきパークで68件）
+//   ・名鉄協商の552件（一覧の22%）は掲載終了で /misc/404.php へ転送されていたのに、転送先を読んで「名前なし」で黙って飛ばし、
+//     毎回取りに行っていた
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -17,6 +19,7 @@ import { config } from "../config.js";
 // 一覧の作り直しは1回の実行で2件までに抑えてあるので、テストでは外す（読み込む前に決める必要がある）
 process.env.LIST_REFRESH_MAX = "1000";
 const { getAllLeparcIds } = await import("../src/leparc-enumerate.js");
+const { parseMkpDetail, isClosedRedirect: isMkpClosedRedirect } = await import("../src/mkp.js");
 const { politeFetch, fetchErrorText, _resetRobotsCache } = await import("../src/polite-fetch.js");
 const { isTransient, listHash, goneMsOf, unparkGone, countLive, pickRolling, parkIdsFromSitemap } = await import("../src/repark-enumerate.js");
 config.minDelayMs = 0;   // テストでは待たない
@@ -59,12 +62,14 @@ import fs from "node:fs";
 import { config } from ${JSON.stringify(pathToFileURL(path.join(ROOT, "config.js")).href)};
 config.minDelayMs = 0; config.timesMinDelayMs = 0;
 const routes = JSON.parse(fs.readFileSync(${JSON.stringify(routesFile)}, "utf8"));
-globalThis.fetch = async (url) => {
+globalThis.fetch = async function stub(url, opts) {
   const u = String(url);
   fs.appendFileSync(${JSON.stringify(callsFile)}, u + "\\n");
   let r = routes[u];
   if (r === undefined) r = u.endsWith("/robots.txt") ? (routes["*robots"] ?? { status: 404 }) : (routes["*"] ?? { status: 404 });
   if (r.throw) { const e = new TypeError("fetch failed"); e.cause = { code: r.throw }; throw e; }
+  // 転送は redirect: "manual" でなければ本物の fetch と同じく追う
+  if (r.status >= 300 && r.status < 400 && r.location && opts?.redirect !== "manual") return stub(new URL(r.location, u).href, opts);
   return { ok: r.status >= 200 && r.status < 300, status: r.status, text: async () => r.body ?? "",
     headers: { get: (k) => (k.toLowerCase() === "location" ? r.location ?? null : null) } };
 };
@@ -288,4 +293,48 @@ test("通しの巡回: 一覧を作り直す前のファイルと比べ、新し
   assert.ok(!calls.some((u) => u.includes("REP0000003")));
   assert.ok(calls.some((u) => u.includes("REP0000004")));     // 新しく載った → 起こして確かめる（404 なので寝かせ直す）
   assert.match(after.REP0000004, /^GONE\|/);
+});
+
+// ---- 4. 名鉄協商の名前が読めない552件 ----
+
+/** 名鉄協商の詳細ページ（JSON-LD と料金表だけ）。name が空なら掲載終了の雛形（2026-10-18 に見た 302 の本文と同じ形） */
+const mkpPage = (name, { lat = 35.1, lng = 136.9, addr = "愛知県名古屋市中区栄1-1" } = {}) => `<html><head>
+<script type="application/ld+json">{"@type":"ParkingFacility","name":"名鉄協商パーキング ${name}","address":{"streetAddress":"${addr}"},
+"geo":{"latitude":${lat},"longitude":${lng}}}</script></head><body><h1>${name}</h1>
+<div class="box_price"><table class="tbl_basic"><tr><th></th><th>通常料金</th><th>最大料金</th></tr>
+<tr><td>全日</td><td><p>00:00 - 24:00 30分 200円</p></td><td><p>入庫より24時間まで 800円</p></td></tr></table></div></body></html>`;
+
+test("名鉄協商: /misc/404.php への転送は掲載終了。社名だけ・座標 0 の雛形は物件として読まない", () => {
+  assert.equal(isMkpClosedRedirect("../../../misc/404.php"), true);   // 実際の Location
+  assert.equal(isMkpClosedRedirect("https://mkp.jp/misc/404.php"), true);
+  assert.equal(isMkpClosedRedirect("https://mkp.jp/search/detail/001145-2"), false);
+  assert.equal(isMkpClosedRedirect(null), false);
+  const closed = parseMkpDetail(mkpPage("", { lat: "0.000000", lng: "0.000000", addr: "" }), { id: "001145-0" });
+  assert.equal(closed.name, null);
+  assert.equal(closed.lat, null);
+  const live = parseMkpDetail(mkpPage("栄第3"), { id: "001102-2" });
+  assert.equal(live.name, "名鉄協商パーキング 栄第3");
+  assert.equal(live.lat, 35.1);
+  assert.equal(live.unitCharges.length, 1);
+});
+
+test("通しの巡回: 名鉄協商の掲載終了（302 → /misc/404.php）は 404 と同じく寝かせ、名前が読めない物件は番号と件数を残す", () => {
+  const D = (id) => `https://mkp.jp/search/detail/${id}`;
+  const ids = ["001145-0", "001102-2", "009999-0"];
+  const { calls, health, dir, log } = runCrawl({ env: { CRAWL_ONLY: "mkp" },
+    files: { "data/mkp-ids.txt": ids.join("\n") + "\n", "data/mkp-ids.txt.fetched": new Date().toISOString() },
+    routes: {
+      [D("001145-0")]: { status: 302, location: "../../../misc/404.php", body: mkpPage("", { lat: 0, lng: 0, addr: "" }) },
+      "https://mkp.jp/misc/404.php": { status: 200, body: "<html><h1></h1>ページが見つかりません</html>" },
+      [D("001102-2")]: { status: 200, body: mkpPage("吉浜") },
+      [D("009999-0")]: { status: 200, body: "<html><body>作りの違うページ</body></html>" },
+    } });
+  assert.ok(!calls.includes("https://mkp.jp/misc/404.php"));   // 転送は追わない（転送先を取りに行く1回も減る）
+  const st = JSON.parse(fs.readFileSync(path.join(dir, "data/mkp-crawl-state.json"), "utf8"));
+  assert.match(st["001145-0"], /^GONE\|/);
+  assert.doesNotMatch(st["001102-2"], /^GONE/);
+  assert.doesNotMatch(st["009999-0"], /^GONE/);                // 中身を確かめていないものは寝かせない
+  assert.match(log, /\[gone\] 001145-0 → \.\.\/\.\.\/\.\.\/misc\/404\.php/);
+  assert.match(log, /\[no name\] 009999-0: 名前が読めない（HTTP 200/);
+  assert.deepEqual([health[0].ok, health[0].n, health[0].tried, health[0].noName], [true, 1, 3, 1]);
 });
