@@ -25,7 +25,7 @@ import { detailUrl as mkpDetailUrl, parseMkpDetail } from "./mkp.js";
 import { getAllMkpIds } from "./mkp-enumerate.js";
 import { detailUrl as naviparkDetailUrl, parseNaviparkDetail } from "./navipark.js";
 import { getAllNaviparkCodes } from "./navipark-enumerate.js";
-import { detailUrl as ecoloDetailUrl, parseEcoloDetail } from "./ecolo.js";
+import { detailUrl as ecoloDetailUrl, parseEcoloDetail, isClosedRedirect as isEcoloClosedRedirect } from "./ecolo.js";
 import { getAllEcoloIds } from "./ecolo-enumerate.js";
 import { searchUrl as theparkUrl, parseTheparkJson } from "./thepark.js";
 import { detailUrl as kyotechDetailUrl, parseKyotechDetail } from "./kyotech.js";
@@ -104,8 +104,15 @@ const ROLLING_SITES = [
     idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
     idsCache: STATE.naviparkCodesCache, stateFile: STATE.naviparkCrawlState, defaultPerRun: 2500, keyName: "code" },
+  // エコロは閉じた物件を 404 ではなく 301 でトップ（/ や /park/）へ転送する。転送を追うとトップのページを物件として
+  // 読み、料金が空の行（名前「コインパーキング・駐車場経営ならエコロパーク」）を24件書いていた。閉鎖として寝かせる（2026-10-18）
+  //   goneOnRedirect: 転送を追わずに受け取り、転送先（location）を渡すと「閉鎖か」を返す関数。
+  //                   物件ページ以外（/ や /park/）への転送だけを閉鎖（GONE）とみなす。別の物件ページへの転送や
+  //                   転送先が無いときは閉鎖と決めつけず、いつもの失敗（時刻だけ進める）にする
+  //   recheckDropped : 一覧から外れた物件を一度だけ取り直し、閉鎖なら GONE にする（外れたまま古い日付で残さない）
   { op: "ecolo", label: "エコロパーク", enumerate: getAllEcoloIds, detailUrl: ecoloDetailUrl, parse: parseEcoloDetail,
-    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500 },
+    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500,
+    goneOnRedirect: isEcoloClosedRedirect, recheckDropped: true },
   { op: "kyotech", label: "キョウテク", enumerate: getAllKyotechIds, detailUrl: kyotechDetailUrl, parse: parseKyotechDetail,
     idsCache: STATE.kyotechIdsCache, stateFile: STATE.kyotechCrawlState, defaultPerRun: 800 },
   { op: "leparc", label: "ルパルク", enumerate: getAllLeparcIds, detailUrl: leparcDetailUrl, parse: parseLeparcDetail,
@@ -389,6 +396,13 @@ async function main() {
       const liveCount = countLive(ids, state);
       const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
       const visited = ids.filter((id) => state[id]).length;
+      // 一覧から外れたが、まだ閉鎖と分かっていない物件（recheckDropped の社だけ）。巡回の候補に足して一度取り直す。
+      // 閉鎖なら GONE になって候補から外れ、営業中なら取れた日が進む（一覧の取りこぼしがあっても古いまま残らない）
+      const listed = new Set(ids);
+      const dropped = rolling.recheckDropped
+        ? Object.keys(state).filter((k) => !k.startsWith("_") && !listed.has(k) && !String(state[k]).startsWith("GONE|"))
+        : [];
+      const candidates = dropped.length ? ids.concat(dropped) : ids;
       // 1回の実行を何回かに分け、間をあけて取る。
       // GitHub の定時実行は混むと落ちることがあり、毎時の cron でも実測で24時間中18時間しか
       // 発火していなかった（JST 7・14・17・18・21・22時が丸ごと空。2026-09-15）。
@@ -411,12 +425,13 @@ async function main() {
       // 優先物件を取り直す間隔。毎時回るリパークは3時間おき。1日3回のタイムズで3時間にすると毎回621件を
       // 取り直して全国の1巡が約25日に延びるので、事業者ごとに config で変えられるようにする（2026-10-17）
       const prioMinAgeH = Number(config[`${rolling.op}PriorityMinAgeHours`]) || 3;
-      // 一覧から消えた物件のうち、今の一覧を作ってから確かめていないもの（1回目の回の先頭で取りに行く）。
-      // 404 なら GONE が付いて相場から外れる。載っていれば料金・満空をそのまま残す（pickDropped の説明）
-      const dropped = rolling.confirmDropped
+      // 一覧から消えた物件のうち、今の一覧を作ってから確かめていないもの（confirmDropped の社だけ。1回目の回の先頭で取りに行く）。
+      // 404 なら GONE が付いて相場から外れる。載っていれば料金・満空をそのまま残す（pickDropped の説明）。
+      // 上の recheckDropped（エコロ）は外れた物件を巡回の候補に足し続ける。こちらは一覧を作り直すたびに1回だけ確かめる
+      const confirm = rolling.confirmDropped
         ? pickDropped(ids, state, Date.now() - cacheAgeMs(rolling.idsCache), Number(process.env.DROPPED_MAX) || 100, rolling.priorityKey) : [];
-      const droppedSet = new Set(dropped);
-      let droppedGone = 0;
+      const confirmSet = new Set(confirm);
+      let confirmGone = 0;
       // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
       // 予算内で切り上げ、状態は50件ごとに書いておく。
       // 分割の待ち時間（pausedMs）は予算から除く。除かないと待った分だけ取得が削られる
@@ -427,16 +442,19 @@ async function main() {
       const perRunCap = Math.min(perRun, Math.floor(budgetMs / (rolling.minDelay ?? config.minDelayMs)));
       console.log(
         `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件` +
+        `${dropped.length ? ` / 一覧から外れた${dropped.length}件を取り直す` : ""}` +
         `${want.length ? ` / 優先${prio.length}件（${prioMinAgeH}時間おき${prioMissing ? `・一覧に無い${prioMissing}件` : ""}）` : ""} / ` +
         `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
         `${passes > 1 ? `・${gapMin}分あける` : ""}・予算${budgetMin}分で約${perRunCap}件まで）。` +
         `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRunCap))}回実行（優先の取り直しぶんは別）` +
-        `${dropped.length ? ` / 一覧から消えた${dropped.length}件を確かめる` : ""}`
+        `${confirm.length ? ` / 一覧から消えた${confirm.length}件を確かめる` : ""}`
       );
       const startedAt = Date.now();
       let pausedMs = 0;
-      const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
-      let done = 0, got = 0, tried = 0;
+      const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
+        ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
+        : undefined;
+      let done = 0, got = 0, tried = 0, nGone = 0;
       let out = false;
       // 相手先の不調（5xx・429・403・タイムアウト）が続いたら、この回は打ち切る（makeBreaker の説明）
       const breakerN = Number(process.env.ROLLING_BREAKER) || 8;
@@ -449,9 +467,9 @@ async function main() {
           pausedMs += gapMs;
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
-        const picked = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
+        const picked = pickRolling(candidates, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
           priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3 });
-        const batch = pass === 0 ? dropped.concat(picked) : picked;
+        const batch = pass === 0 ? confirm.concat(picked) : picked;
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
         if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }
@@ -477,9 +495,15 @@ async function main() {
           continue;
         }
         breaker.ok();
+        // 閉じた物件をトップへ転送する社（エコロ）。404 と同じく寝かせる
+        if (rolling.goneOnRedirect && res.status >= 300 && res.status < 400 && rolling.goneOnRedirect(res.location)) {
+          console.log(`  [gone] ${id} → ${res.location}（転送＝掲載終了）`); mark({ status: 404 }); nGone++;
+          if (confirmSet.has(id)) confirmGone++;
+          continue;
+        }
         if (!res.ok || res.skippedReason) {
           console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`);
-          if (droppedSet.has(id) && (res.status === 404 || res.status === 410)) droppedGone++;
+          if (confirmSet.has(id) && (res.status === 404 || res.status === 410)) confirmGone++;
           mark(res); continue;
         }
         let rec;
@@ -498,8 +522,9 @@ async function main() {
         saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）
       }
       saveCrawlState(rolling.stateFile, state);
+      if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた`);
       if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す`);
-      if (dropped.length) console.log(`[${rolling.label}] 一覧から消えた${dropped.length}件のうち、閉鎖（404）だった${droppedGone}件に印を付けた`);
+      if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
       // 不調で打ち切った回も失敗として知らせる（2026-10-02 は半分取れたので「成功」になり、気づけなかった）。
       // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js）も知らせる
