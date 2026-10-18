@@ -360,7 +360,7 @@ async function main() {
     // 名前は今までの health と同じ（表の label。スペース二十四・小田急パーキング）にして、Advisor の通知の鍵を変えない
     if (t.paused) {
       const label = ROLLING_SITES.find((x) => x.op === t.operator)?.label ?? t.label ?? t.operator;
-      console.log(`[停止中] ${label}: ${t.paused}（アクセスしません）`);
+      console.log(`[停止中] ${label}: ${t.paused}`);
       hp(t.operator, label, false, 0, `停止中: ${t.paused}`);
       continue;
     }

@@ -188,6 +188,10 @@ test("fetch の例外に原因の符号を添える", () => {
   const t = new Error("The operation was aborted due to timeout"); t.name = "TimeoutError";
   assert.equal(fetchErrorText(t), "The operation was aborted due to timeout（TIMEOUT）");
   assert.equal(fetchErrorText(new Error("x")), "x");
+  const a = new TypeError("fetch failed"); a.cause = { errors: [{ code: "ECONNREFUSED" }, { code: "ECONNREFUSED" }] };
+  assert.equal(fetchErrorText(a), "fetch failed（ECONNREFUSED）");
+  const b = new TypeError("fetch failed"); b.cause = new Error("bad port");
+  assert.equal(fetchErrorText(b), "fetch failed（bad port）");
 });
 
 const TU = (n) => `https://times-info.net/P13-tokyo/C101/park-detail-BUK${String(n).padStart(7, "0")}/`;

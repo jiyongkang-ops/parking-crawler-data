@@ -16,7 +16,9 @@ const robotsCache = new Map(); // origin -> { kind, rules, status, why, fetchedA
  *  e.cause.code（ENOTFOUND・ECONNREFUSED・ECONNRESET・UND_ERR_CONNECT_TIMEOUT など）を添える。
  *  AbortSignal.timeout で切れたときは TimeoutError（2026-10-17 のエコロは「fetch failed」だけで原因が分からなかった） */
 export function fetchErrorText(e) {
-  const code = e?.cause?.code ?? (e?.name === "TimeoutError" ? "TIMEOUT" : null);
+  const c = e?.cause;
+  // 接続の失敗は cause.code。IPv4/IPv6 の両方を試して失敗したときは cause.errors[].code に入る。符号が無ければ cause の文
+  const code = c?.code ?? c?.errors?.find?.((x) => x?.code)?.code ?? (e?.name === "TimeoutError" ? "TIMEOUT" : null) ?? c?.message ?? null;
   const msg = e?.message ?? String(e);
   return code && !msg.includes(code) ? `${msg}（${code}）` : msg;
 }
