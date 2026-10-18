@@ -96,12 +96,74 @@ export function stampState(prev, atIso, seen = true) {
  *  先方に無駄な404を投げ続けないための処置でもある（リパークで約970件あった） */
 export const goneState = (atIso) => `GONE|${atIso}`;
 
-/** 取得の結果を状態へ書き戻す。404 は寝かせ、それ以外の失敗は時刻だけ進める */
+/** 取得の結果を状態へ書き戻す。404・410 は寝かせ、それ以外の失敗は時刻だけ進める
+ *  （相手先の不調で取れなかったときは、先に isTransient で分けて recordTransient を使う） */
 export function recordVisit(state, key, atIso, res, { hours = false, seen } = {}) {
-  if (res && res.status === 404) { state[key] = goneState(atIso); return; }
+  if (res && (res.status === 404 || res.status === 410)) { state[key] = goneState(atIso); return; }
   const ok = !!(res && res.ok && !res.skippedReason);
   // seen を渡されたら「その時刻を見た」の判定はそちら（満空が読めたかどうか）に従う
   state[key] = hours ? stampState(state[key], atIso, seen ?? ok) : atIso;
+}
+
+/** 相手先の不調で取れなかったか（物件が消えたとは言えない失敗）。
+ *  通信の失敗・タイムアウト（res が無い）、5xx、429（多すぎる）、403（断られた）。
+ *  404・410（閉鎖）、ほかの 4xx、robots.txt で見送った分は含めない（従来どおり recordVisit） */
+export const isTransient = (res) => !res || (!res.skippedReason && (res.status >= 500 || res.status === 429 || res.status === 403));
+
+/** 状態の値の末尾の「1回見送った」印 */
+const RETRY_MARK = "|r";
+/** 相手先の不調で取れなかった物件を状態へ書き戻す。戻り値は「次の回に取り直すか」。
+ *  1回目は時刻を進めず印だけ付ける（古い順の先頭に残り、次の回に取り直す）。
+ *  以前は失敗でも時刻を進めていたので、タイムズで 2026-10-02 21:08〜21:40（日本時間）に先方が 502・503・
+ *  タイムアウトを返したとき、取れなかった124件がデータの無いまま1巡（当時約16日）後ろへ回った。
+ *  2回続けて取れなかったら従来どおり時刻を進める。いつまでも進めないと、壊れたページが先頭に居座って
+ *  巡回が止まる（2026-09-12 に404の物件で起きたこと）。閉鎖（GONE）の印はそのまま寝かせ直す。 */
+export function recordTransient(state, key, atIso, { hours = false } = {}) {
+  const s = state[key] == null ? "" : String(state[key]);
+  if (s.startsWith("GONE|")) { state[key] = goneState(atIso); return false; }
+  if (s.endsWith(RETRY_MARK)) {
+    const base = s.slice(0, -RETRY_MARK.length);
+    state[key] = hours ? stampState(base, atIso, false) : atIso;
+    return false;
+  }
+  // 「ISO|時間帯マスク|r」。ISO は今までの値のまま（一度も取っていない物件は 1970年＝いちばん古い）。
+  // 読む側（parseState・studio-index.mjs）は「|」の3つ目を見ないので、そのまま読める。取れたら stampState で消える
+  const { t, mask } = parseState(s);
+  state[key] = `${new Date(t).toISOString()}|${mask.toString(36)}${RETRY_MARK}`;
+  return true;
+}
+
+/** 相手先の不調が続いたら、その回の巡回を打ち切る仕掛け。
+ *  不調の失敗が limit 件続いたら true を返す。取れた・404 など相手先が答えた回で数え直す。
+ *  run.js は取り直しの2回目の失敗を数えない（壊れたページが先頭に並んだだけで止めないため）。
+ *  2026-10-02 のタイムズは不調のあいだも6秒おきに249件を取りに行き、124件が失敗していた。
+ *  先方が苦しいときに叩き続けないためと、取れない物件を無駄に回さないため。 */
+export function makeBreaker(limit = 8) {
+  let streak = 0;
+  return { fail: () => ++streak >= limit, ok: () => { streak = 0; }, get streak() { return streak; } };
+}
+
+/** 一覧から消えた物件のうち、今の一覧を作ってから一度も確かめていないもの（古い順に max 件）。
+ *  詳細ページを1回だけ取りに行き、閉鎖なら 404 で GONE が付いて Advisor の相場から外れる（studio-index.mjs）。
+ *  それまでは一覧から消えると二度と取りに行かず、閉鎖の印も付かないまま相場に残っていた
+ *  （タイムズで64件。2026-10-18 に4件を確かめたら3件が404・1件はまだ載っていた）。
+ *  先方は一覧（sitemap）から一時的に外すこともある（タイムズは5回の作り直しで34件が出戻り）ので、
+ *  一覧から消えただけでは閉鎖にしない。確かめると時刻が一覧の作成より新しくなるので、次に一覧を
+ *  作り直すまでは再び取りに行かない。listAtMs … 今の一覧を作った時刻（分からなければ何も選ばない）。
+ *  keyOf … 一覧の1件 → 物件の番号（タイムズは URL → BUK）。URL だけ変わって同じ番号が一覧に残っている物件は
+ *  消えていないので選ばない（古い URL に GONE を付けると、番号でまとめる studio-index.mjs が生きている物件を外すため） */
+export function pickDropped(allIds, state, listAtMs, max = 100, keyOf = null) {
+  if (!Number.isFinite(listAtMs)) return [];
+  const inList = new Set(allIds);
+  const inListKey = keyOf ? new Set(allIds.map(keyOf)) : null;
+  const out = [];
+  for (const [k, v] of Object.entries(state)) {
+    if (k.startsWith("_") || inList.has(k) || inListKey?.has(keyOf(k))) continue;
+    const x = parseState(v);
+    if (x.gone || x.t >= listAtMs) continue;
+    out.push([k, x.t]);
+  }
+  return out.sort((a, b) => a[1] - b[1]).slice(0, max).map((x) => x[0]);
 }
 
 /** 一覧の中身の指紋。作り直して中身が変わったかを見るのに使う */
