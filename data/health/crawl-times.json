@@ -1,5 +1,5 @@
 {
- "at": "2026-10-17T20:53:02.449Z",
+ "at": "2026-10-18T03:38:07.303Z",
  "workflow": "crawl-times",
  "only": "times",
  "targets": [
@@ -7,7 +7,7 @@
    "op": "times",
    "label": "タイムズ",
    "ok": true,
-   "n": 451,
+   "n": 900,
    "reason": null
   }
  ]
