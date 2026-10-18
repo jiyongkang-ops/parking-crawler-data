@@ -11,8 +11,16 @@
 // 出力 data/carshare-mitsui.jsonl（追記型。1行＝1ステーションの状態。変わったときだけ書く。同じ k は最後の行が最新）
 //   { k:"mitsui:7333", n, a, la, ln, cars, cls:{ベーシック:4,…}, path, at }
 //   1巡で見なくなったステーションは { k, gone:1, at } を1行書く。
+//   ただし、相手先の不調（5xx・429・403・通信の失敗）で2回とも取れなかったページの下にあるステーションには書かない
+//   （取れなかっただけで、無くなったとは限らない）。
+//
+// robots.txt に届かない・断られているときは、そのページを列に戻して打ち切る（終了コード 1）。済みにも数えない。
+// 2026-10-18 の直しの途中（robots.txt に届かないとき本ページを送らなくした直し）では、残りの一覧を1回も取りに行かないまま
+// 全部「済み」にし、列が空になったので「1巡終わり」として、見なかった全ステーションに gone を書いていた
+// （点検の試しで2,135行。本番では起きていない）。
 import fs from "node:fs";
-import { politeFetch } from "./polite-fetch.js";
+import { politeFetch, fetchErrorText } from "./polite-fetch.js";
+import { isTransient } from "./repark-enumerate.js";
 
 const BASE = "https://www.carshares.jp";
 const STATE = process.env.CARSHARE_STATE || "data/carshares-crawl-state.json";
@@ -20,6 +28,8 @@ const OUT = process.env.CARSHARE_OUT || "data/carshare-mitsui.jsonl";
 const BUDGET_MS = Number(process.env.CARSHARE_BUDGET_MIN || 200) * 60e3;
 const CYCLE_MS = Number(process.env.CARSHARE_CYCLE_DAYS || 7) * 86400e3;
 const DELAY = Number(process.env.CARSHARE_DELAY_MS || 3000);
+// 相手先の不調（取れないページ）がこの数だけ続いたら、この回は打ち切る（先方が苦しいときに叩き続けない）
+const BREAKER = Number(process.env.CARSHARE_BREAKER || 8);
 // /station/ の下で都道府県ではない入口（車種・エリア・新着など）
 const NOT_PREF = new Set(["area", "car", "drive", "new", "shinkansen"]);
 
@@ -69,18 +79,48 @@ async function main() {
     const r = await politeFetch(`${BASE}/station/`, { minDelay: DELAY });
     if (!r.ok) { console.log(`[carshares] 入口の取得に失敗 ${r.status ?? r.skippedReason}`); process.exitCode = 1; return; }
     const prefs = [...new Set([...r.html.matchAll(/href="\/station\/([a-z0-9]+)\/"/g)].map((m) => m[1]))].filter((p) => !NOT_PREF.has(p));
-    Object.assign(st, { cycleStart: now(), cycleEnd: null, queue: prefs.map((p) => `/station/${p}/`), done: [], seen: [] });
+    Object.assign(st, { cycleStart: now(), cycleEnd: null, queue: prefs.map((p) => `/station/${p}/`), done: [], seen: [], retried: [], failed: [] });
     console.log(`[carshares] 新しい巡を始める（都道府県 ${prefs.length}）`);
   }
   const done = new Set(st.done), seen = new Set(st.seen);
-  let pages = 0, stations = 0, written = 0;
-  const save = () => { st.done = [...done]; st.seen = [...seen]; fs.writeFileSync(STATE, JSON.stringify(st)); };
+  // retried … 不調で取れず、列の最後に回して取り直したページ。failed … 2回とも取れなかったページ（この下は gone にしない）
+  const retried = new Set(st.retried ?? []), failed = new Set(st.failed ?? []);
+  let pages = 0, stations = 0, written = 0, streak = 0, aborted = null;
+  const save = () => {
+    st.done = [...done]; st.seen = [...seen]; st.retried = [...retried]; st.failed = [...failed];
+    fs.writeFileSync(STATE, JSON.stringify(st));
+  };
   while (st.queue.length && Date.now() - t0 < BUDGET_MS) {
     const path = st.queue.shift();
     if (done.has(path)) continue;
-    const r = await politeFetch(BASE + encodeURI(path), { minDelay: DELAY });
-    done.add(path); pages++;
-    if (!r.ok) { console.log(`  skip ${path} ${r.status ?? r.skippedReason}`); continue; }
+    let r, err = null;
+    try { r = await politeFetch(BASE + encodeURI(path), { minDelay: DELAY }); } catch (e) { r = null; err = fetchErrorText(e); }
+    // robots.txt で断られた（401・403）・届かない（通信の失敗・5xx）。本ページは送っていないし、残りのページも同じ答えになる。
+    // このページは列の先頭に戻し（済みにしない・取得にも数えない）、この回は打ち切る。次の回に robots.txt から取り直す
+    if (r?.blocked || r?.transient) {
+      st.queue.unshift(path);
+      aborted = `${r.skippedReason}${r.robotsError ? `（${r.robotsError}）` : ""}`;
+      console.log(`[carshares] ${aborted}。この回は打ち切り`);
+      break;
+    }
+    pages++;
+    // 相手先の不調（5xx・429・403・通信の失敗）。1回目は列の最後に回して取り直す。2回目も取れなければ済みにして、
+    // このページの下のステーションは1巡の終わりに gone にしない。続いたら打ち切る
+    if (isTransient(r)) {
+      const why = err ?? `HTTP ${r.status}`;
+      if (++streak >= BREAKER) {
+        st.queue.unshift(path);
+        aborted = `相手先の不調（${BREAKER}ページ続けて取れず。最後は ${why}）`;
+        console.log(`[carshares] ${aborted}。この回は打ち切り`);
+        break;
+      }
+      if (!retried.has(path)) { retried.add(path); st.queue.push(path); console.log(`  retry ${path} ${why}（列の最後に回して取り直す）`); }
+      else { done.add(path); failed.add(path); console.log(`  skip ${path} ${why}（2回とも取れず。この下のステーションは無くなったとしない）`); }
+      continue;
+    }
+    streak = 0;
+    done.add(path);
+    if (!r.ok || r.skippedReason) { console.log(`  skip ${path} ${r.status ?? r.skippedReason}`); continue; }
     const s = parseStation(r.html, path);
     if (s) {
       stations++; seen.add(s.k);
@@ -93,14 +133,26 @@ async function main() {
     }
     if (pages % 50 === 0) save();
   }
-  if (!st.queue.length) {
-    // 1巡終わり: 今回の巡で見なかったステーションを「無くなった」とする
-    let gone = 0;
-    for (const [k, v] of Object.entries(last)) if (!v.gone && !seen.has(k)) { fs.appendFileSync(OUT, JSON.stringify({ k, gone: 1, at: now() }) + "\n"); gone++; }
-    st.cycleEnd = now(); st.lastCycle = { stations: seen.size, gone, start: st.cycleStart, end: st.cycleEnd };
-    console.log(`[carshares] 1巡終わり: ステーション ${seen.size}・無くなった ${gone}`);
+  // 打ち切った回は「1巡終わり」にしない（列にはまだ残りがある。gone も書かない）
+  if (!st.queue.length && !aborted) {
+    // 1巡終わり: 今回の巡で見なかったステーションを「無くなった」とする。
+    // 取れなかったページ（failed）の下にあるステーションは、見られなかっただけなので書かない
+    const under = (p) => !!p && [...failed].some((f) => p.startsWith(f));
+    let gone = 0, kept = 0;
+    for (const [k, v] of Object.entries(last)) {
+      if (v.gone || seen.has(k)) continue;
+      if (under(v.path)) { kept++; continue; }
+      fs.appendFileSync(OUT, JSON.stringify({ k, gone: 1, at: now() }) + "\n"); gone++;
+    }
+    st.cycleEnd = now();
+    st.lastCycle = { stations: seen.size, gone, start: st.cycleStart, end: st.cycleEnd, ...(failed.size ? { failedPages: failed.size, kept } : {}) };
+    console.log(`[carshares] 1巡終わり: ステーション ${seen.size}・無くなった ${gone}` +
+      `${failed.size ? `（取れなかった${failed.size}ページの下の${kept}件は、無くなったとしない）` : ""}`);
+    retried.clear(); failed.clear();
   }
   save();
-  console.log(`[carshares] 取得 ${pages}ページ・ステーション ${stations}・書いた ${written}・残りの一覧 ${st.queue.length}`);
+  console.log(`[carshares] 取得 ${pages}ページ・ステーション ${stations}・書いた ${written}・残りの一覧 ${st.queue.length}` +
+    `${aborted ? `・打ち切り: ${aborted}` : ""}`);
+  if (aborted) process.exitCode = 1;
 }
 if (import.meta.url === `file://${process.argv[1]}`) main();

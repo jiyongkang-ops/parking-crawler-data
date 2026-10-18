@@ -43,3 +43,18 @@ export function cacheFresh(file, cacheMs) {
   console.log(`[list] ${file} を作り直す（前回の取得から ${(age / 864e5).toFixed(0)}日）`);
   return false;
 }
+
+/** 作り直した一覧が前の一覧の minRatio（既定は半分）未満なら、作り直しの失敗とみなして前の一覧を返す。
+ *  使ってよければ null。前の一覧を返すときは取得日（.fetched）を進めないので、次の回にまた作り直す。
+ *  前の一覧には staleReason を付ける（run.js が health に ok:false で出して知らせる）。新しい一覧が少なく、
+ *  前の一覧も無ければ例外。欠けた一覧で上書きすると、外れた物件を7日間取りに行かなくなるため
+ *  （ナビパークは robots.txt に届かない回に0件の一覧を書き、1,283件を7日間回らなくなるところだった。2026-10-18 の点検） */
+export function keepPrevIfShrunk(label, list, prev, minRatio = 0.5) {
+  if (list.length > 0 && list.length >= prev.length * minRatio) return null;
+  const why = `一覧が${list.length}件しか取れなかった（前回${prev.length}件）`;
+  if (!prev.length) throw new Error(why);
+  console.warn(`::warning::[${label}] ${why}。前の一覧を使い、次の回に作り直す`);
+  const old = [...prev];
+  old.staleReason = `一覧を作り直せていない: ${why}`;
+  return old;
+}
