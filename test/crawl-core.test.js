@@ -516,12 +516,13 @@ test("ナビパーク: 取れた一覧が前の一覧の9割未満なら前の�
     fs.writeFileSync(cacheFile, prev.join("\n") + "\n");
     const routes = (codes) => ({ [`${N}/searchAreaList-13/`]: '<a href="/parkingList-13-101/">千代田区</a>',
       [`${N}/parkingList-13-101/`]: codes.map((c) => `<a href="/parkingDetail/${c}.html">x</a>`).join("") });
-    const emptyPref = "<html></html>";                                      // ほかの県は物件が無い（200 で市区のリンクが0件）
+    // ほかの県は物件が無い（200 で市区のリンクが0件。物件の無い県には「見つかりませんでした」と出る。青森で確認 2026-10-18）
+    const emptyPref = "<p>お探しのエリアに駐車場は見つかりませんでした。</p>";
     _resetRobotsCache();
     stubFetch(routes(["P1", "P2"]), emptyPref);                              // 2件だけ
     const got = await getAllNaviparkCodes({ cacheFile, cacheMs: 7 * 864e5 });
     assert.deepEqual([...got], prev);
-    assert.match(got.staleReason, /一覧を作り直せていない（取得日不明[^）]*）: 一覧が 10件 → 2件に減った/);   // 取得日が分からないので知らせる
+    assert.match(got.staleReason, /一覧を作り直せていない（前の一覧は取得日不明）: 一覧が 10件 → 2件に減った/);   // 取得日が分からないので知らせる
     assert.equal(fs.readFileSync(cacheFile, "utf8"), prev.join("\n") + "\n");
     assert.equal(fs.existsSync(`${cacheFile}.fetched`), false);               // 取得日は進めない＝次に作り直す
     // 9割以上取れれば書き直す（失敗の記録は20時間あけるためのものなので、ここでは消してから試す）
