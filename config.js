@@ -50,7 +50,13 @@ export const config = {
     { operator: "leparc", mode: "nationwide", label: "NTTル・パルク全国" },
     { operator: "gspark", mode: "nationwide", label: "GSパーク全国" },
     // ※別ワークフロー(crawl-extra2.yml)で実行する2026-08追加分。
-    { operator: "space24", mode: "nationwide", label: "スペース二十四全国" },
+    // paused … 止めている事業者。一覧も詳細も robots.txt も取らず、health に「停止中」だけを残す（run.js）。
+    //   スペース二十四・小田急パーキングは 2026-10 時点で全ページ（スペース二十四は robots.txt も）403 を返す＝当ボットを断っている。
+    //   それでも毎回一覧を取りに行き、1日あたり各社4リクエストを送り続けていた（10/8〜10/18 の全回で 403）。
+    //   ワークフローの CRAWL_ONLY からは外さない。外すと health から消えて Advisor に「また取れるようになった」と誤って届き、
+    //   studio-index.mjs の「長く取れていない事業者」の判定も外れて、失敗した日が「最後に確かめた日」に戻るため。
+    //   取り直しを試す手段（UA の偽装・別の経路など）は作らない。先方の許可が出たら paused を消す
+    { operator: "space24", mode: "nationwide", label: "スペース二十四全国", paused: "2026-10 先方が403で拒否。許可が出るまでアクセスしない" },
     { operator: "jqparks", mode: "nationwide", label: "JQパークス（九州）" },
     { operator: "parknet", mode: "nationwide", label: "パークネット全国" },
     { operator: "tamapark", mode: "nationwide", label: "タマパーク" },
@@ -62,7 +68,7 @@ export const config = {
     { operator: "systempark", mode: "nationwide", label: "システムパーク（仙台）" },
     { operator: "comnet", mode: "nationwide", label: "コムパーク" },
     { operator: "keio", mode: "nationwide", label: "京王コインパーク" },
-    { operator: "odakyu", mode: "nationwide", label: "小田急パーキング" },
+    { operator: "odakyu", mode: "nationwide", label: "小田急パーキング", paused: "2026-10 先方が403で拒否。許可が出るまでアクセスしない" },
 
     // ザ・パーク(第一興商) — 単一JSON(data/search.json)で全国 約3,367件を1リクエスト取得。
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。

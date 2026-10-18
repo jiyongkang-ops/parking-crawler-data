@@ -330,6 +330,17 @@ async function main() {
   }
 
   for (const t of targets) {
+    // ---- 止めている事業者（config の paused）----
+    // 先方に断られている社。一覧も詳細も取らない（robots.txt も取りに行かない）。health には ok=false の「停止中」を
+    // 残す。消すと Advisor に「直った」と届き、studio-index.mjs の「長く取れていない」の判定も外れるため。
+    // 名前は今までの health と同じ（表の label。スペース二十四・小田急パーキング）にして、Advisor の通知の鍵を変えない
+    if (t.paused) {
+      const label = ROLLING_SITES.find((x) => x.op === t.operator)?.label ?? t.label ?? t.operator;
+      console.log(`[停止中] ${label}: ${t.paused}（アクセスしません）`);
+      hp(t.operator, label, false, 0, `停止中: ${t.paused}`);
+      continue;
+    }
+
     // ---- NPC 全国（bbox 一括） ----
     if (t.operator === "npc" && t.mode === "nationwide") {
       const url = locationUrl(JAPAN_BBOX, { limit: 2000 });

@@ -6,6 +6,9 @@ import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
 import { politeFetch } from "./polite-fetch.js";
 
+// 取りに行くのは start=0・20 の2ページだけ。3ページ目（start=40）以降は 403 と分かっているので送らない。
+// 以前はループが start<2000 のままで、7日ごとの一覧の作り直しのたびに 403 の3ページ目を1回叩いていた（2026-10-18）
+export const MAX_START = 40;
 const LIST_URL = (start) => start === 0 ? "https://sasp.mapion.co.jp/b/leperc/attr/" : `https://sasp.mapion.co.jp/b/leperc/attr/?start=${start}`;
 
 export async function getAllLeparcIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
@@ -13,7 +16,7 @@ export async function getAllLeparcIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
     if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const ids = new Set();
-  for (let start = 0; start < 2000; start += 20) {
+  for (let start = 0; start < MAX_START; start += 20) {
     const res = await politeFetch(LIST_URL(start));
     if (!res.ok) break;
     const found = [...res.html.matchAll(/\/b\/leperc\/info\/(NRP\d+)\//g)].map((m) => m[1]);
