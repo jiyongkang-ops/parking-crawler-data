@@ -106,9 +106,10 @@ export function recordVisit(state, key, atIso, res, { hours = false, seen } = {}
 }
 
 /** 相手先の不調で取れなかったか（物件が消えたとは言えない失敗）。
- *  通信の失敗・タイムアウト（res が無い）、5xx、429（多すぎる）、403（断られた）。
- *  404・410（閉鎖）、ほかの 4xx、robots.txt で見送った分は含めない（従来どおり recordVisit） */
-export const isTransient = (res) => !res || (!res.skippedReason && (res.status >= 500 || res.status === 429 || res.status === 403));
+ *  通信の失敗・タイムアウト（res が無い）、5xx、429（多すぎる）、403（断られた）、robots.txt に届かず見送った分（res.transient）。
+ *  404・410（閉鎖）、ほかの 4xx、robots.txt の Disallow で見送った分は含めない（従来どおり recordVisit） */
+export const isTransient = (res) => !res || !!res.transient
+  || (!res.skippedReason && (res.status >= 500 || res.status === 429 || res.status === 403));
 
 /** 状態の値の末尾の「1回見送った」印 */
 const RETRY_MARK = "|r";

@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
-import { politeFetch, sleep } from "./polite-fetch.js";
+import { politeFetch, sleep, fetchErrorText } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
@@ -189,7 +189,8 @@ function feeFingerprint(rec) {
 // 失敗した事業者があれば Slack で知らせる（2026-10-14。スペース24が403・GSパークが未対応のまま、
 // ワークフローは「成功」で2か月気づけなかったため）。ok=false は「取れなかった」。
 const health = [];
-const hp = (op, label, ok, n, reason = null) => health.push({ op, label, ok, n, reason });
+// extra … 足りないときだけ足す項目（kind: "blocked" など）。Advisor は op・label・ok・n・reason だけを読む
+const hp = (op, label, ok, n, reason = null, extra = null) => health.push({ op, label, ok, n, reason, ...(extra ?? {}) });
 function writeHealth() {
   const name = (process.env.HEALTH_NAME || process.env.GITHUB_WORKFLOW || process.env.CRAWL_ONLY || "local").replace(/[^\w.-]+/g, "_");
   try {
@@ -362,7 +363,7 @@ async function main() {
           await sleep(gapMs);
         }
         let res;
-        try { res = await politeFetch(url); } catch (e) { console.error(`[error] NPC全国: ${e.message}`); hp("npc", "NPC全国", false, 0, e.message); continue; }
+        try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] NPC全国: ${m}`); hp("npc", "NPC全国", false, 0, m); continue; }
         if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); hp("npc", "NPC全国", false, 0, res.skippedReason ?? "HTTP " + res.status); continue; }
         let total = null;
         try { total = JSON.parse(res.html).total; } catch { /* */ }
@@ -398,7 +399,7 @@ async function main() {
       let ids;
       try {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] ${rolling.op} enumerate: ${e.message}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${e.message}`); continue; }
+      } catch (e) { const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${m}`); continue; }
       const state = loadCrawlState(rolling.stateFile);
       // 一覧が変わったら、404で寝かせていた物件を起こす（復活している見込みがあるため）
       const woke = unparkGone(state, ids);
@@ -470,7 +471,7 @@ async function main() {
       // 相手先の不調（5xx・429・403・タイムアウト）が続いたら、この回は打ち切る（makeBreaker の説明）
       const breakerN = Number(process.env.ROLLING_BREAKER) || 8;
       const breaker = makeBreaker(breakerN);
-      let broke = null, retried = 0;
+      let broke = null, retried = 0, brokeKind = null;
       for (let pass = 0; pass < passes && !out; pass++) {
         if (pass > 0) {
           console.log(`[${rolling.label}] ${gapMin}分あけて ${pass + 1}/${passes} 回目`);
@@ -485,11 +486,21 @@ async function main() {
       for (const id of batch) {
         if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }
         const url = rolling.detailUrl(id);
-        tried++;
         const at = new Date().toISOString();   // この物件を取った時刻
         const mark = (r, seen) => recordVisit(state, id, at, r, { hours: !!rolling.hours, seen });
         let res, err = null;
-        try { res = await politeFetch(url, fetchOpts); } catch (e) { res = null; err = e.message; }
+        try { res = await politeFetch(url, fetchOpts); } catch (e) { res = null; err = fetchErrorText(e); }
+        // robots.txt で断られた（401・403）・robots.txt に届かない（通信の失敗・5xx）。どちらも本ページは送っていない。
+        // 同じ origin の物件はみな同じ答えになるので、この社のこの回はここで打ち切る。物件の状態は書かない
+        // （確かめていない日を「取りに行った日」にしない。届かないときは次の回で robots.txt から取り直す）。
+        // 2026-10-17 のエコロは robots.txt も取れなかったのに、45分間で257回取りに行き、257件に日付だけが入った
+        if (res?.blocked || res?.transient) {
+          broke = res.blocked ? `${res.skippedReason}。この回は打ち切り` : `${res.skippedReason}のでこの回は見送り（${res.robotsError ?? "原因不明"}）`;
+          brokeKind = res.blocked ? "blocked" : "unreachable";
+          console.warn(`  [abort] ${rolling.label}: ${broke}。${done}件取れたところで止める`);
+          out = true; break;
+        }
+        tried++;
         // 相手先の不調。1回目は時刻を進めず次の回に取り直す。続いたら打ち切る
         if (isTransient(res)) {
           const why = err ?? `HTTP ${res.status}`;
@@ -500,6 +511,7 @@ async function main() {
           // 並ぶので、数えると先方が元気でも打ち切ってしまう
           if (again && breaker.fail()) {
             broke = `相手先の不調で打ち切り（${breakerN}件続けて取れず。最後は ${why}）`;
+            brokeKind = "transient";
             console.warn(`  [breaker] ${broke}。${done}件取れたところで止める`);
             out = true; break;
           }
@@ -540,7 +552,8 @@ async function main() {
       // 不調で打ち切った回も失敗として知らせる（2026-10-02 は半分取れたので「成功」になり、気づけなかった）。
       // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js）も知らせる
       hp(rolling.op, rolling.label, !broke && !ids.staleReason && (tried === 0 || got > 0), got,
-        broke ?? ids.staleReason ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件` : null));
+        broke ?? ids.staleReason ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件` : null),
+        { tried, ...(brokeKind ? { kind: brokeKind } : {}) });
       continue;
     }
 
@@ -558,12 +571,15 @@ async function main() {
           fs.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n"); markFetched(STATE.gsparkAreasCache);
         }
       } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); hp("gspark", t.label, false, 0, `一覧: ${e.message}`); continue; }
-      let count = 0;
+      let count = 0, stop = null;
       for (const code of codes) {
+        if (stop) break;
         for (let page = 1; page <= 30; page++) {
           const url = areaListUrl(code, page);
           let res;
-          try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${code} p${page}: ${e.message}`); break; }
+          try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${code} p${page}: ${fetchErrorText(e)}`); break; }
+          // robots.txt で断られた・届かないときは、残りのページも同じ答えなので止める（本ページは送っていない）
+          if (res.blocked || res.transient) { stop = res.skippedReason; console.warn(`  [abort] GSパーク: ${stop}`); break; }
           if (!res.ok || res.skippedReason) break;
           const { records, hasNext } = parseGsparkList(res.html);
           for (const rec of records) { rec._requestUrl = url; handleRecord(rec); count++; }
@@ -571,7 +587,8 @@ async function main() {
         }
       }
       console.log(`[ok] GSパーク全国 | ${count}物件（エリア${codes.length}）`);
-      hp("gspark", t.label, count > 0, count, count ? null : "0件");
+      // 途中で止めた回は失敗（一覧型は「直近の実行が成功していれば全件をその日に確かめた」とみなされるため）
+      hp("gspark", t.label, count > 0 && !stop, count, stop ?? (count ? null : "0件"));
       continue;
     }
 
@@ -582,18 +599,19 @@ async function main() {
         cities = await getAllParknetCities({ cacheFile: STATE.parknetCitiesCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); hp("parknet", "パークネット", false, 0, `一覧: ${e.message}`); continue; }
       console.log(`[パークネット] 市区${cities.length}件を巡回`);
-      let count = 0;
+      let count = 0, stop = null;
       for (const line of cities) {
         const [prefCd, city] = line.split("\t");
         if (!prefCd || !city) continue;
         const url = parknetCityUrl(prefCd, city);
         let res;
-        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${city}: ${e.message}`); continue; }
+        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${city}: ${fetchErrorText(e)}`); continue; }
+        if (res.blocked || res.transient) { stop = res.skippedReason; console.warn(`  [abort] パークネット: ${stop}`); break; }
         if (!res.ok || res.skippedReason) continue;
         for (const rec of parseParknetList(res.html)) { rec._requestUrl = url; handleRecord(rec); count++; }
       }
       console.log(`[ok] パークネット | ${count}物件`);
-      hp("parknet", "パークネット", count > 0, count, count ? null : "0件");
+      hp("parknet", "パークネット", count > 0 && !stop, count, stop ?? (count ? null : "0件"));
       continue;
     }
 
@@ -601,8 +619,8 @@ async function main() {
     if (t.operator === "mden" && t.mode === "nationwide") {
       const url = mdenListUrl();
       let res;
-      try { res = await politeFetch(url); } catch (e) { console.error(`[error] mden: ${e.message}`); hp("mden", "エムデン", false, 0, e.message); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] mden: HTTP ${res.status}`); hp("mden", "エムデン", false, 0, res.skippedReason ?? `HTTP ${res.status}`); continue; }
+      try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] mden: ${m}`); hp("mden", "エムデン", false, 0, m); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] mden: ${res.skippedReason ?? "HTTP " + res.status}`); hp("mden", "エムデン", false, 0, res.skippedReason ?? `HTTP ${res.status}`); continue; }
       const records = parseMdenList(res.html);
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
       console.log(`[ok] エムデン・テクノパーキング | ${records.length}物件`);
@@ -615,7 +633,7 @@ async function main() {
       const url = theparkUrl();
       if (cachedRecently(url)) { console.log(`[cache] ザ・パーク全国 スキップ`); continue; }
       let res;
-      try { res = await politeFetch(url); } catch (e) { console.error(`[error] ザ・パーク: ${e.message}`); hp("thepark", "ザ・パーク", false, 0, e.message); continue; }
+      try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] ザ・パーク: ${m}`); hp("thepark", "ザ・パーク", false, 0, m); continue; }
       if (!res.ok || res.skippedReason) { console.error(`[error] ザ・パーク: ${res.skippedReason ?? "HTTP " + res.status}`); hp("thepark", "ザ・パーク", false, 0, res.skippedReason ?? "HTTP " + res.status); continue; }
       const records = parseTheparkJson(res.html, { label: "ザ・パーク全国" });
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });

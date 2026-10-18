@@ -11,6 +11,8 @@ export const config = {
 
   // robots.txt のキャッシュ有効期間（ミリ秒）
   robotsCacheMs: 24 * 60 * 60 * 1000,
+  // robots.txt に届かなかったとき（通信の失敗・タイムアウト・5xx）、その origin を見送る時間（ミリ秒）。過ぎたら取り直す
+  robotsUnreachableCacheMs: 10 * 60 * 1000,
 
   // 同一ページの再取得を抑制するキャッシュ期間（ミリ秒）。
   // この期間内に既に取得済みなら取得をスキップする。
