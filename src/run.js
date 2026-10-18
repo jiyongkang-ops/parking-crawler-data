@@ -14,9 +14,10 @@ import { config } from "../config.js";
 import { politeFetch, sleep } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
-import { cacheFresh, markFetched } from "./cache-age.js";
+import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
+  isTransient, recordTransient, makeBreaker, pickDropped,
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -24,7 +25,7 @@ import { detailUrl as mkpDetailUrl, parseMkpDetail } from "./mkp.js";
 import { getAllMkpIds } from "./mkp-enumerate.js";
 import { detailUrl as naviparkDetailUrl, parseNaviparkDetail } from "./navipark.js";
 import { getAllNaviparkCodes } from "./navipark-enumerate.js";
-import { detailUrl as ecoloDetailUrl, parseEcoloDetail } from "./ecolo.js";
+import { detailUrl as ecoloDetailUrl, parseEcoloDetail, isClosedRedirect as isEcoloClosedRedirect } from "./ecolo.js";
 import { getAllEcoloIds } from "./ecolo-enumerate.js";
 import { searchUrl as theparkUrl, parseTheparkJson } from "./thepark.js";
 import { detailUrl as kyotechDetailUrl, parseKyotechDetail } from "./kyotech.js";
@@ -86,6 +87,7 @@ const STATE = {
 //   minDelay: 既定より長く空ける社（タイムズは先方が商用botを名指しで断っているため）
 //   hours   : 満空が取れる社。巡回のたび「その時刻を見た」を記録して時間帯を均す
 //   priorityKey: 一覧の1件 → 優先物件の番号。一覧の書き方と Advisor の番号が違う社だけ付ける（2026-10-17）
+//   confirmDropped: 一覧から消えた物件を、一覧を作り直したあと1回だけ取りに行き、閉鎖（404）を確かめる（2026-10-18）
 const ROLLING_SITES = [
   { op: "repark", label: "三井のリパーク", enumerate: getAllParkIds, detailUrl: reparkDetailUrl, parse: parseReparkDetail,
     idsCache: STATE.reparkSitemapCache, stateFile: STATE.reparkCrawlState, defaultPerRun: 1000,
@@ -95,13 +97,22 @@ const ROLLING_SITES = [
     keyName: "url", minDelay: config.timesMinDelayMs ?? 6000,
     hours: true,     // 2026-09: 詳細ページの周辺一覧から満空が読めるので、時間帯を均して回す
     // 一覧はページのURL、優先物件は BUK… で届くので、URL から BUK を取り出して照合する（2026-10-17）
-    priorityKey: bukCode },
+    priorityKey: bukCode,
+    // 一覧（sitemap）から消えた物件は閉鎖の印が付かないまま Advisor の相場に残っていた（64件。2026-10-18）
+    confirmDropped: true },
   { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
     idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
     idsCache: STATE.naviparkCodesCache, stateFile: STATE.naviparkCrawlState, defaultPerRun: 2500, keyName: "code" },
+  // エコロは閉じた物件を 404 ではなく 301 でトップ（/ や /park/）へ転送する。転送を追うとトップのページを物件として
+  // 読み、料金が空の行（名前「コインパーキング・駐車場経営ならエコロパーク」）を24件書いていた。閉鎖として寝かせる（2026-10-18）
+  //   goneOnRedirect: 転送を追わずに受け取り、転送先（location）を渡すと「閉鎖か」を返す関数。
+  //                   物件ページ以外（/ や /park/）への転送だけを閉鎖（GONE）とみなす。別の物件ページへの転送や
+  //                   転送先が無いときは閉鎖と決めつけず、いつもの失敗（時刻だけ進める）にする
+  //   recheckDropped : 一覧から外れた物件を一度だけ取り直し、閉鎖なら GONE にする（外れたまま古い日付で残さない）
   { op: "ecolo", label: "エコロパーク", enumerate: getAllEcoloIds, detailUrl: ecoloDetailUrl, parse: parseEcoloDetail,
-    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500 },
+    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500,
+    goneOnRedirect: isEcoloClosedRedirect, recheckDropped: true },
   { op: "kyotech", label: "キョウテク", enumerate: getAllKyotechIds, detailUrl: kyotechDetailUrl, parse: parseKyotechDetail,
     idsCache: STATE.kyotechIdsCache, stateFile: STATE.kyotechCrawlState, defaultPerRun: 800 },
   { op: "leparc", label: "ルパルク", enumerate: getAllLeparcIds, detailUrl: leparcDetailUrl, parse: parseLeparcDetail,
@@ -385,6 +396,13 @@ async function main() {
       const liveCount = countLive(ids, state);
       const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
       const visited = ids.filter((id) => state[id]).length;
+      // 一覧から外れたが、まだ閉鎖と分かっていない物件（recheckDropped の社だけ）。巡回の候補に足して一度取り直す。
+      // 閉鎖なら GONE になって候補から外れ、営業中なら取れた日が進む（一覧の取りこぼしがあっても古いまま残らない）
+      const listed = new Set(ids);
+      const dropped = rolling.recheckDropped
+        ? Object.keys(state).filter((k) => !k.startsWith("_") && !listed.has(k) && !String(state[k]).startsWith("GONE|"))
+        : [];
+      const candidates = dropped.length ? ids.concat(dropped) : ids;
       // 1回の実行を何回かに分け、間をあけて取る。
       // GitHub の定時実行は混むと落ちることがあり、毎時の cron でも実測で24時間中18時間しか
       // 発火していなかった（JST 7・14・17・18・21・22時が丸ごと空。2026-09-15）。
@@ -407,6 +425,13 @@ async function main() {
       // 優先物件を取り直す間隔。毎時回るリパークは3時間おき。1日3回のタイムズで3時間にすると毎回621件を
       // 取り直して全国の1巡が約25日に延びるので、事業者ごとに config で変えられるようにする（2026-10-17）
       const prioMinAgeH = Number(config[`${rolling.op}PriorityMinAgeHours`]) || 3;
+      // 一覧から消えた物件のうち、今の一覧を作ってから確かめていないもの（confirmDropped の社だけ。1回目の回の先頭で取りに行く）。
+      // 404 なら GONE が付いて相場から外れる。載っていれば料金・満空をそのまま残す（pickDropped の説明）。
+      // 上の recheckDropped（エコロ）は外れた物件を巡回の候補に足し続ける。こちらは一覧を作り直すたびに1回だけ確かめる
+      const confirm = rolling.confirmDropped
+        ? pickDropped(ids, state, Date.now() - cacheAgeMs(rolling.idsCache), Number(process.env.DROPPED_MAX) || 100, rolling.priorityKey) : [];
+      const confirmSet = new Set(confirm);
+      let confirmGone = 0;
       // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
       // 予算内で切り上げ、状態は50件ごとに書いておく。
       // 分割の待ち時間（pausedMs）は予算から除く。除かないと待った分だけ取得が削られる
@@ -417,16 +442,24 @@ async function main() {
       const perRunCap = Math.min(perRun, Math.floor(budgetMs / (rolling.minDelay ?? config.minDelayMs)));
       console.log(
         `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件` +
+        `${dropped.length ? ` / 一覧から外れた${dropped.length}件を取り直す` : ""}` +
         `${want.length ? ` / 優先${prio.length}件（${prioMinAgeH}時間おき${prioMissing ? `・一覧に無い${prioMissing}件` : ""}）` : ""} / ` +
         `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
         `${passes > 1 ? `・${gapMin}分あける` : ""}・予算${budgetMin}分で約${perRunCap}件まで）。` +
-        `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRunCap))}回実行（優先の取り直しぶんは別）`
+        `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRunCap))}回実行（優先の取り直しぶんは別）` +
+        `${confirm.length ? ` / 一覧から消えた${confirm.length}件を確かめる` : ""}`
       );
       const startedAt = Date.now();
       let pausedMs = 0;
-      const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
-      let done = 0, got = 0, tried = 0;
+      const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
+        ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
+        : undefined;
+      let done = 0, got = 0, tried = 0, nGone = 0;
       let out = false;
+      // 相手先の不調（5xx・429・403・タイムアウト）が続いたら、この回は打ち切る（makeBreaker の説明）
+      const breakerN = Number(process.env.ROLLING_BREAKER) || 8;
+      const breaker = makeBreaker(breakerN);
+      let broke = null, retried = 0;
       for (let pass = 0; pass < passes && !out; pass++) {
         if (pass > 0) {
           console.log(`[${rolling.label}] ${gapMin}分あけて ${pass + 1}/${passes} 回目`);
@@ -434,8 +467,9 @@ async function main() {
           pausedMs += gapMs;
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
-        const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
+        const picked = pickRolling(candidates, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
           priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3 });
+        const batch = pass === 0 ? confirm.concat(picked) : picked;
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
         if (Date.now() - startedAt - pausedMs > budgetMs) { console.warn(`  [budget] ${budgetMs / 60000}分を超えたので ${done}件で切り上げ`); out = true; break; }
@@ -443,9 +477,35 @@ async function main() {
         tried++;
         const at = new Date().toISOString();   // この物件を取った時刻
         const mark = (r, seen) => recordVisit(state, id, at, r, { hours: !!rolling.hours, seen });
-        let res;
-        try { res = await politeFetch(url, fetchOpts); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); mark(null); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`); mark(res); continue; }
+        let res, err = null;
+        try { res = await politeFetch(url, fetchOpts); } catch (e) { res = null; err = e.message; }
+        // 相手先の不調。1回目は時刻を進めず次の回に取り直す。続いたら打ち切る
+        if (isTransient(res)) {
+          const why = err ?? `HTTP ${res.status}`;
+          const again = recordTransient(state, id, at, { hours: !!rolling.hours });
+          if (again) retried++;
+          console.error(`  [error] ${id}: ${why}${again ? "（次の回に取り直す）" : ""}`);
+          // 前の回も取れなかった物件（取り直しの2回目）は数えない。壊れたページは取り直しで古い順の先頭に
+          // 並ぶので、数えると先方が元気でも打ち切ってしまう
+          if (again && breaker.fail()) {
+            broke = `相手先の不調で打ち切り（${breakerN}件続けて取れず。最後は ${why}）`;
+            console.warn(`  [breaker] ${broke}。${done}件取れたところで止める`);
+            out = true; break;
+          }
+          continue;
+        }
+        breaker.ok();
+        // 閉じた物件をトップへ転送する社（エコロ）。404 と同じく寝かせる
+        if (rolling.goneOnRedirect && res.status >= 300 && res.status < 400 && rolling.goneOnRedirect(res.location)) {
+          console.log(`  [gone] ${id} → ${res.location}（転送＝掲載終了）`); mark({ status: 404 }); nGone++;
+          if (confirmSet.has(id)) confirmGone++;
+          continue;
+        }
+        if (!res.ok || res.skippedReason) {
+          console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`);
+          if (confirmSet.has(id) && (res.status === 404 || res.status === 410)) confirmGone++;
+          mark(res); continue;
+        }
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
         try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id }); }
@@ -462,8 +522,14 @@ async function main() {
         saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）
       }
       saveCrawlState(rolling.stateFile, state);
-      // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功
-      hp(rolling.op, rolling.label, tried === 0 || got > 0, got, tried > 0 && got === 0 ? `${tried}件取りに行って0件` : null);
+      if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた`);
+      if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す`);
+      if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた`);
+      // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
+      // 不調で打ち切った回も失敗として知らせる（2026-10-02 は半分取れたので「成功」になり、気づけなかった）。
+      // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js）も知らせる
+      hp(rolling.op, rolling.label, !broke && !ids.staleReason && (tried === 0 || got > 0), got,
+        broke ?? ids.staleReason ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件` : null));
       continue;
     }
 

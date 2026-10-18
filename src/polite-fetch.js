@@ -89,7 +89,9 @@ function isAllowed(rules, pathname) {
 
 // 節度を守って 1 件取得する。
 // opts.minDelay でこの取得のアクセス間隔を上書き（事業者ごとの配慮に使う）。
-// 戻り値: { ok, status, html, skippedReason }
+// opts.redirect: "manual" で転送を追わない（閉じた物件をトップへ転送する社で、転送先を物件として読まないため。
+//   追わない分、転送先のページを取りに行く1回も減る）。転送のときは status が 3xx、location に転送先が入る。
+// 戻り値: { ok, status, html, skippedReason, location }
 export async function politeFetch(url, opts = {}) {
   const u = new URL(url);
   const origin = `${u.protocol}//${u.host}`;
@@ -113,7 +115,8 @@ export async function politeFetch(url, opts = {}) {
       "Accept-Language": "ja,en;q=0.8",
     },
     signal: AbortSignal.timeout(config.timeoutMs),
+    redirect: opts.redirect === "manual" ? "manual" : "follow",
   });
   const html = await res.text();
-  return { ok: res.ok, status: res.status, html };
+  return { ok: res.ok, status: res.status, html, location: res.headers.get("location") };
 }

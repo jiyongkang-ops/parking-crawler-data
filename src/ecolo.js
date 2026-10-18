@@ -2,12 +2,21 @@
 // 料金はサーバ描画の静的HTML。基本情報テーブル（c-table）の各セルに th/td 対で入る。
 //   台数 → 収容台数、料金 → <br>区切りで料金行（多くは「最大」料金）。
 //   住所は地図iframeの q= パラメータから取得（詳細ページに住所行が無いため）。
-// robots.txt は制限なし。列挙は 195 エリアページ巡回（ecolo-enumerate）。
+// robots.txt は制限なし（空）。列挙は先方のサイトマップ（ecolo-enumerate）。
+// 閉じた物件は 404 ではなく 301 でトップへ転送される（run.js の goneOnRedirect で閉鎖として扱う）。
 
 const BASE = "https://service.ecolocity.co.jp/park/coin-parking/";
 
 export function detailUrl(id) {
   return `${BASE}${id}/`;
+}
+
+/** 物件ページを取ったときの転送が「閉鎖（掲載終了）」か。
+ *  閉じた物件は 301 で / や /park/ へ飛ばされる（2026-10-18 に 6672→/、9345→/park/ を確認）。
+ *  別の物件ページへの転送や、転送先が無いときは閉鎖と決めつけない（番号の付け替えやサイトの引っ越しで
+ *  全件を寝かせないため） */
+export function isClosedRedirect(location) {
+  return !!location && !/\/coin-parking\/\d+\/?(\?|$)/.test(location);
 }
 
 function cellText(html, thLabel) {
@@ -35,9 +44,13 @@ function parseFeeLine(line) {
 }
 
 export function parseEcoloDetail(html, { id, label } = {}) {
-  const h1 = (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || [])[1];
-  const title = (html.match(/<title>([^<]+)/) || [])[1] || "";
-  const name = (h1 ? h1.replace(/<[^>]+>/g, "").trim() : title.split("|")[0].trim()) || null;
+  // 物件ページの見出し（p-coin-parking-detail__title）が無いページは物件ではない（閉鎖でトップへ転送された等）。
+  // 以前は他の見出しや <title> に逃げていたため、トップの題「コインパーキング・駐車場経営ならエコロパーク」を
+  // 物件名として、料金が空の行を24件書いていた（2026-10-18）。名前を null にして記録しない
+  // 見出しの書き方だけが変わったときに全件を落とさないよう、料金の欄があるページに限って他の見出しも使う
+  const h1 = (html.match(/<h1[^>]*p-coin-parking-detail__title[^>]*>([\s\S]*?)<\/h1>/) || [])[1]
+    ?? (cellText(html, "料金") != null ? (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || [])[1] : undefined);
+  const name = (h1 ? h1.replace(/<[^>]+>/g, "").trim() : "") || null;
 
   // 住所: 地図iframe q="{名称},{住所}"
   let address = null;
