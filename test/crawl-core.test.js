@@ -242,25 +242,30 @@ test("通しの巡回: 本ページが全部 503 なら8件で打ち切り、8�
 
 // ---- 3. 404 の一斉取り直しをならす ----
 
-test("寝かせる期間は番号ごとに30〜60日に散り、同じ日に寝かせた964件が1日あたり約30件ずつ起きる", () => {
+test("寝かせる期間は番号ごとに30〜60日に散り、同じ回に寝かせた964件が1日あたり約30件・1時間あたり数件ずつ起きる", () => {
   // 10/12 に寝かせたリパークの964件と同じ形の番号
   const ids = Array.from({ length: 964 }, (_, i) => `REP${String(10000 + i * 97).padStart(7, "0")}`);
   const days = ids.map((id) => goneMsOf(id) / 864e5);
-  for (const d of days) assert.ok(Number.isInteger(d) && d >= 30 && d <= 60, String(d));
+  for (const d of days) assert.ok(d >= 30 && d <= 60, String(d));
   assert.equal(goneMsOf(ids[0]), goneMsOf(ids[0]));          // 毎回同じ（番号だけで決まる）
-  const perDay = new Map();
-  for (const d of days) perDay.set(d, (perDay.get(d) ?? 0) + 1);
-  assert.equal(perDay.size, 31);                              // 31日に散る
-  assert.ok(Math.max(...perDay.values()) <= 60, `1日の最大 ${Math.max(...perDay.values())}件`);   // 一律30日なら964件が1日に来る
-  // 寝かせた日から30日たっても、起きるのは30日の組だけ
+  const perDay = new Map(), perHour = new Map();
+  for (const d of days) {
+    perDay.set(Math.floor(d), (perDay.get(Math.floor(d)) ?? 0) + 1);
+    perHour.set(Math.round(d * 24), (perHour.get(Math.round(d * 24)) ?? 0) + 1);
+  }
+  assert.ok(perDay.size >= 30);                               // 30日に散る（一律30日なら964件が1日・1時間に来る）
+  assert.ok(Math.max(...perDay.values()) <= 60, `1日の最大 ${Math.max(...perDay.values())}件`);
+  assert.ok(Math.max(...perHour.values()) <= 8, `1時間の最大 ${Math.max(...perHour.values())}件`);
+  // 寝かせた日から30日と1時間たっても、起きるのは最初の1時間ぶんだけ
   const at = "2026-10-12T02:00:00.000Z";
   const state = Object.fromEntries(ids.map((id) => [id, `GONE|${at}`]));
-  const after30 = Date.parse(at) + 30 * 864e5 + 3600e3;
-  assert.equal(countLive(ids, state, after30), perDay.get(30));
-  const picked = pickRolling(ids, state, 2000, { at: new Date(after30).toISOString() });
-  assert.equal(picked.length, perDay.get(30));
-  // 61日たてば全部起きる
-  assert.equal(countLive(ids, state, Date.parse(at) + 61 * 864e5), ids.length);
+  const after = Date.parse(at) + 30 * 864e5 + 3600e3;
+  const woken = ids.filter((id) => goneMsOf(id) <= 30 * 864e5 + 3600e3).length;
+  assert.ok(woken <= 8, `${woken}件`);
+  assert.equal(countLive(ids, state, after), woken);
+  assert.equal(pickRolling(ids, state, 2000, { at: new Date(after).toISOString() }).length, woken);
+  // 60日と1時間たてば全部起きる
+  assert.equal(countLive(ids, state, Date.parse(at) + 60 * 864e5 + 3600e3), ids.length);
 });
 
 test("一覧に新しく載った番号だけを起こし、前から載っている寝かせた物件は起こさない", () => {
