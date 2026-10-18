@@ -127,8 +127,22 @@ test("途中のページが取れない（503）ときは、そこまでの物�
   assert.deepEqual(pagesOf(calls), [0, 10, 20, 30].map((o) => cityListUrl("01", "札幌市中央区", o)));
   assert.equal(got.length, 30);          // 1〜3ページ目は渡し済み（捨てない）
   assert.equal(r.pages, 3);
-  assert.deepEqual(r.failed, { offset: 30, why: "HTTP 503" });
+  assert.equal(r.failed.offset, 30);
+  assert.equal(r.failed.why, "HTTP 503");
+  assert.equal(r.failed.res.status, 503); // 失敗の種類を呼ぶ側で決められるように、答えそのものも渡す
   assert.equal(r.stop, null);            // パークネットごとは止めない（次の市区へ進む）
+});
+
+test("onFetch には取りに行ったページごとの答えが来る（例外のときは null）。HTTP の状態を数えるのに使う", async () => {
+  const routes = cityRoutes("01", "札幌市中央区", 59);
+  routes[cityListUrl("01", "札幌市中央区", 20)] = { throw: "ECONNRESET" };
+  stubFetch(routes);
+  const seen = [];
+  const r = await crawlParknetCity("01", "札幌市中央区", { onPage: () => {}, onFetch: (res, url) => seen.push([res?.status ?? null, url]) });
+  assert.deepEqual(seen, [[200, cityListUrl("01", "札幌市中央区", 0)], [200, cityListUrl("01", "札幌市中央区", 10)],
+    [null, cityListUrl("01", "札幌市中央区", 20)]]);
+  assert.equal(r.failed.res, null);
+  assert.equal(r.got, 20);
 });
 
 test("途中のページで通信が切れたときも同じ（原因の符号を残す）", async () => {
@@ -183,6 +197,7 @@ test("robots.txt が 403 なら本ページは送らずに stop（blocked）を�
   const r = await crawlParknetCity("01", "札幌市中央区", { onPage: () => assert.fail("渡さない") });
   assert.deepEqual(calls, [ROBOTS]);
   assert.equal(r.stopKind, "blocked");
+  assert.equal(r.stopRes.blocked, true);
   assert.match(r.stop, /robots\.txt が HTTP 403/);
 });
 

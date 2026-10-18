@@ -40,18 +40,21 @@ export async function getAllParknetCities({ cacheFile, cacheMs = 7 * 864e5 } = {
  * robots.txt で断られた・届かない（blocked・transient。本ページは送っていない）ときは stop を返す。残りの市区も同じ答えなので、
  *   呼ぶ側でパークネットごと打ち切る。
  * 同じ物件しか返らないページ（offset が効かなくなった＝サイトの作りの変更）が来たら、それ以上は取りに行かない（dup）。
- * 戻り値: { pages: 送ったページ数, total, got: 渡した物件数, failed: { offset, why } | null, stop, stopKind, capped, dup }
+ *   onFetch(res, url) … 取りに行ったページごとの答え（例外のときは res が null）。HTTP の状態を数えたい呼ぶ側のため
+ * 戻り値: { pages: 送ったページ数, total, got: 渡した物件数, failed: { offset, why, res } | null, stop, stopKind, stopRes, capped, dup }
+ *   failed.res・stopRes は politeFetch の答えそのもの（例外のときは null）。失敗の種類を呼ぶ側で決められるように渡す
  */
-export async function crawlParknetCity(prefCd, city, { onPage, maxPages = PARKNET_MAX_PAGES, fetchPage = politeFetch } = {}) {
-  const out = { pages: 0, total: null, got: 0, failed: null, stop: null, stopKind: null, capped: false, dup: false };
+export async function crawlParknetCity(prefCd, city, { onPage, onFetch, maxPages = PARKNET_MAX_PAGES, fetchPage = politeFetch } = {}) {
+  const out = { pages: 0, total: null, got: 0, failed: null, stop: null, stopKind: null, stopRes: null, capped: false, dup: false };
   const seen = new Set();
   for (let page = 0; page < maxPages; page++) {
     const offset = page * PARKNET_PAGE_SIZE;
     const url = cityListUrl(prefCd, city, offset);
     let res;
-    try { res = await fetchPage(url); } catch (e) { out.failed = { offset, why: fetchErrorText(e) }; break; }
-    if (res.blocked || res.transient) { out.stop = failText(res); out.stopKind = res.blocked ? "blocked" : "unreachable"; break; }
-    if (!res.ok || res.skippedReason) { out.failed = { offset, why: failText(res) }; break; }
+    try { res = await fetchPage(url); } catch (e) { onFetch?.(null, url); out.failed = { offset, why: fetchErrorText(e), res: null }; break; }
+    onFetch?.(res, url);
+    if (res.blocked || res.transient) { out.stop = failText(res); out.stopKind = res.blocked ? "blocked" : "unreachable"; out.stopRes = res; break; }
+    if (!res.ok || res.skippedReason) { out.failed = { offset, why: failText(res), res }; break; }
     out.pages++;
     const records = parseParknetList(res.html);
     if (page === 0) out.total = parseParknetTotal(res.html);
