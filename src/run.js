@@ -24,7 +24,7 @@ import { detailUrl as mkpDetailUrl, parseMkpDetail } from "./mkp.js";
 import { getAllMkpIds } from "./mkp-enumerate.js";
 import { detailUrl as naviparkDetailUrl, parseNaviparkDetail } from "./navipark.js";
 import { getAllNaviparkCodes } from "./navipark-enumerate.js";
-import { detailUrl as ecoloDetailUrl, parseEcoloDetail } from "./ecolo.js";
+import { detailUrl as ecoloDetailUrl, parseEcoloDetail, isClosedRedirect as isEcoloClosedRedirect } from "./ecolo.js";
 import { getAllEcoloIds } from "./ecolo-enumerate.js";
 import { searchUrl as theparkUrl, parseTheparkJson } from "./thepark.js";
 import { detailUrl as kyotechDetailUrl, parseKyotechDetail } from "./kyotech.js";
@@ -100,8 +100,15 @@ const ROLLING_SITES = [
     idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500 },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
     idsCache: STATE.naviparkCodesCache, stateFile: STATE.naviparkCrawlState, defaultPerRun: 2500, keyName: "code" },
+  // エコロは閉じた物件を 404 ではなく 301 でトップ（/ や /park/）へ転送する。転送を追うとトップのページを物件として
+  // 読み、料金が空の行（名前「コインパーキング・駐車場経営ならエコロパーク」）を24件書いていた。閉鎖として寝かせる（2026-10-18）
+  //   goneOnRedirect: 転送を追わずに受け取り、転送先（location）を渡すと「閉鎖か」を返す関数。
+  //                   物件ページ以外（/ や /park/）への転送だけを閉鎖（GONE）とみなす。別の物件ページへの転送や
+  //                   転送先が無いときは閉鎖と決めつけず、いつもの失敗（時刻だけ進める）にする
+  //   recheckDropped : 一覧から外れた物件を一度だけ取り直し、閉鎖なら GONE にする（外れたまま古い日付で残さない）
   { op: "ecolo", label: "エコロパーク", enumerate: getAllEcoloIds, detailUrl: ecoloDetailUrl, parse: parseEcoloDetail,
-    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500 },
+    idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500,
+    goneOnRedirect: isEcoloClosedRedirect, recheckDropped: true },
   { op: "kyotech", label: "キョウテク", enumerate: getAllKyotechIds, detailUrl: kyotechDetailUrl, parse: parseKyotechDetail,
     idsCache: STATE.kyotechIdsCache, stateFile: STATE.kyotechCrawlState, defaultPerRun: 800 },
   { op: "leparc", label: "ルパルク", enumerate: getAllLeparcIds, detailUrl: leparcDetailUrl, parse: parseLeparcDetail,
@@ -385,6 +392,13 @@ async function main() {
       const liveCount = countLive(ids, state);
       const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
       const visited = ids.filter((id) => state[id]).length;
+      // 一覧から外れたが、まだ閉鎖と分かっていない物件（recheckDropped の社だけ）。巡回の候補に足して一度取り直す。
+      // 閉鎖なら GONE になって候補から外れ、営業中なら取れた日が進む（一覧の取りこぼしがあっても古いまま残らない）
+      const listed = new Set(ids);
+      const dropped = rolling.recheckDropped
+        ? Object.keys(state).filter((k) => !k.startsWith("_") && !listed.has(k) && !String(state[k]).startsWith("GONE|"))
+        : [];
+      const candidates = dropped.length ? ids.concat(dropped) : ids;
       // 1回の実行を何回かに分け、間をあけて取る。
       // GitHub の定時実行は混むと落ちることがあり、毎時の cron でも実測で24時間中18時間しか
       // 発火していなかった（JST 7・14・17・18・21・22時が丸ごと空。2026-09-15）。
@@ -417,6 +431,7 @@ async function main() {
       const perRunCap = Math.min(perRun, Math.floor(budgetMs / (rolling.minDelay ?? config.minDelayMs)));
       console.log(
         `[${rolling.label}] 全${ids.length}件（生きている${liveCount}件） / 既訪${visited}件` +
+        `${dropped.length ? ` / 一覧から外れた${dropped.length}件を取り直す` : ""}` +
         `${want.length ? ` / 優先${prio.length}件（${prioMinAgeH}時間おき${prioMissing ? `・一覧に無い${prioMissing}件` : ""}）` : ""} / ` +
         `今回${perRun}件を${passes}回に分けて取得（1回${perPass}件` +
         `${passes > 1 ? `・${gapMin}分あける` : ""}・予算${budgetMin}分で約${perRunCap}件まで）。` +
@@ -424,8 +439,10 @@ async function main() {
       );
       const startedAt = Date.now();
       let pausedMs = 0;
-      const fetchOpts = rolling.minDelay ? { minDelay: rolling.minDelay } : undefined;
-      let done = 0, got = 0, tried = 0;
+      const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
+        ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
+        : undefined;
+      let done = 0, got = 0, tried = 0, nGone = 0;
       let out = false;
       for (let pass = 0; pass < passes && !out; pass++) {
         if (pass > 0) {
@@ -434,7 +451,7 @@ async function main() {
           pausedMs += gapMs;
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
-        const batch = pickRolling(ids, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
+        const batch = pickRolling(candidates, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
           priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3 });
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
@@ -445,6 +462,10 @@ async function main() {
         const mark = (r, seen) => recordVisit(state, id, at, r, { hours: !!rolling.hours, seen });
         let res;
         try { res = await politeFetch(url, fetchOpts); } catch (e) { console.error(`  [error] ${id}: ${e.message}`); mark(null); continue; }
+        // 閉じた物件をトップへ転送する社（エコロ）。404 と同じく寝かせる
+        if (rolling.goneOnRedirect && res.status >= 300 && res.status < 400 && rolling.goneOnRedirect(res.location)) {
+          console.log(`  [gone] ${id} → ${res.location}（転送＝掲載終了）`); mark({ status: 404 }); nGone++; continue;
+        }
         if (!res.ok || res.skippedReason) { console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`); mark(res); continue; }
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
@@ -462,6 +483,7 @@ async function main() {
         saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）
       }
       saveCrawlState(rolling.stateFile, state);
+      if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功
       hp(rolling.op, rolling.label, tried === 0 || got > 0, got, tried > 0 && got === 0 ? `${tried}件取りに行って0件` : null);
       continue;
