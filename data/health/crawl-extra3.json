@@ -1,5 +1,5 @@
 {
- "at": "2026-10-19T00:30:17.984Z",
+ "at": "2026-10-19T10:06:56.265Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -8,70 +8,114 @@
    "label": "タマパーク",
    "ok": true,
    "n": 200,
-   "reason": null
+   "reason": null,
+   "tried": 200,
+   "noName": 0,
+   "statusCounts": {
+    "200": 200
+   }
   },
   {
    "op": "anabuki",
    "label": "あなぶきパーク",
    "ok": true,
    "n": 400,
-   "reason": null
+   "reason": null,
+   "tried": 400,
+   "noName": 0,
+   "statusCounts": {
+    "200": 400
+   }
   },
   {
    "op": "mden",
    "label": "エムデン",
    "ok": true,
    "n": 391,
-   "reason": null
+   "reason": null,
+   "statusCounts": {
+    "200": 1
+   }
   },
   {
    "op": "kintetsu",
    "label": "近鉄不動産",
    "ok": true,
    "n": 170,
-   "reason": null
+   "reason": null,
+   "tried": 170,
+   "noName": 0,
+   "statusCounts": {
+    "200": 170
+   }
   },
   {
    "op": "tokyulifia",
    "label": "東急ライフィア",
    "ok": true,
    "n": 109,
-   "reason": null
+   "reason": null,
+   "tried": 109,
+   "noName": 0,
+   "statusCounts": {
+    "200": 109
+   }
   },
   {
    "op": "seiwapark",
    "label": "セイワパーク",
    "ok": true,
-   "n": 337,
-   "reason": null
+   "n": 340,
+   "reason": null,
+   "tried": 340,
+   "noName": 0,
+   "statusCounts": {
+    "200": 340
+   }
   },
   {
    "op": "systempark",
    "label": "システムパーク",
    "ok": true,
    "n": 287,
-   "reason": null
+   "reason": null,
+   "tried": 287,
+   "noName": 0,
+   "statusCounts": {
+    "200": 287
+   }
   },
   {
    "op": "comnet",
    "label": "コムパーク",
    "ok": true,
    "n": 196,
-   "reason": null
+   "reason": null,
+   "tried": 196,
+   "noName": 0,
+   "statusCounts": {
+    "200": 196
+   }
   },
   {
    "op": "keio",
    "label": "京王コインパーク",
    "ok": true,
    "n": 69,
-   "reason": null
+   "reason": null,
+   "tried": 69,
+   "noName": 0,
+   "statusCounts": {
+    "200": 69
+   }
   },
   {
    "op": "odakyu",
    "label": "小田急パーキング",
    "ok": false,
    "n": 0,
-   "reason": "一覧: 小田急パーキング一覧取得失敗: HTTP 403"
+   "reason": "停止中: 2026-10 先方が403で拒否。許可が出るまでアクセスしない",
+   "kind": "paused"
   }
  ]
 }
