@@ -21,12 +21,14 @@ name: crawl-parking-prices
 # 毎時07分JST）から workflow_dispatch で行う。GitHub の cron は毎時のはずが1日5〜10回しか
 # 発火せず（実測 2026-09-15）、時間帯に穴が空いたため。両方を生かすと起動が重なって
 # concurrency でどちらかがキャンセルされるので、cron は止めてある。
+# 2026-10-18〜: ほかの巡回（タイムズ・エコロ・ナビパーク・名鉄協商・NPC の満空・キョウテクほか・カーシェアーズ・publish）も、
+# このワークフローの dispatch ジョブ（いちばん下）が JST の決まった時刻に起動する。時刻表と守りはそこに書いた。
 on:
   workflow_dispatch: {} # Cloud Scheduler と手動実行から
 
 permissions:
   contents: write
-  actions: write   # タイムズの巡回（crawl-times.yml）を起動するため
+  # 巡回の起動に要る actions: write は、起動を受け持つ dispatch ジョブだけに付ける（2026-10-18〜）
 
 jobs:
   crawl:
@@ -40,32 +42,8 @@ jobs:
       group: crawl # 多重起動を防ぐ（節度）
       cancel-in-progress: false
     steps:
-      # タイムズの巡回の起動。GitHub の cron は約5時間遅れて始まり、タイムズの満空が日中に1回も取れていなかった
-      # （JST 17〜18・22〜0・3〜4時だけ。2026-09-27 確認）。毎時確実に動くこの巡回から起動する。
-      # 1回の巡回は45分で切り上げていたので、10・14・21時に固定すると満空がその3つの時間帯にしか付かなかった。
-      # 2026-10-01〜: 8時間おき・毎日1時間ずつずらす（8日で24時間が一巡）。
-      # 2026-10-17〜: 昼と夕方を厚くする（本人指示「直して」）。それまでの観測は昔の固定（10・14・21時）のなごりで、
-      #   いちばん混む12〜13時が全体の1〜2%しかなかった。1日3回のうち
-      #     昼   9〜14時 … 6日で一巡（(D+5)%6）
-      #     夕方 15〜20時 … 昼のちょうど6時間後
-      #     夜〜朝 21〜翌8時 … 12日で一巡（(7D+11)%12 番目。毎日7つずつ進めて、前の日の回と近づかないようにする）
-      #   これで回と回の間はいつも6時間以上（最長19時間）、どの時間帯にも7つの曜日が回ってくる（1年を総当たりで確認）。
-      #   一巡の日数を7の倍数にしないので、同じ時間帯が同じ曜日ばかりにならない。回数は1日3回のままで先方の負荷は変わらない。
-      # 2026-10-17〜: タイムズの1回を45分から90分にした（crawl-times.yml の ROLLING_BUDGET_MIN。本人の了解「負荷は今の約2倍」）。
-      #   上の時間割は回と回の間が最短6時間なので、90分（ジョブ全体でも最大120分）でも前の回と重ならない
-      #   （2026-10-17〜2028-12-31 を計算: 間は6・7・8・12・13・19時間のどれか。年またぎも6時間以上）。
-      # GITHUB_TOKEN からの workflow_dispatch は起動できる
-      - name: dispatch Times crawl (3 per day, weighted to daytime)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          H=$(TZ=Asia/Tokyo date +%-H); D=$(TZ=Asia/Tokyo date +%-j)
-          A=$(( 9 + (D + 5) % 6 )); B=$(( A + 6 )); C=$(( (21 + (7 * D + 11) % 12) % 24 ))
-          if [ "$H" -eq "$A" ] || [ "$H" -eq "$B" ] || [ "$H" -eq "$C" ]; then
-            gh workflow run crawl-times.yml --ref main -R "$GITHUB_REPOSITORY" && echo "タイムズの巡回を起動（JST ${H}時・今日は ${A}・${B}・${C}時）"
-          else
-            echo "タイムズの巡回は起動しない（JST ${H}時・今日は ${A}・${B}・${C}時）"
-          fi
+      # タイムズなどの巡回の起動は、下の dispatch ジョブで行う（2026-10-18〜。それまではここに手順があり、
+      # gh の起動に失敗するとこの手順が失敗して、毎時の巡回（NPC・リパーク）ごと止まるおそれがあった）
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -135,3 +113,138 @@ jobs:
           else
             echo "変化なし。コミットしません。"
           fi
+
+  # ── 巡回の起動（2026-10-18〜） ──────────────────────────────────────────
+  # 毎時確実に動くこのワークフロー（Cloud Scheduler から毎時07分JST）から、ほかの巡回を JST の決まった時刻に
+  # workflow_dispatch で起動する。GitHub の cron は混むと3〜10時間遅れて始まり、正時（:00）の枠は落ちることもあった
+  # （2026-10-04〜10-17 の14日で、予定の回数に対して エコロ 32/42回・ナビパーク 33/42回・名鉄協商とザ・パーク 32/42回・
+  #   NPC の満空 44/56回。キョウテクほか・カーシェアーズ・publish は回数は足りていたが3〜10時間遅れていた）。
+  # タイムズは 2026-09-27 からこのやり方（2026-10-18 までは crawl ジョブの先頭の手順だった）。
+  #
+  # 起動するもの（JST の時。起動は07分ごろ）。回数はもとの cron のまま、時刻はもとの cron（UTC）にいちばん近い時:
+  #   crawl-others.yml     10・16・22時        もとは "0 1,7,13"     = 10:00・16:00・22:00
+  #   crawl-npc.yml        4・10・16・22時     もとは "13 1,7,13,19" = 4:13・10:13・16:13・22:13
+  #   crawl-navipark.yml   11・17・23時        もとは "0 2,8,14"     = 11:00・17:00・23:00
+  #   crawl-extra.yml      11・23時            もとは "30 2,14"      = 11:30・23:30
+  #   crawl-ecolo.yml      1・13・19時         もとは "0 4,10,16"    = 13:00・19:00・1:00
+  #   crawl-extra2.yml     2・14時             もとは "30 5,17"      = 14:30・2:30
+  #   crawl-extra3.yml     5・17時             もとは "30 8,20"      = 17:30・5:30
+  #   crawl-carshares.yml  3時                 もとは "0 18"         = 3:00（1巡が終わって7日たつまでは何もせず終わる）
+  #   publish.yml          6時                 もとは "40 21"        = 6:40（studio-data の7:30より前にするため、7時ではなく6時）
+  #   crawl-times.yml      1日3回・日ごとにずらす（下の times_hours。2026-10-17〜の時間割のまま）
+  # どのワークフローも schedule（cron）は外した。両方あると同じ回が2回起動され、concurrency で続けて走る（負荷が増える）。
+  # cron のまま残しているワークフローは、このリポジトリには無い（README の「定期実行の起動」）。
+  #
+  # 守り:
+  #   - crawl ジョブとは別のジョブにした（needs でつながない）。起動に失敗しても毎時の巡回は止まらない。
+  #     失敗は ::warning:: にして、このジョブも成功で終える
+  #   - 前の時の巡回が長引いて crawl ジョブが順番待ちになっても、起動は07分に行う
+  #     （順番待ちのまま次の時の起動に取り消されても、その時の起動は済んでいる）
+  #   - 同じ回を2回起動しない: その時（正時から）にもう起動されていれば起動しない（手での実行・Cloud Scheduler の二重の起動）
+  #   - 起動されなかった回（Cloud Scheduler の抜け・gh の失敗）は、2時間あとまでの毎時の回で1回だけ取り戻す。
+  #     起動済みかを確かめられないとき（gh run list の失敗）は、二重に起動しないよう取り戻さない
+  #   - 同じワークフローの回と回の間（6時間以上）は、そのジョブの時間切れ（最長350分）より長いので、ふつうは前の回が終わっている。
+  #     前の回が残っていても、各ワークフローの concurrency（cancel-in-progress: false）で終わるのを待ってから走る（重ならない）
+  # 先方への負荷: 1日の起動の回数はもとの cron の予定どおりで、増えない（取り戻すのは起動されなかった回の分だけ）。
+  #
+  # タイムズの時間割（2026-09-27〜。もとは crawl ジョブの先頭にあった説明）:
+  #   GitHub の cron は約5時間遅れて始まり、タイムズの満空が日中に1回も取れていなかった
+  #   （JST 17〜18・22〜0・3〜4時だけ。2026-09-27 確認）。毎時確実に動くこの巡回から起動する。
+  #   1回の巡回は45分で切り上げていたので、10・14・21時に固定すると満空がその3つの時間帯にしか付かなかった。
+  #   2026-10-01〜: 8時間おき・毎日1時間ずつずらす（8日で24時間が一巡）。
+  #   2026-10-17〜: 昼と夕方を厚くする（本人指示「直して」）。それまでの観測は昔の固定（10・14・21時）のなごりで、
+  #     いちばん混む12〜13時が全体の1〜2%しかなかった。1日3回のうち
+  #       昼   9〜14時 … 6日で一巡（(D+5)%6）
+  #       夕方 15〜20時 … 昼のちょうど6時間後
+  #       夜〜朝 21〜翌8時 … 12日で一巡（(7D+11)%12 番目。毎日7つずつ進めて、前の日の回と近づかないようにする）
+  #     これで回と回の間はいつも6時間以上（最長19時間）、どの時間帯にも7つの曜日が回ってくる（1年を総当たりで確認）。
+  #     一巡の日数を7の倍数にしないので、同じ時間帯が同じ曜日ばかりにならない。回数は1日3回のままで先方の負荷は変わらない。
+  #   2026-10-17〜: タイムズの1回を45分から90分にした（crawl-times.yml の ROLLING_BUDGET_MIN。本人の了解「負荷は今の約2倍」）。
+  #     上の時間割は回と回の間が最短6時間なので、90分（ジョブ全体でも最大120分）でも前の回と重ならない
+  #     （2026-10-17〜2028-12-31 を計算: 間は6・7・8・12・13・19時間のどれか。年またぎも6時間以上）。
+  # 確かめ: test/dispatch-schedule.test.js（下の手順をそのまま bash で動かし、gh と date を差し替えて数える）
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write   # gh workflow run で起動し、gh run list で起動済みかを見る（GITHUB_TOKEN からの workflow_dispatch は起動できる）
+      contents: read
+    concurrency:
+      group: crawl-dispatch   # 手での実行と重なっても、確かめと起動を1つずつ行う（同じ回を2回起動しない）
+      cancel-in-progress: false
+    steps:
+      - name: dispatch crawls due this hour (JST)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e   # 起動の失敗でこの手順を止めない（残りも起動し、失敗は ::warning:: にして成功で終える）
+          # 時刻表（ワークフロー と JST の時）。上のコメントの表と同じ。回数はもとの cron のまま
+          FIXED='crawl-others.yml 10 16 22
+          crawl-npc.yml 4 10 16 22
+          crawl-navipark.yml 11 17 23
+          crawl-extra.yml 11 23
+          crawl-ecolo.yml 1 13 19
+          crawl-extra2.yml 2 14
+          crawl-extra3.yml 5 17
+          crawl-carshares.yml 3
+          publish.yml 6'
+          # 起動されなかった回を、何時間あとまで取り戻すか（同じワークフローの回と回の間＝6時間以上より短くする）
+          LOOKBACK=2
+          times_hours() {   # $1=JST の通し日（1〜366）→ タイムズを起動する3つの時（2026-10-17〜の時間割。式は前と同じ）
+            D=$1
+            A=$(( 9 + (D + 5) % 6 )); B=$(( A + 6 )); C=$(( (21 + (7 * D + 11) % 12) % 24 ))
+            echo "$A $B $C"
+          }
+          due_at() {   # $1=JST の通し日 $2=JST の時 → その時に起動するワークフロー（1行に1つ）
+            for X in $(times_hours "$1"); do if [ "$X" -eq "$2" ]; then echo crawl-times.yml; fi; done
+            echo "$FIXED" | while read -r WF HOURS; do
+              for X in $HOURS; do if [ "$X" -eq "$2" ]; then echo "$WF"; fi; done
+            done
+            return 0
+          }
+          NOW=$(date +%s)
+          D0=$(TZ=Asia/Tokyo date -d "@$NOW" +%-j)
+          echo "JST $(( (NOW / 3600 + 9) % 24 ))時の起動（今日のタイムズは $(times_hours "$D0" | sed 's/ /・/g')時）"
+          SEEN=" "
+          for K in $(seq 0 "$LOOKBACK"); do
+            T=$(( NOW - K * 3600 ))
+            SLOT=$(( T - T % 3600 ))   # その時の始まり（日本時間は UTC と9時間ちょうどの差なので、正時は同じ）
+            D=$(TZ=Asia/Tokyo date -d "@$T" +%-j); H=$(( (T / 3600 + 9) % 24 ))
+            SINCE=$(date -u -d "@$SLOT" +%Y%m%d%H%M%S)
+            for WF in $(due_at "$D" "$H"); do
+              case "$SEEN" in *" $WF "*) continue ;; esac   # いちばん近い回だけを見る
+              SEEN="$SEEN$WF "
+              WHEN="JST ${H}時の回"
+              # その時の始まりより後に起動された回を数える（起動のしかたは問わない）。時刻は 2026-10-18T14:07:05Z の形
+              if LIST=$(gh run list -R "$GITHUB_REPOSITORY" -w "$WF" -L 10 --json createdAt --jq '.[].createdAt'); then
+                N=0
+                for AT in $LIST; do
+                  AT=${AT//[^0-9]/}; AT=${AT:0:14}
+                  if [ "${#AT}" -ne 14 ]; then N=unknown; break; fi
+                  if [ "$AT" -ge "$SINCE" ]; then N=$(( N + 1 )); fi
+                done
+              else
+                N=unknown
+              fi
+              if [ "$N" = unknown ]; then
+                if [ "$K" -gt 0 ]; then
+                  echo "::warning::$WF（$WHEN）: 起動済みかを確かめられないので、取り戻しの起動はしません（二重に起動しないため）"
+                  continue
+                fi
+                echo "$WF（$WHEN）: 起動済みかを確かめられませんでしたが、この時の回なので起動します"
+              elif [ "$N" -gt 0 ]; then
+                if [ "$K" -eq 0 ]; then echo "$WF（$WHEN）: この時の回はもう起動されています。起動しません"; fi
+                continue
+              elif [ "$K" -gt 0 ]; then
+                echo "::warning::$WF（$WHEN）が起動されていなかったので、いま起動します（${K}時間遅れ）"
+              fi
+              if gh workflow run "$WF" --ref main -R "$GITHUB_REPOSITORY"; then
+                echo "起動しました: $WF（$WHEN）"
+              elif [ "$K" -lt "$LOOKBACK" ]; then
+                echo "::warning::$WF（$WHEN）を起動できませんでした。次の時の回でもう一度試します"
+              else
+                echo "::warning::$WF（$WHEN）を起動できませんでした。取り戻せる時間（${LOOKBACK}時間）を過ぎたので、この回は動きません"
+              fi
+            done
+          done
+          exit 0

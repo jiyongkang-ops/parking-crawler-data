@@ -4,10 +4,12 @@
 # 中身は data/ からいつでも作り直せるので、日次で足りる。
 name: publish
 
+# 起動は crawl.yml の dispatch ジョブ（Cloud Scheduler から毎時07分JST）が、毎日 JST 6時に workflow_dispatch で行う
+# （2026-10-18〜）。両方あると同じ回が2回走るので cron は外した（時刻表と守りは crawl.yml の dispatch ジョブ）。
+# それまでの GitHub の cron（"40 21 * * *" = JST 6:40。studio-data の 7:30 より前のつもり）は中央値で約3時間（長いと5時間）遅れて、
+# 実際は JST 8〜11時に動いていた。7時台にすると studio-data（7:30）に近すぎるので、6時にした。
 on:
-  schedule:
-    - cron: "40 21 * * *"   # UTC 21:40 = JST 6:40（studio-data の 7:30 より前）
-  workflow_dispatch: {}
+  workflow_dispatch: {} # crawl.yml の dispatch ジョブと手動実行から
 
 permissions:
   contents: write

@@ -2,11 +2,11 @@
 # 出力は別ファイル(prices-extra2.jsonl)にして push 競合を回避。
 name: crawl-extra2
 
+# 起動は crawl.yml の dispatch ジョブ（Cloud Scheduler から毎時07分JST）が、JST 2・14時（1日2回）に workflow_dispatch で行う
+# （2026-10-18〜）。両方あると同じ回が2回走るので cron は外した（時刻表と守りは crawl.yml の dispatch ジョブ）。
+# それまでの GitHub の cron（"30 5,17 * * *" = JST 14:30・2:30）は回数は足りていたが、中央値で約5時間（長いと約8時間）遅れて始まっていた。
 on:
-  schedule:
-    # 他ワークフローとずらして 5:30,17:30 UTC（1日2回）
-    - cron: "30 5,17 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch: {} # crawl.yml の dispatch ジョブと手動実行から
 
 permissions:
   contents: write

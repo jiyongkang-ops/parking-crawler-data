@@ -2,11 +2,12 @@
 # 出力は別ファイル(prices-navipark.jsonl)にして push 競合を回避。
 name: crawl-navipark
 
+# 起動は crawl.yml の dispatch ジョブ（Cloud Scheduler から毎時07分JST）が、JST 11・17・23時に workflow_dispatch で行う
+# （2026-10-18〜）。両方あると同じ回が2回走るので cron は外した（時刻表と守りは crawl.yml の dispatch ジョブ）。
+# それまでの GitHub の cron（"0 2,8,14 * * *" = JST 11・17・23時）は中央値で約5時間（長いと約8時間）遅れて始まり、
+# 1日1〜2回しか走らない日があった（2026-10-04〜10-17 の14日で予定42回のうち33回）。
 on:
-  schedule:
-    # 他ワークフローとずらして 2,8,14 UTC に実行
-    - cron: "0 2,8,14 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch: {} # crawl.yml の dispatch ジョブと手動実行から
 
 permissions:
   contents: write
