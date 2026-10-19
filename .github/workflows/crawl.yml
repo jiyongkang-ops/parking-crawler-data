@@ -86,7 +86,15 @@ jobs:
           else
             echo "優先一覧を取れなかったので前回のものを使う（$(test -f data/priority-lots.json && echo あり || echo なし)）"
           fi
-      - run: npm run crawl
+      # exec で node を手順のいちばん上のプロセスにする（中身は package.json の crawl と同じ）。ランナーは時間切れ・取り消しのとき
+      # 手順のいちばん上にだけ SIGINT を送るので、npm run crawl だと node に届かず、止めた後も取得と満空の共有ファイルへの追記が続く
+      # （2026-10-18 点検。7本の巡回は fix/workflow-always で直し、ここと crawl-npc.yml も同じ形にした）。
+      # node は SIGINT を受けると、そこまでの巡回状態と health（巡回全体 NG）を書いてすぐ終わる（src/run.js の最後）
+      - run: exec node src/run.js
+        # ジョブの時間切れ（70分）より10分早く巡回を止め、下のコミットの手順の時間を残す。
+        # ふだんの所要は約50分（ROLLING_BUDGET_MIN の50分で切り上げる。2026-10 の直近60回で最長50.1分）で、
+        # 前の手順（約1分）とコミットの手順（直近60回で最長3.0分）を足しても、ジョブの70分の手前で終わる
+        timeout-minutes: 60
         env:
           CRAWL_ONLY: "npc,repark" # タイムズは crawl-times.yml で別実行
           # 取得の予算。毎時の間隔60分に収める（前後の処理と npm ci で数分かかる）。
@@ -112,6 +120,12 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
+          # 巡回（node）が残っていたら止めてから git add する。ふつうは上の exec で巡回の手順と一緒に終わっているが、
+          # 残っていると git pull の間も満空の共有ファイル（data/vacancy-<日付>.jsonl）に追記し続け、pull とコミットが失敗する（2026-10-18 点検）
+          if pkill -INT -f 'node src/run.js'; then
+            for i in $(seq 1 20); do pgrep -f 'node src/run.js' >/dev/null || break; sleep 1; done
+            pkill -KILL -f 'node src/run.js' || true
+          fi
           # prices.jsonl（価格時系列）と repark-crawl-state.json（巡回位置）を永続化。
           # 状態をコミットしないとローリングが毎回先頭に戻ってしまう。
           # .fetched は「一覧をいつ取り直したか」の記録。残さないと毎回作り直しになる
