@@ -18,6 +18,7 @@ import {
 } from "../src/repark-map.js";
 import {
   getAllParkIds, newestLastmod, readCachedParkIds, mapFileOf, pickRolling, recordVisit, parseState, STARVE_MS, SITEMAP_STALE_DAYS,
+  pickOptsOf,
 } from "../src/repark-enumerate.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -93,6 +94,22 @@ test("全国を長方形に分ける: どの長方形も分かっている物件
   // 割れない（同じ座標に固まった）ときは長い辺の真ん中で割る
   const [a, b] = splitTile({ s: 35, n: 36, w: 139, e: 139.1 }, [[35.5, 139.05], [35.5, 139.05]]);
   assert.deepEqual([a.n, b.s], [35.5, 35.5]);
+  // 割る向き（長い方の辺＝南北）の座標がすべて同じ点（同じ緯度に東西に並ぶ）: 点の真ん中で割ると線が点の上に来て、
+  // どちらの長方形にも全部の点が入る。そのときは辺の真ん中で割る（同じ形の長方形をくり返し聞かない）
+  const row = Array.from({ length: 5 }, (_, i) => [35.3, 139.01 + i * 0.02]);
+  const [c, d] = splitTile({ s: 35, n: 36, w: 139, e: 139.1 }, row);
+  assert.deepEqual([c.n, d.s], [35.5, 35.5]);
+});
+
+test("一覧づくり: 200件より多い物件が同じ緯度に並んでいても、同じ長方形をくり返し聞かない", async () => {
+  // 東西に細長く並んだ300件（緯度がすべて同じ）。南北に長い長方形から割り始める
+  const line = Array.from({ length: 300 }, (_, i) => ({ id: rep(70000 + i), la: 35.3, ln: 139.0001 + i * 0.0003 }));
+  const { fetcher, calls } = fakeMarkers(line);
+  const r = await crawlMarkers({ points: line.map((p) => [p.la, p.ln]), fetcher, limit: 1000 });
+  assert.equal(r.parks.size, 300);
+  assert.equal(r.complete, true);
+  assert.equal(new Set(calls).size, calls.length, "同じ長方形を2回聞いた");
+  assert.ok(calls.length < 40, `${calls.length}回`);
 });
 
 test("一覧づくり: 200件で打ち切られた長方形は割って聞き直し、分かっていない場所の新しい物件も全部取る", async () => {
@@ -185,11 +202,31 @@ test("地図の一覧: 前回の半分も取れなければ使わない。地図
   assert.match(r.error, /10件しか取れなかった（前回100件）/);
   assert.equal(r.ids.length, 100);
   assert.equal(readMapList(file).complete, t0);
-  // 1件閉じた: 180日までは一覧に残す（巡回で 404 を確かめて閉鎖の印を付けるため）、過ぎたら外す
+  // 同じ物件のまま作り直しても、見出しの1行のほかは1文字も変わらない（週1回の全行のコミットで git が太らない）
+  const body = () => fs.readFileSync(file, "utf8").split("\n").slice(1).join("\n");
+  const before = body();
+  await getMapParkIds({ file, fetcher: fakeMarkers(parks).fetcher, nowMs: t0 + MAP_REFRESH_MS + 864e5 });
+  assert.equal(body(), before);
+  // 1件閉じた: 地図に出なくなった日を付け、180日までは一覧に残す（巡回で 404 を確かめて閉鎖の印を付けるため）、過ぎたら外す
   const left = parks.slice(1);
-  const t1 = t0 + 2 * MAP_REFRESH_MS;
+  const t1 = t0 + 3 * MAP_REFRESH_MS;
   assert.equal((await getMapParkIds({ file, fetcher: fakeMarkers(left).fetcher, nowMs: t1 })).ids.length, 100);
-  const t2 = t0 + (MAP_KEEP_UNSEEN_DAYS + 2) * 864e5;
+  const goneDay = new Date(t1 + 9 * 3600e3).toISOString().slice(0, 10);
+  assert.equal(readMapList(file).entries.get(parks[0].id).gone, goneDay);
+  assert.equal(readMapList(file).entries.get(parks[1].id).gone, null);
+  // 変わったのはその1行だけ
+  const diff = body().split("\n").filter((l, i) => l !== before.split("\n")[i]);
+  assert.deepEqual(diff.map((l) => l.split("\t")[0]), [parks[0].id]);
+  // 次の作り直しでも出なくなった日は進めない
+  await getMapParkIds({ file, fetcher: fakeMarkers(left).fetcher, nowMs: t1 + MAP_REFRESH_MS });
+  assert.equal(readMapList(file).entries.get(parks[0].id).gone, goneDay);
+  // 戻ってきたら出なくなった日を消す
+  const back = await getMapParkIds({ file, fetcher: fakeMarkers(parks).fetcher, nowMs: t1 + 2 * MAP_REFRESH_MS });
+  assert.equal(back.ids.length, 100);
+  assert.equal(readMapList(file).entries.get(parks[0].id).gone, null);
+  const t1b = t1 + 3 * MAP_REFRESH_MS;
+  await getMapParkIds({ file, fetcher: fakeMarkers(left).fetcher, nowMs: t1b });
+  const t2 = t1b + (MAP_KEEP_UNSEEN_DAYS + 1) * 864e5;
   const r2 = await getMapParkIds({ file, fetcher: fakeMarkers(left).fetcher, nowMs: t2 });
   assert.equal(r2.ids.length, 99);
   assert.ok(!r2.ids.includes(parks[0].id));
@@ -199,6 +236,52 @@ test("地図の一覧: 前回の半分も取れなければ使わない。地図
   writeMapList(f2, { entries: list.entries, complete: list.complete, tried: list.tried, parks: list.parks, requests: list.lastRequests });
   assert.equal(fs.readFileSync(f2, "utf8"), fs.readFileSync(file, "utf8"));
   assert.deepEqual(mapIdsOf(list, t2), r2.ids);
+});
+
+test("地図の一覧: どの長方形も [] が返る（道や作りが変わった）ときは、聞き終えても失敗にする（前回の件数が無いときも）", async () => {
+  const empty = async () => ({ ok: true, status: 200, html: "[]" });
+  const t0 = Date.parse("2026-10-19T00:00:00Z");
+  // 初回（前回の件数が無い）: めやすは長方形を決めた座標の数（満空の控え）。0件なので失敗。聞き終えた扱いにしない
+  const dir = tmp();
+  const file = path.join(dir, "repark-map-ids.txt");
+  const coordsFile = path.join(dir, "vacancy-lots.jsonl");
+  const parks = makeParks({ dense: 300, sparse: 300 });
+  fs.writeFileSync(coordsFile, parks.map((p) => JSON.stringify({ k: `repark:${p.id}`, la: p.la, ln: p.ln })).join("\n") + "\n");
+  const r = await getMapParkIds({ file, coordsFile, fetcher: empty, nowMs: t0 });
+  assert.match(r.error, /地図の一覧が0件しか取れなかった（分かっている座標600件）/);
+  assert.equal(r.completeAt, null);
+  assert.equal(readMapList(file).complete, null);
+  // 座標も無い（全国を1つで聞く）ときも、0件は失敗
+  const d2 = tmp();
+  const r2 = await getMapParkIds({ file: path.join(d2, "m.txt"), fetcher: empty, nowMs: t0 });
+  assert.match(r2.error, /0件しか取れなかった/);
+  assert.equal(r2.completeAt, null);
+  // 半分より少ない（座標600件のめやすで200件）も失敗
+  const d3 = tmp();
+  const c3 = path.join(d3, "vacancy-lots.jsonl");
+  fs.copyFileSync(coordsFile, c3);
+  const r3 = await getMapParkIds({ file: path.join(d3, "m.txt"), coordsFile: c3, fetcher: fakeMarkers(parks.slice(0, 200)).fetcher, nowMs: t0 });
+  assert.match(r3.error, /200件しか取れなかった（分かっている座標600件）/);
+  // 通しで: sitemap が止まっていて、地図が1回も聞き終えられないので health は ok:false（staleReason）
+  const d4 = tmp();
+  const c4 = path.join(d4, "repark-sitemap.xml");
+  fs.writeFileSync(c4, sitemapXml([rep(1), rep(2)], "2025-06-18"));
+  fs.writeFileSync(`${c4}.fetched`, new Date().toISOString());
+  fs.copyFileSync(coordsFile, path.join(d4, "vacancy-lots.jsonl"));
+  const ids = await getAllParkIds({ cacheFile: c4, cacheMs: 7 * 864e5, fetcher: empty, nowMs: t0 });
+  assert.match(ids.staleReason, /地図の一覧を一度も作り直せていない（地図の一覧が0件しか取れなかった/);
+  // 前に聞き終えていた一覧があって、そのあと全部 [] になった: 前回の件数がめやす。一覧は前のまま、14日で ok:false
+  const d5 = tmp();
+  const c5 = path.join(d5, "repark-sitemap.xml");
+  fs.writeFileSync(c5, sitemapXml([rep(1), rep(2)], "2025-06-18"));
+  fs.writeFileSync(`${c5}.fetched`, new Date().toISOString());
+  await getAllParkIds({ cacheFile: c5, cacheMs: 7 * 864e5, fetcher: fakeMarkers(parks).fetcher, nowMs: t0 });
+  const later = await getAllParkIds({ cacheFile: c5, cacheMs: 7 * 864e5, fetcher: empty, nowMs: t0 + MAP_REFRESH_MS });
+  assert.equal(later.length, parks.length);   // sitemap の2件は地図にも出ている
+  assert.equal(later.staleReason, undefined);
+  fs.writeFileSync(`${c5}.fetched`, new Date().toISOString());
+  const stale = await getAllParkIds({ cacheFile: c5, cacheMs: 7 * 864e5, fetcher: empty, nowMs: t0 + 2 * MAP_REFRESH_MS + 864e5 });
+  assert.match(stale.staleReason, /地図の一覧を15日作り直せていない（地図の一覧が0件しか取れなかった（前回600件））/);
 });
 
 // ---- sitemap と地図を合わせた一覧 ----
@@ -273,11 +356,14 @@ test("今日まだ見ていない物件を、今日もう見た物件より先�
     B: stamp(JST("2026-10-18T20:00:00"), [...Array(24).keys()].filter((h) => h !== 0 && h !== 1)),   // 今日まだ・15時は見た
     C: stamp(JST("2026-10-18T22:00:00"), [22]),                             // 今日まだ・15時はまだ
   };
-  assert.deepEqual(pickRolling(["A", "B", "C"], state, 3, { spreadHours: true, at }), ["C", "B", "A"]);
-  assert.deepEqual(pickRolling(["A", "B", "C"], state, 1, { spreadHours: true, at }), ["C"]);
+  const df = { spreadHours: true, at, dailyFirst: true };
+  assert.deepEqual(pickRolling(["A", "B", "C"], state, 3, df), ["C", "B", "A"]);
+  assert.deepEqual(pickRolling(["A", "B", "C"], state, 1, df), ["C"]);
   // 48時間より長く見ていない物件は、時間帯を問わず先（印のそろいかけた物件を待たせ続けない）
   state.D = stamp(JST("2026-10-19T15:10:00") - STARVE_MS - 3600e3, [...Array(24).keys()].filter((h) => h !== 3));
-  assert.equal(pickRolling(["A", "B", "C", "D"], state, 1, { spreadHours: true, at })[0], "D");
+  assert.equal(pickRolling(["A", "B", "C", "D"], state, 1, df)[0], "D");
+  // dailyFirst を渡さない社（タイムズ）は直す前のまま: この時刻（15時）をまだ見ていない物件が先、その中は古い順
+  assert.deepEqual(pickRolling(["A", "B", "C", "D"], state, 4, { spreadHours: true, at }), ["C", "A", "D", "B"]);
   // 時間帯を見ない社（spreadHours なし）は古い順のまま
   assert.deepEqual(pickRolling(["A", "B", "C", "D"], state, 4, { at }), ["D", "B", "C", "A"]);
 });
@@ -320,6 +406,52 @@ test("優先物件を少しずつ取っても、3時間たったら次の回で�
   assert.ok(after.maxGap <= 4, JSON.stringify(after));
   assert.ok(after.visits >= before.visits, `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
   assert.ok(before.maxGap <= 4);
+});
+
+test("タイムズ（hours だけの社）の選び方は直す前と同じ: 優先物件は3時間たった分を全部先頭に、残りは「この時刻をまだ見ていない物件」が先", () => {
+  // 巡回の表の印: spreadPriority・dailyFirst はリパークの行だけ。hours（満空が取れる）だけでは付かない（2026-10-19 の点検）
+  const times = pickOptsOf({ op: "times", hours: true }, { at: "x", priority: ["p"], priorityMinAgeMs: 3 * 3600e3 });
+  assert.deepEqual(times, { spreadHours: true, at: "x", priority: ["p"], priorityMinAgeMs: 3 * 3600e3, spreadPriority: false, dailyFirst: false });
+  const repark = pickOptsOf({ op: "repark", hours: true, spreadPriority: true, dailyFirst: true }, { at: "x" });
+  assert.equal(repark.spreadPriority, true);
+  assert.equal(repark.dailyFirst, true);
+  const runSrc = fs.readFileSync(path.join(ROOT, "src/run.js"), "utf8");
+  const rowOf = (op) => runSrc.slice(runSrc.indexOf(`{ op: "${op}"`), runSrc.indexOf("},", runSrc.indexOf(`{ op: "${op}"`)));
+  assert.match(rowOf("repark"), /spreadPriority: true, dailyFirst: true/);
+  assert.doesNotMatch(rowOf("times"), /spreadPriority|dailyFirst/);
+  assert.match(runSrc, /pickRolling\(candidates, state, perPass, pickOptsOf\(rolling,/);
+
+  // 直す前の選び方（c52153d より前の pickRolling。眠らせている物件の無い状態）と、乱数で作った状態で比べる
+  const ALL = (1 << 24) - 1;
+  const ref = (ids, state, n, { at, priority, priorityMinAgeMs }) => {
+    const nowMs = Date.parse(at), st = (id) => parseState(state[id]);
+    const head = priority.filter((id) => ids.includes(id) && nowMs - st(id).t >= priorityMinAgeMs).sort((a, b) => st(a).t - st(b).t);
+    const hs = new Set(head), bit = 1 << new Date(nowMs + 9 * 3600e3).getUTCHours();
+    const need = [], done = [];
+    for (const id of ids.filter((x) => !hs.has(x))) { const m = st(id).mask; (((m === ALL ? 0 : m) & bit) ? done : need).push(id); }
+    const byAge = (a, b) => st(a).t - st(b).t;
+    need.sort(byAge);
+    const rest = need.length >= n ? need.slice(0, n) : need.concat(done.sort(byAge).slice(0, n - need.length));
+    return head.concat(rest);
+  };
+  let x = 11;
+  const rnd = () => ((x = (x * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  const ids = Array.from({ length: 400 }, (_, i) => `T${i}`);
+  const priority = ids.filter((_, i) => i % 7 === 0);   // 優先が多い（n の3分の1より多い）
+  for (let k = 0; k < 20; k++) {
+    const now = Date.parse("2026-10-19T00:00:00Z") + k * 8 * 3600e3 + 600e3;
+    const state = {};
+    for (const id of ids) {
+      if (rnd() < 0.05) continue;   // まだ取っていない
+      // 1周約8日の社なので、最後に見たのは 0〜10日前
+      const t = now - Math.floor(rnd() * 10 * 864e5);
+      let mask = 0;
+      for (let h = 0; h < 24; h++) if (rnd() < 0.6) mask |= 1 << h;
+      state[id] = `${new Date(t).toISOString()}|${mask.toString(36)}`;
+    }
+    const opt = pickOptsOf({ op: "times", hours: true }, { at: new Date(now).toISOString(), priority, priorityMinAgeMs: 3 * 3600e3 });
+    assert.deepEqual(pickRolling(ids, state, 30, opt), ref(ids, state, 30, opt), `${k}回目`);
+  }
 });
 
 // ---- 通しの巡回（run.js を別のプロセスで動かす）----

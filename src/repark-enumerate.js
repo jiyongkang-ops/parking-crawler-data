@@ -354,11 +354,20 @@ export function matchPriority(want, allIds, keyOf = null) {
   return { ids, missing };
 }
 
+/** run.js の巡回の表（ROLLING_SITES）の1行 → pickRolling に渡す選び方。
+ *  spreadPriority・dailyFirst は、その行に印のある社（リパーク）だけ。hours（満空が取れる）だけでは付けない
+ *  （タイムズも hours だが、1日3回・1周約8日の社に付けると、優先物件の回数が減り、時間帯をならす仕組みも効かなくなる。2026-10-19 の点検） */
+export function pickOptsOf(site, { at = null, priority = [], priorityMinAgeMs = 3 * 3600e3 } = {}) {
+  return { spreadHours: !!site.hours, at, priority, priorityMinAgeMs,
+    spreadPriority: !!site.spreadPriority, dailyFirst: !!(site.hours && site.dailyFirst) };
+}
+
 /** 未取得 → 取得が古い順に N 件選ぶ。
  *  spreadHours を渡すと「その時刻をまだ見ていない物件」を先に回す（満空を時間帯ごと均等に採るため）。
- *  spreadPriority を渡すと、優先物件を毎回少しずつ取る（説明は下）。毎時回る社（リパーク）だけが使う */
+ *  spreadPriority を渡すと、優先物件を毎回少しずつ取る（説明は下）。毎時回る社（リパーク）だけが使う。
+ *  dailyFirst を渡すと、spreadHours の選び方で「今日まだ見ていない物件」を先にする（pickRollingRest の説明）。リパークだけが使う */
 export function pickRolling(allIds, state, n, { spreadHours = false, at = null, priority = [], priorityMinAgeMs = 3 * 3600e3,
-  spreadPriority = false } = {}) {
+  spreadPriority = false, dailyFirst = false } = {}) {
   // 状態の文字列は1回だけ読む（比較関数の中で毎回分解すると数十万回になる）
   const parsed = new Map(allIds.map((id) => [id, parseState(state[id])]));
   const st = (id) => parsed.get(id);
@@ -387,7 +396,7 @@ export function pickRolling(allIds, state, n, { spreadHours = false, at = null, 
   }
   // spreadPriority のときは、優先物件は先頭の枠だけで取る（枠からあふれた優先物件を全国の巡回の側で拾うと、少しずつ取る意味が無くなる）
   const skip = spreadPriority ? new Set(priority) : new Set(head);
-  const rest = pickRollingRest(live.filter((id) => !skip.has(id)), st, restN, { spreadHours, nowMs });
+  const rest = pickRollingRest(live.filter((id) => !skip.has(id)), st, restN, { spreadHours, nowMs, dailyFirst });
   return head.concat(rest);
 }
 /** 日本時間のその日の0時（ms）。「今日もう見たか」を決めるのに使う */
@@ -395,13 +404,26 @@ const jstDayStart = (ms) => Math.floor((ms + 9 * 3600e3) / 864e5) * 864e5 - 9 * 
 /** これより長く見ていない物件は、時間帯を問わず先に取る（spreadHours のとき。長く待たせないための歯止め） */
 export const STARVE_MS = 48 * 3600e3;
 
-function pickRollingRest(live, st, n, { spreadHours, nowMs }) {
+function pickRollingRest(live, st, n, { spreadHours, nowMs, dailyFirst = false }) {
   const byAge = (a, b) => st(a).t - st(b).t;
   if (!spreadHours) {
     // 古い順。今日もう見た物件は今日まだ見ていない物件より必ず新しいので、そのままで「まだ見ていない物件が先」になる
     return [...live].sort(byAge).slice(0, n);
   }
-  // 次の順に選ぶ（それぞれの中は古い順）:
+  const bit = 1 << jstHour(nowMs);
+  if (!dailyFirst) {
+    // 1周に何日もかかる社（タイムズ）: 「この時刻をまだ見ていない物件」を先にする（直す前のまま）。
+    // 取る番が来た物件はほぼ毎回48時間より前に見たものなので、「今日まだ見ていない」や48時間の歯止めで分けても意味が無く、
+    // 時間帯をならす仕組みだけが効かなくなる（タイムズの本物の状態から40日回した試しで、まだ見ていない時刻の観測が 100%→93.9%）
+    const need = [], done = [];
+    // 24時間ぜんぶ見終わった物件を「どの時刻も済み」にすると、次の一巡に入れず後回しにされ続ける
+    for (const id of live) ((effectiveMask(st(id).mask) & bit) ? done : need).push(id);
+    need.sort(byAge);
+    if (need.length >= n) return need.slice(0, n);
+    // 穴が尽きたら（＝全物件がこの時刻を見終わったら）いつもどおり古い順で埋める
+    return need.concat(done.sort(byAge).slice(0, n - need.length));
+  }
+  // dailyFirst（1日に全体の大半を回れる社＝リパーク）は、次の順に選ぶ（それぞれの中は古い順）:
   //   0. STARVE_MS（48時間）より長く見ていない
   //   1. 今日（日本時間）まだ見ていない・この時刻をまだ見ていない
   //   2. 今日まだ見ていない・この時刻はもう見た
@@ -414,7 +436,6 @@ function pickRollingRest(live, st, n, { spreadHours, nowMs }) {
   // 印がそろうまで選ばれない物件は、最長で11日（270時間）見られていなかった（2026-10-18 の本物の状態から21日回した試し）。
   // 今日まだ見ていない物件を先にすれば、取る回数は同じまま1日に見る物件が増える。時間帯をならすのは、今日まだ見ていない物件の中で行う。
   // 0 の歯止めが無いと、印のそろいかけた物件が「今日まだ見ていない・この時刻はもう見た」に残り続け、最長で約3〜5日待つことがある
-  const bit = 1 << jstHour(nowMs);
   const dayStart = jstDayStart(nowMs);
   const tiers = [[], [], [], [], []];
   // 24時間ぜんぶ見終わった物件を「どの時刻も済み」にすると、次の一巡に入れず後回しにされ続ける（effectiveMask）

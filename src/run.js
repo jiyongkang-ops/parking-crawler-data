@@ -17,7 +17,7 @@ import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
-  isTransient, recordTransient, makeBreaker, makeMassGone, pickDropped, readCachedParkIds,
+  isTransient, recordTransient, makeBreaker, makeMassGone, pickDropped, readCachedParkIds, pickOptsOf,
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -97,10 +97,15 @@ const STATE = {
 //   budgetIncludesList: 一覧の作り直しにかかった時間も、その回の時間の予算（ROLLING_BUDGET_MIN）に入れる。
 //             リパークは週1回、地図の一覧に約100回（4秒おきで約7分）かかる。予算の外にすると、その回だけ毎時の間隔（60分）と
 //             ジョブの時間切れ（70分）に近づくため、その分だけ詳細ページを減らす
+//   spreadPriority: 優先物件を毎回少しずつ取る（pickRolling の説明）。毎時回る社（リパーク）だけに付ける。
+//             1日3回のタイムズに付けると、優先物件を取るのが1日3回から1日1回に減る（2026-10-19 の点検）
+//   dailyFirst: 満空の選び方で「今日まだ見ていない物件」を先にする（pickRolling の説明）。1日に全体の大半を回れる社（リパーク）だけに付ける。
+//             タイムズ（約2万2千件を1日約2,700件・1周約8日）に付けると、取る番の物件がほぼすべて48時間の歯止めにかかり、
+//             時間帯をならす仕組みが効かなくなる（2026-10-19 の点検）
 const ROLLING_SITES = [
   { op: "repark", label: "三井のリパーク", enumerate: getAllParkIds, detailUrl: reparkDetailUrl, parse: parseReparkDetail,
     idsCache: STATE.reparkSitemapCache, stateFile: STATE.reparkCrawlState, defaultPerRun: 1000,
-    keyName: "parkId", hours: true, readPrev: readCachedParkIds, budgetIncludesList: true },
+    keyName: "parkId", hours: true, readPrev: readCachedParkIds, budgetIncludesList: true, spreadPriority: true, dailyFirst: true },
   { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
     idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
     keyName: "url", minDelay: config.timesMinDelayMs ?? 6000,
@@ -555,11 +560,8 @@ async function main() {
           pausedMs += gapMs;
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
-        const picked = pickRolling(candidates, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
-          priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3,
-          // 毎時回る社（リパーク）は、優先物件を毎回少しずつ取る（pickRolling の説明。優先だけで1回の予算を使い切り、
-          // その時刻のふつうの物件の満空が取れなくなるのを防ぐ。2026-10-19）
-          spreadPriority: !!rolling.hours });
+        const picked = pickRolling(candidates, state, perPass, pickOptsOf(rolling, { at: new Date().toISOString(),
+          priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3 }));
         const batch = pass === 0 ? confirm.concat(picked) : picked;
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {

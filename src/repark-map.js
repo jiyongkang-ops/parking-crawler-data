@@ -73,8 +73,11 @@ export function splitTile(box, points) {
   const pts = points.filter(([la, ln]) => la >= box.s && la <= box.n && ln >= box.w && ln <= box.e);
   const distinct = new Set(pts.map((p) => `${p[0]},${p[1]}`)).size;
   if (distinct >= 2) {
-    const [[a], [b]] = splitByPoints(box, pts, Math.ceil(pts.length / 2));
-    return [a, b];
+    const [[a, pa], [b, pb]] = splitByPoints(box, pts, Math.ceil(pts.length / 2));
+    // 割る向きの座標がすべて同じ点だと、割る線が点の上に来て、どちらの長方形にも全部の点が入る（境目は両方に含めて聞くため）。
+    // そのまま聞くと同じ200件が返り、同じ形の長方形をくり返し聞くので、そのときは長い方の辺の真ん中で割る
+    const count = (bx) => pts.filter(([la, ln]) => la >= bx.s && la <= bx.n && ln >= bx.w && ln <= bx.e).length;
+    if (pa.length && pb.length && count(a) < pts.length && count(b) < pts.length) return [a, b];
   }
   const midLat = (box.s + box.n) / 2;
   const latKm = (box.n - box.s) * 111, lngKm = (box.e - box.w) * 111 * Math.cos((midLat * Math.PI) / 180);
@@ -158,10 +161,12 @@ export async function crawlMarkers({ points = [], fetcher = politeFetch, limit =
 
 // ---- 地図の一覧ファイル ----
 // 1行目は見出し（# で始まる。最後に全国を聞き終えた時刻・最後に試した時刻・そのときの件数）。
-// 2行目からは「物件番号<TAB>緯度<TAB>経度<TAB>最後に地図で見た日（日本時間）」。番号の順。
+// 2行目からは「物件番号<TAB>緯度<TAB>経度<TAB>地図に出なくなった日（日本時間。出ているあいだは空）」。番号の順。
 // 地図に出なくなった物件も MAP_KEEP_UNSEEN_DAYS 日は残す（巡回で 404 を確かめて閉鎖の印を付けるため）。
+// 4列目を「最後に見た日」にすると、作り直すたびに全行（約1万5千行）が書き換わり、週1回の全行のコミットで git が太る（2026-10-19 の点検）。
+// 「出なくなった日」なら、行が変わるのは物件が消えたとき・戻ったとき・座標が変わったときだけ
 
-/** 一覧ファイルを読む。無ければ空。戻り値: { entries: Map(番号 → { lat, lng, seen }), complete, tried, parks } */
+/** 一覧ファイルを読む。無ければ空。戻り値: { entries: Map(番号 → { lat, lng, gone: 地図に出なくなった日か null }), complete, tried, parks } */
 export function readMapList(file) {
   const out = { entries: new Map(), complete: null, tried: null, parks: 0, lastRequests: 0 };
   let text;
@@ -176,10 +181,10 @@ export function readMapList(file) {
       out.lastRequests = Number(kv.requests) || 0;
       continue;
     }
-    const [id, la, ln, seen] = line.split("\t");
+    const [id, la, ln, gone] = line.split("\t");
     if (!/^REP\d{7}$/.test(id ?? "")) continue;
     const lat = la === "" || la == null ? null : Number(la), lng = ln === "" || ln == null ? null : Number(ln);
-    out.entries.set(id, { lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, seen: seen || null });
+    out.entries.set(id, { lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, gone: gone || null });
   }
   return out;
 }
@@ -190,7 +195,7 @@ export function writeMapList(file, { entries, complete = null, tried = null, par
   const head = `# repark-map complete=${iso(complete)} tried=${iso(tried)} parks=${parks} requests=${requests}`;
   const lines = [...entries.keys()].sort().map((id) => {
     const x = entries.get(id);
-    return `${id}\t${x.lat ?? ""}\t${x.lng ?? ""}\t${x.seen ?? ""}`;
+    return `${id}\t${x.lat ?? ""}\t${x.lng ?? ""}\t${x.gone ?? ""}`;
   });
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   writeFileAtomic(path.resolve(file), [head, ...lines].join("\n") + "\n");
@@ -224,7 +229,7 @@ const jstDate = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 10);
 /** 一覧ファイルの中身（readMapList）のうち、巡回の一覧に入れる番号。地図に出なくなって MAP_KEEP_UNSEEN_DAYS 日を過ぎたものは除く */
 export function mapIdsOf(list, nowMs = Date.now()) {
   const keepAfter = jstDate(nowMs - MAP_KEEP_UNSEEN_DAYS * 864e5);
-  return [...list.entries].filter(([, x]) => !x.seen || x.seen >= keepAfter).map(([id]) => id).sort();
+  return [...list.entries].filter(([, x]) => !x.gone || x.gone >= keepAfter).map(([id]) => id).sort();
 }
 
 /** 地図の一覧を返す。作り直す時期（前に全国を聞き終えてから MAP_REFRESH_MS。失敗したあとは MAP_RETRY_MS あける）なら作り直す。
@@ -252,14 +257,29 @@ export async function getMapParkIds({ file, coordsFile, fetcher = politeFetch, n
   const r = await crawlMarkers({ points, fetcher, maxRequests });
   const today = jstDate(nowMs);
   let error = r.error ?? (r.dense ? `200件より多く固まっていて割れない場所が${r.dense}か所あった` : null);
-  // 全国を聞き終えたのに前回の半分も取れなかったら、相手先の作りが変わったとみなして使わない（前の一覧を使い続ける）
-  const shrunk = r.complete && cur.parks > 0 && r.parks.size < cur.parks * 0.5;
-  if (shrunk) error = `地図の一覧が${r.parks.size}件しか取れなかった（前回${cur.parks}件）`;
+  // 全国を聞き終えたのに、めやすの半分も取れなかったら、相手先の作りが変わったとみなして使わない（前の一覧を使い続ける）。
+  // めやすは前回の件数。前回が無い（初回・まだ一度も聞き終えていない）ときは、長方形を決めた座標の数。
+  // 全国で0件はどんなときもおかしい（どの長方形も [] が返る＝道や作りが変わった）。前回が0件だと半分の見張りが効かず、
+  // 0件の一覧が「聞き終えた」扱いになって、地図が止まっても health が ok のままだった（2026-10-19 の点検）
+  const floor = cur.parks || points.length;
+  const shrunk = r.complete && (r.parks.size === 0 || (floor > 0 && r.parks.size < floor * 0.5));
+  if (shrunk) error = `地図の一覧が${r.parks.size}件しか取れなかった（${cur.parks ? `前回${cur.parks}件` : `分かっている座標${points.length}件`}）`;
   const complete = r.complete && !shrunk;
-  // 途中で止まった回も、取れた物件は地図に出ている本物なので一覧に入れる
-  if (!shrunk) for (const [id, [lat, lng]] of r.parks) cur.entries.set(id, { lat, lng, seen: today });
-  // 地図に出なくなって長くたったものは外す（聞き終えた回だけ。途中で止まった回は、聞けなかった場所の物件を外さない）
-  if (complete) for (const [id, x] of cur.entries) if (x.seen && x.seen < keepAfter) cur.entries.delete(id);
+  // 途中で止まった回も、取れた物件は地図に出ている本物なので一覧に入れる（出なくなった日は消す）。
+  // 座標が取れなかったときは前の座標を残す
+  if (!shrunk) for (const [id, [lat, lng]] of r.parks) {
+    const old = cur.entries.get(id);
+    cur.entries.set(id, { lat: lat ?? old?.lat ?? null, lng: lng ?? old?.lng ?? null, gone: null });
+  }
+  // 聞き終えた回だけ: 地図に出なかった物件に「出なくなった日」を付け（もう付いていればそのまま）、出なくなって長くたったものは外す。
+  // 途中で止まった回は、聞けなかった場所の物件を出なくなった扱いにしない
+  if (complete) {
+    for (const [id, x] of cur.entries) {
+      if (r.parks.has(id)) continue;
+      if (!x.gone) x.gone = today;
+      if (x.gone < keepAfter) cur.entries.delete(id);
+    }
+  }
   const completeAt = complete ? nowMs : cur.complete;
   writeMapList(file, { entries: cur.entries, complete: completeAt, tried: nowMs,
     parks: complete ? r.parks.size : cur.parks, requests: r.requests });
