@@ -17,7 +17,7 @@ import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
-  isTransient, recordTransient, makeBreaker, makeMassGone, pickDropped, parkIdsFromSitemap,
+  isTransient, recordTransient, makeBreaker, makeMassGone, pickDropped, readCachedParkIds,
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -91,11 +91,16 @@ const STATE = {
 //   hours   : 満空が取れる社。巡回のたび「その時刻を見た」を記録して時間帯を均す
 //   priorityKey: 一覧の1件 → 優先物件の番号。一覧の書き方と Advisor の番号が違う社だけ付ける（2026-10-17）
 //   confirmDropped: 一覧から消えた物件を、一覧を作り直したあと1回だけ取りに行き、閉鎖（404）を確かめる（2026-10-18）
-//   readList: 一覧のキャッシュ（idsCache）の中身 → 番号の配列。1行1件でない社だけ付ける（リパークは sitemap の XML のまま持つ）
+//   readList: 一覧のキャッシュ（idsCache）の中身 → 番号の配列。1行1件でない社だけ付ける
+//   readPrev: 前の回の一覧を読む関数（idsCache のパス → 番号の配列）。一覧が2つのファイルに分かれている社だけ付ける
+//             （リパークは sitemap の XML ＋ 地図の一覧 repark-map-ids.txt。2026-10-18）
+//   budgetIncludesList: 一覧の作り直しにかかった時間も、その回の時間の予算（ROLLING_BUDGET_MIN）に入れる。
+//             リパークは週1回、地図の一覧に約100回（4秒おきで約7分）かかる。予算の外にすると、その回だけ毎時の間隔（60分）と
+//             ジョブの時間切れ（70分）に近づくため、その分だけ詳細ページを減らす
 const ROLLING_SITES = [
   { op: "repark", label: "三井のリパーク", enumerate: getAllParkIds, detailUrl: reparkDetailUrl, parse: parseReparkDetail,
     idsCache: STATE.reparkSitemapCache, stateFile: STATE.reparkCrawlState, defaultPerRun: 1000,
-    keyName: "parkId", hours: true, readList: parkIdsFromSitemap },
+    keyName: "parkId", hours: true, readPrev: readCachedParkIds, budgetIncludesList: true },
   { op: "times", label: "タイムズ", enumerate: getAllParkUrls, detailUrl: (u) => u, parse: parseTimesDetail,
     idsCache: STATE.timesUrlsCache, stateFile: STATE.timesCrawlState, defaultPerRun: 2000,
     keyName: "url", minDelay: config.timesMinDelayMs ?? 6000,
@@ -151,6 +156,7 @@ const ROLLING_SITES = [
 /** 一覧を作り直す前のファイルから、前の一覧を読む（unparkGone で「新しく載った番号」を見分けるため）。無ければ null */
 function readPrevList(rolling) {
   try {
+    if (rolling.readPrev) return rolling.readPrev(rolling.idsCache);
     const text = fs.readFileSync(rolling.idsCache, "utf8");
     return rolling.readList ? rolling.readList(text) : text.split("\n").filter(Boolean);
   } catch { return null; }
@@ -457,6 +463,7 @@ async function main() {
     if (rolling && t.mode === "nationwide") {
       let ids;
       const prevIds = readPrevList(rolling);   // 作り直す前の一覧（作り直すと上書きされるので先に読む）
+      const listStartedAt = Date.now();
       try {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
       } catch (e) { const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${m}`); continue; }
@@ -467,7 +474,10 @@ async function main() {
       if (woke) console.log(`[${rolling.label}] 一覧に新しく載った${woke}件は寝かせていたので起こす`);
       // 1周の回数は「生きている物件」で割る。404で寝かせた分を含めると1周が短くなる
       const liveCount = countLive(ids, state);
-      const perRun = rollingPerRun(rolling.op, liveCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
+      // 1回あたりの件数は perRunIds（リパークは sitemap の分だけ）で決める。地図の一覧で増えた物件で、1回あたりの詳細ページを増やさない
+      // （増えた分は1周が延びるだけ。2026-10-18）
+      const sizeCount = ids.perRunIds ? countLive(ids.perRunIds, state) : liveCount;
+      const perRun = rollingPerRun(rolling.op, sizeCount, config[`${rolling.op}RollingPerRun`] ?? rolling.defaultPerRun);
       const visited = ids.filter((id) => state[id]).length;
       // 一覧から外れたが、まだ閉鎖と分かっていない物件（recheckDropped の社だけ）。巡回の候補に足して一度取り直す。
       // 閉鎖なら GONE になって候補から外れ、営業中なら取れた日が進む（一覧の取りこぼしがあっても古いまま残らない）
@@ -522,7 +532,8 @@ async function main() {
         `1巡目安: 約${Math.ceil(liveCount / Math.max(1, perRunCap))}回実行（優先の取り直しぶんは別）` +
         `${confirm.length ? ` / 一覧から消えた${confirm.length}件を確かめる` : ""}`
       );
-      const startedAt = Date.now();
+      // 一覧の作り直しの時間も予算に入れる社（budgetIncludesList）は、一覧を作り始めた時刻から数える
+      const startedAt = rolling.budgetIncludesList ? listStartedAt : Date.now();
       let pausedMs = 0;
       const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
         ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
@@ -545,7 +556,10 @@ async function main() {
         }
         // 各回の開始時刻で選び直す。2回目は「その時刻の満空がまだ無い物件」が選ばれる
         const picked = pickRolling(candidates, state, perPass, { spreadHours: !!rolling.hours, at: new Date().toISOString(),
-          priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3 });
+          priority: prio, priorityMinAgeMs: prioMinAgeH * 3600e3,
+          // 毎時回る社（リパーク）は、優先物件を毎回少しずつ取る（pickRolling の説明。優先だけで1回の予算を使い切り、
+          // その時刻のふつうの物件の満空が取れなくなるのを防ぐ。2026-10-19）
+          spreadPriority: !!rolling.hours });
         const batch = pass === 0 ? confirm.concat(picked) : picked;
         if (!batch.length) { console.log(`[${rolling.label}] ${pass + 1}/${passes} 回目: 取る物件がありません`); continue; }
       for (const id of batch) {
@@ -647,8 +661,11 @@ async function main() {
       // 7日止まっても health は成功のままだった）
       hp(rolling.op, rolling.label, !broke && !ids.staleReason && ids.length > 0 && (tried === 0 || got > 0), got,
         broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
-          ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null),
-        { tried, noName, ...(brokeKind ? { kind: brokeKind } : {}), ...(massRestored ? { restored: massRestored } : {}) });
+          ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null)
+          // 取れている回でも、一覧について気をつけること（リパークの sitemap の更新が止まっているなど）を残す。Advisor は ok の行の reason は読まない
+          ?? ids.listNote ?? null,
+        { tried, noName, ...(brokeKind ? { kind: brokeKind } : {}), ...(massRestored ? { restored: massRestored } : {}),
+          ...(ids.listInfo ? { list: ids.listInfo } : {}) });
       continue;
     }
 

@@ -85,7 +85,9 @@ globalThis.fetch = async function stub(url, opts) {
 `);
   const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT, script)], {
     cwd: dir, encoding: "utf8", timeout: 60_000,
-    env: { ...process.env, HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl", ...env },
+    // リパークの地図の一覧（src/repark-map.js）は、既定では使わない（地図を試すテストは env で渡す。test/repark-list.test.js）
+    env: { ...process.env, HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl",
+      REPARK_MAP_MAX_REQUESTS: "0", ...env },
   });
   const log = `${p.stdout}\n${p.stderr}`;
   assert.equal(p.status, status, log);
