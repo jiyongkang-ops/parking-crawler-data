@@ -1,5 +1,5 @@
 {
- "at": "2026-10-19T17:56:11.618Z",
+ "at": "2026-10-19T18:56:17.341Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -19,10 +19,11 @@
    "ok": true,
    "n": 718,
    "reason": "sitemap の更新が止まっている（いちばん新しい lastmod が 2025-06-18・489日前）。地図の一覧（sitemap に無い1371件）で補っている",
-   "tried": 718,
+   "tried": 719,
    "noName": 0,
    "statusCounts": {
-    "200": 718
+    "200": 718,
+    "502": 1
    },
    "list": {
     "sitemap": 15715,
