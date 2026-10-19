@@ -2,11 +2,12 @@
 # 出力は別ファイル(prices-ecolo.jsonl)にして push 競合を回避。
 name: crawl-ecolo
 
+# 起動は crawl.yml の dispatch ジョブ（Cloud Scheduler から毎時07分JST）が、JST 1・13・19時に workflow_dispatch で行う
+# （2026-10-18〜）。両方あると同じ回が2回走るので cron は外した（時刻表と守りは crawl.yml の dispatch ジョブ）。
+# それまでの GitHub の cron（"0 4,10,16 * * *" = JST 13・19・1時）は中央値で約4時間（長いと約7時間）遅れて始まり、
+# 2026-10-04〜10-13 は毎日1回落ちて1日2回だった（14日で予定42回のうち32回）。
 on:
-  schedule:
-    # 他ワークフローとずらして 4,10,16 UTC に実行
-    - cron: "0 4,10,16 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch: {} # crawl.yml の dispatch ジョブと手動実行から
 
 permissions:
   contents: write
