@@ -220,7 +220,8 @@ test("通しの巡回: 相手先が落ちている（robots.txt に届かない�
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "data/times-crawl-state.json"), "utf8")), state);
   assert.equal(health.length, 1);
   assert.equal(health[0].ok, false);
-  assert.equal(health[0].kind, "unreachable");
+  assert.equal(health[0].kind, "network");                     // 届かない（以前は unreachable と書いていた。health-kind.js）
+  assert.deepEqual(health[0].statusCounts, {});                 // 本ページは1件も送っていない
   assert.match(health[0].reason, /robots\.txt に届かない.*ECONNREFUSED/);
 });
 
@@ -244,7 +245,8 @@ test("通しの巡回: 本ページが全部 503 なら8件で打ち切り、8�
   for (const u of list.slice(0, 8)) assert.equal(after[u], `${state[u]}|r`);   // 日付は進めない
   for (const u of list.slice(8)) assert.equal(after[u], state[u]);
   assert.equal(health[0].ok, false);
-  assert.equal(health[0].kind, "transient");
+  assert.equal(health[0].kind, "network");                     // 5xx の不調（以前は transient と書いていた。health-kind.js）
+  assert.deepEqual(health[0].statusCounts, { 503: 8 });
   assert.match(health[0].reason, /8件続けて取れず。最後は HTTP 503/);
 });
 

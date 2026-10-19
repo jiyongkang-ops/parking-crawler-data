@@ -63,6 +63,7 @@ import { flushCrawlStates } from "./repark-enumerate.js";
 import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
 import { gapFilled } from "./record-gap.js";
+import { kindOfFetch, kindOfText, dominantKind, makeCounter, countStatus } from "./health-kind.js";
 
 const STATE = {
   reparkSitemapCache: "data/repark-sitemap.xml",
@@ -207,8 +208,16 @@ function feeFingerprint(rec) {
 // 失敗した事業者があれば Slack で知らせる（2026-10-14。スペース24が403・GSパークが未対応のまま、
 // ワークフローは「成功」で2か月気づけなかったため）。ok=false は「取れなかった」。
 const health = [];
-// extra … 足りないときだけ足す項目（kind: "blocked" など）。Advisor は op・label・ok・n・reason だけを読む
-const hp = (op, label, ok, n, reason = null, extra = null) => health.push({ op, label, ok, n, reason, ...(extra ?? {}) });
+// extra … 足りないときだけ足す項目（kind・statusCounts など。src/health-kind.js の説明）。Advisor は op・label・ok・n・reason だけを読む。
+// kind は ok:false の行にだけ残す（取れた行に付けると「失敗の種類」と読み違えるため）
+const hp = (op, label, ok, n, reason = null, extra = null) => {
+  const { kind, ...rest } = extra ?? {};
+  health.push({ op, label, ok, n, reason, ...(!ok && kind ? { kind } : {}), ...rest });
+};
+/** 1回だけ送る取得（NPC全国・エムデン・ザ・パーク）の statusCounts。robots.txt で見送った（送っていない）ときは付けない */
+const statusOf = (res) => { const c = makeCounter(); countStatus(c, res); return c.size ? { statusCounts: c.toJSON() } : {}; };
+/** 一覧づくり（enumerate）の例外の種類。断られた・多すぎる・届かない・読めないのどれでもなければ「一覧を作り直せていない」 */
+const listKind = (msg) => kindOfText(msg) ?? "stale-list";
 function writeHealth() {
   const name = healthName();
   writeHealthFile(name, { at: new Date().toISOString(), workflow: name, only: process.env.CRAWL_ONLY || null, targets: health });
@@ -397,7 +406,7 @@ async function main() {
     if (t.paused) {
       const label = ROLLING_SITES.find((x) => x.op === t.operator)?.label ?? t.label ?? t.operator;
       console.log(`[停止中] ${label}: ${t.paused}`);
-      hp(t.operator, label, false, 0, `停止中: ${t.paused}`);
+      hp(t.operator, label, false, 0, `停止中: ${t.paused}`, { kind: "paused" });
       continue;
     }
 
@@ -422,8 +431,14 @@ async function main() {
           await sleep(gapMs);
         }
         let res;
-        try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] NPC全国: ${m}`); hp("npc", "NPC全国", false, 0, m); continue; }
-        if (!res.ok || res.skippedReason) { console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`); hp("npc", "NPC全国", false, 0, res.skippedReason ?? "HTTP " + res.status); continue; }
+        try { res = await politeFetch(url); } catch (e) {
+          const m = fetchErrorText(e); console.error(`[error] NPC全国: ${m}`);
+          hp("npc", "NPC全国", false, 0, m, { kind: "network", statusCounts: { network: 1 } }); continue;
+        }
+        if (!res.ok || res.skippedReason) {
+          console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`);
+          hp("npc", "NPC全国", false, 0, res.skippedReason ?? "HTTP " + res.status, { kind: kindOfFetch(res), ...statusOf(res) }); continue;
+        }
         let total = null;
         try { total = JSON.parse(res.html).total; } catch { /* */ }
         records = parseNpcSearch(res.html, { label: "NPC全国" });
@@ -434,7 +449,7 @@ async function main() {
         const at = new Date().toISOString();
         records.forEach((r) => { r._requestUrl = url; handleRecord(r, at); });
         console.log(`[ok] NPC全国 ${i + 1}/${repeat} | ${records.length}物件`);
-        hp("npc", `NPC全国 ${i + 1}/${repeat}`, records.length > 0, records.length, records.length ? null : "0件");
+        hp("npc", `NPC全国 ${i + 1}/${repeat}`, records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
       }
       continue;
     }
@@ -459,7 +474,7 @@ async function main() {
       const prevIds = readPrevList(rolling);   // 作り直す前の一覧（作り直すと上書きされるので先に読む）
       try {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${m}`); continue; }
+      } catch (e) { const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${m}`, { kind: listKind(m) }); continue; }
       const state = loadCrawlState(rolling.stateFile);
       // 一覧に新しく載った物件のうち、404で寝かせていたものを起こす（復活している見込みがあるため）。
       // 一覧が変わっても、前から載っている寝かせた物件は起こさない（寝かせる期限は物件ごとに30〜60日。goneMsOf）
@@ -527,12 +542,16 @@ async function main() {
       const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
         ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
         : undefined;
-      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0;
+      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0;
       let out = false;
-      // 相手先の不調（5xx・429・403・タイムアウト）が続いたら、この回は打ち切る（makeBreaker の説明）
+      // 相手先の不調（5xx・429・403・タイムアウト・混み合いのページ）が続いたら、この回は打ち切る（makeBreaker の説明）
       const breakerN = Number(process.env.ROLLING_BREAKER) || 8;
       const breaker = makeBreaker(breakerN);
       let broke = null, retried = 0, brokeKind = null;
+      // health に足す数（src/health-kind.js）。statusCounts … 送った本ページの状態コードごとの件数。
+      // failKinds … この回の失敗の種類ごとの件数（1件も取れなかった回の kind）。streakKinds … 打ち切りの数に入った失敗の種類
+      // （先方が答えたら数え直す。打ち切った回の kind はこの中でいちばん多いもの）
+      const statusCounts = makeCounter(), failKinds = makeCounter(), streakKinds = makeCounter();
       // 一斉の閉鎖の歯止め（makeMassGone の説明）。前は生きていた物件の閉鎖（404・410・掲載終了の転送）が
       // 30件以上、かつ答えが返った数の半分以上になったら、この回に付けた閉鎖の印を全部戻して打ち切る。MASS_GONE_MIN・MASS_GONE_RATIO で変えられる
       const massGone = makeMassGone({ min: Number(process.env.MASS_GONE_MIN) || 30, ratio: Number(process.env.MASS_GONE_RATIO) || 0.5 });
@@ -561,11 +580,12 @@ async function main() {
         // 2026-10-17 のエコロは robots.txt も取れなかったのに、45分間で257回取りに行き、257件に日付だけが入った
         if (res?.blocked || res?.transient) {
           broke = res.blocked ? `${res.skippedReason}。この回は打ち切り` : `${res.skippedReason}のでこの回は見送り（${res.robotsError ?? "原因不明"}）`;
-          brokeKind = res.blocked ? "blocked" : "unreachable";
+          brokeKind = kindOfFetch(res);   // blocked。届かないときは network（robots.txt が 429 なら rate）
           console.warn(`  [abort] ${rolling.label}: ${broke}。${done}件取れたところで止める`);
           out = true; break;
         }
         tried++;
+        countStatus(statusCounts, res);
         // 一斉の閉鎖の歯止めに数える物件か。前は生きていた物件（今の一覧に載っていて、取った記録があり、寝かせていない）だけ。
         // 一覧から消えた物件の確かめ（confirm）・一覧から外れた物件（dropped）・寝かせた物件の起き抜け・初めての物件は、
         // 閉鎖が多くて当たり前なので数えない（止めたときに印を戻すのは、数えない分も含めて全部）。prevState は印を付ける前の値
@@ -581,32 +601,40 @@ async function main() {
           console.warn(`  [mass-gone] ${rolling.label}: ${broke}。${done}件取れたところで止める`);
           return true;
         };
-        // 相手先の不調。1回目は時刻を進めず次の回に取り直す。続いたら打ち切る
-        if (isTransient(res)) {
-          const why = err ?? `HTTP ${res.status}`;
+        // 相手先の不調。1回目は時刻を進めず次の回に取り直す。続いたら打ち切る。
+        // 戻り値は「打ち切るか」。kind はこの失敗の種類（network・rate・blocked）
+        const transientFail = (why, kind) => {
+          failKinds.add(kind);
           const again = recordTransient(state, id, at, { hours: !!rolling.hours });
           if (again) retried++;
           console.error(`  [error] ${id}: ${why}${again ? "（次の回に取り直す）" : ""}`);
           // 前の回も取れなかった物件（取り直しの2回目）は数えない。壊れたページは取り直しで古い順の先頭に
           // 並ぶので、数えると先方が元気でも打ち切ってしまう
-          if (again && breaker.fail()) {
-            broke = `相手先の不調で打ち切り（${breakerN}件続けて取れず。最後は ${why}）`;
-            brokeKind = "transient";
-            console.warn(`  [breaker] ${broke}。${done}件取れたところで止める`);
-            out = true; break;
-          }
+          if (!again) return false;
+          streakKinds.add(kind);
+          if (!breaker.fail()) return false;
+          broke = `相手先の不調で打ち切り（${breakerN}件続けて取れず。最後は ${why}）`;
+          brokeKind = dominantKind(streakKinds.counts) ?? kind;
+          console.warn(`  [breaker] ${broke}。${done}件取れたところで止める`);
+          return true;
+        };
+        if (isTransient(res)) {
+          if (transientFail(err ?? `HTTP ${res.status}`, kindOfFetch(res))) { out = true; break; }
           continue;
         }
-        breaker.ok();
-        if (watch) massGone.answered();
+        // 先方が答えた（不調ではない）。打ち切りの数え直しと、一斉の閉鎖の「答えた数」に入れる。
+        // 混み合いのページ（HTTP 200 で中身が無い）は答えたことにしないので、読んで確かめてから呼ぶ
+        const answered = () => { breaker.ok(); streakKinds.reset(); if (watch) massGone.answered(); };
         // 閉じた物件をトップへ転送する社（エコロ・名鉄協商）。404 と同じく寝かせる
         if (rolling.goneOnRedirect && res.status >= 300 && res.status < 400 && rolling.goneOnRedirect(res.location)) {
+          answered(); failKinds.add("parse");
           console.log(`  [gone] ${id} → ${res.location}（転送＝掲載終了）`); mark({ status: 404 }); nGone++;
           if (confirmSet.has(id)) confirmGone++;
           if (tripIfMassGone()) { out = true; break; }
           continue;
         }
         if (!res.ok || res.skippedReason) {
+          answered(); failKinds.add(kindOfFetch(res));
           console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`);
           const closed = res.status === 404 || res.status === 410;
           if (confirmSet.has(id) && closed) confirmGone++;
@@ -617,10 +645,24 @@ async function main() {
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
         try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id }); }
-        catch (e) { console.error(`  [parse error] ${id}: ${e.message}`); mark(res, false); continue; }
+        catch (e) {
+          // 相手先が混み合っているページ（タイムズの「ただいま大変混み合っております」。times.js が e.transient を付ける）。
+          // HTTP 200 でも 503 と同じ不調なので、取りに行った扱いにせず次の回に取り直し、打ち切りの数にも入れる。
+          // 以前は [parse error] として時刻を進めていたので、その物件は1巡（約8〜11日）後ろへ回り、
+          // 打ち切りの数も parse の前の breaker.ok() で数え直されていた（2026-10-18 点検）
+          if (e?.transient) {
+            busy++;
+            if (transientFail(`混み合いのページ（${e.message}）`, "network")) { out = true; break; }
+            continue;
+          }
+          answered(); failKinds.add("parse");
+          console.error(`  [parse error] ${id}: ${e.message}`); mark(res, false); continue;
+        }
+        answered();
         // 取れたのに名前が読めない（ページの作りが違う・掲載終了の雛形など）。以前は何も出さずに飛ばしていたので、
         // 名鉄協商の552件が毎回むだに取られていることに3か月気づけなかった。番号を出し（1回20件まで）、health に件数を残す
         if (!rec || !rec.name) {
+          failKinds.add("parse");
           if (++noName <= 20) console.warn(`  [no name] ${id}: 名前が読めない（HTTP ${res.status}・${(res.html ?? "").length}バイト）`);
           mark(res, false); continue;
         }
@@ -638,17 +680,21 @@ async function main() {
       if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた${massRestored ? "（一斉の閉鎖とみなしたので、この回の印は戻した）" : ""}`);
       if (massRestored) console.warn(`[${rolling.label}] 一斉の閉鎖とみなして、この回に付けた閉鎖の印 ${massRestored}件を前の値に戻した`);
       if (noName) console.warn(`[${rolling.label}] 取れたのに名前が読めなかった物件 ${noName}件${noName > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
-      if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す`);
+      if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す${busy ? `（うち混み合いのページ${busy}件）` : ""}`);
       if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた${massRestored ? "（一斉の閉鎖とみなしたので、印は戻した）" : ""}`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
       // 不調で打ち切った回も失敗として知らせる（2026-10-02 は半分取れたので「成功」になり、気づけなかった）。
       // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js・cache-age.js の keepPrevIfShrunk）も知らせる。
       // 一覧が0件の回も失敗（以前は「取る物件が無かった回」として成功になる作りで、2026-10-18 の点検の試しでは、ナビパークが0件の一覧で
       // 7日止まっても health は成功のままだった）
-      hp(rolling.op, rolling.label, !broke && !ids.staleReason && ids.length > 0 && (tried === 0 || got > 0), got,
+      // kind（失敗の種類。src/health-kind.js）は reason と同じ順で決める: 打ち切った理由 → 一覧の問題 → この回の失敗でいちばん多い種類
+      const listProblem = !!ids.staleReason || ids.length === 0;
+      hp(rolling.op, rolling.label, !broke && !listProblem && (tried === 0 || got > 0), got,
         broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
           ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null),
-        { tried, noName, ...(brokeKind ? { kind: brokeKind } : {}), ...(massRestored ? { restored: massRestored } : {}) });
+        { tried, noName, ...(busy ? { busy } : {}), statusCounts: statusCounts.toJSON(),
+          kind: brokeKind ?? (listProblem ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse",
+          ...(massRestored ? { restored: massRestored } : {}) });
       continue;
     }
 
@@ -665,17 +711,19 @@ async function main() {
           if (!codes.length) throw new Error("エリアが0件（ページ構造変更の可能性）");
           fs.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n"); markFetched(STATE.gsparkAreasCache);
         }
-      } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); hp("gspark", t.label, false, 0, `一覧: ${e.message}`); continue; }
-      let count = 0, stop = null;
+      } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); hp("gspark", t.label, false, 0, `一覧: ${e.message}`, { kind: listKind(e.message) }); continue; }
+      let count = 0, stop = null, stopKind = null;
+      const statusCounts = makeCounter(), failKinds = makeCounter();
       for (const code of codes) {
         if (stop) break;
         for (let page = 1; page <= 30; page++) {
           const url = areaListUrl(code, page);
           let res;
-          try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${code} p${page}: ${fetchErrorText(e)}`); break; }
+          try { res = await politeFetch(url); } catch (e) { countStatus(statusCounts, null); failKinds.add("network"); console.error(`  [error] ${code} p${page}: ${fetchErrorText(e)}`); break; }
           // robots.txt で断られた・届かないときは、残りのページも同じ答えなので止める（本ページは送っていない）
-          if (res.blocked || res.transient) { stop = res.skippedReason; console.warn(`  [abort] GSパーク: ${stop}`); break; }
-          if (!res.ok || res.skippedReason) break;
+          if (res.blocked || res.transient) { stop = res.skippedReason; stopKind = kindOfFetch(res); console.warn(`  [abort] GSパーク: ${stop}`); break; }
+          countStatus(statusCounts, res);
+          if (!res.ok || res.skippedReason) { failKinds.add(kindOfFetch(res)); break; }
           const { records, hasNext } = parseGsparkList(res.html);
           for (const rec of records) { rec._requestUrl = url; handleRecord(rec); count++; }
           if (!hasNext || !records.length) break;
@@ -683,7 +731,8 @@ async function main() {
       }
       console.log(`[ok] GSパーク全国 | ${count}物件（エリア${codes.length}）`);
       // 途中で止めた回は失敗（一覧型は「直近の実行が成功していれば全件をその日に確かめた」とみなされるため）
-      hp("gspark", t.label, count > 0 && !stop, count, stop ?? (count ? null : "0件"));
+      hp("gspark", t.label, count > 0 && !stop, count, stop ?? (count ? null : "0件"),
+        { statusCounts: statusCounts.toJSON(), kind: stopKind ?? dominantKind(failKinds.counts) ?? "parse" });
       continue;
     }
 
@@ -692,21 +741,24 @@ async function main() {
       let cities;
       try {
         cities = await getAllParknetCities({ cacheFile: STATE.parknetCitiesCache, cacheMs: 7 * 864e5 });
-      } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); hp("parknet", "パークネット", false, 0, `一覧: ${e.message}`); continue; }
+      } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); hp("parknet", "パークネット", false, 0, `一覧: ${e.message}`, { kind: listKind(e.message) }); continue; }
       console.log(`[パークネット] 市区${cities.length}件を巡回`);
-      let count = 0, stop = null;
+      let count = 0, stop = null, stopKind = null;
+      const statusCounts = makeCounter(), failKinds = makeCounter();
       for (const line of cities) {
         const [prefCd, city] = line.split("\t");
         if (!prefCd || !city) continue;
         const url = parknetCityUrl(prefCd, city);
         let res;
-        try { res = await politeFetch(url); } catch (e) { console.error(`  [error] ${city}: ${fetchErrorText(e)}`); continue; }
-        if (res.blocked || res.transient) { stop = res.skippedReason; console.warn(`  [abort] パークネット: ${stop}`); break; }
-        if (!res.ok || res.skippedReason) continue;
+        try { res = await politeFetch(url); } catch (e) { countStatus(statusCounts, null); failKinds.add("network"); console.error(`  [error] ${city}: ${fetchErrorText(e)}`); continue; }
+        if (res.blocked || res.transient) { stop = res.skippedReason; stopKind = kindOfFetch(res); console.warn(`  [abort] パークネット: ${stop}`); break; }
+        countStatus(statusCounts, res);
+        if (!res.ok || res.skippedReason) { failKinds.add(kindOfFetch(res)); continue; }
         for (const rec of parseParknetList(res.html)) { rec._requestUrl = url; handleRecord(rec); count++; }
       }
       console.log(`[ok] パークネット | ${count}物件`);
-      hp("parknet", "パークネット", count > 0 && !stop, count, stop ?? (count ? null : "0件"));
+      hp("parknet", "パークネット", count > 0 && !stop, count, stop ?? (count ? null : "0件"),
+        { statusCounts: statusCounts.toJSON(), kind: stopKind ?? dominantKind(failKinds.counts) ?? "parse" });
       continue;
     }
 
@@ -714,12 +766,12 @@ async function main() {
     if (t.operator === "mden" && t.mode === "nationwide") {
       const url = mdenListUrl();
       let res;
-      try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] mden: ${m}`); hp("mden", "エムデン", false, 0, m); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] mden: ${res.skippedReason ?? "HTTP " + res.status}`); hp("mden", "エムデン", false, 0, res.skippedReason ?? `HTTP ${res.status}`); continue; }
+      try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] mden: ${m}`); hp("mden", "エムデン", false, 0, m, { kind: "network", statusCounts: { network: 1 } }); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] mden: ${res.skippedReason ?? "HTTP " + res.status}`); hp("mden", "エムデン", false, 0, res.skippedReason ?? `HTTP ${res.status}`, { kind: kindOfFetch(res), ...statusOf(res) }); continue; }
       const records = parseMdenList(res.html);
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
       console.log(`[ok] エムデン・テクノパーキング | ${records.length}物件`);
-      hp("mden", "エムデン", records.length > 0, records.length, records.length ? null : "0件");
+      hp("mden", "エムデン", records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
       continue;
     }
 
@@ -728,12 +780,12 @@ async function main() {
       const url = theparkUrl();
       if (cachedRecently(url)) { console.log(`[cache] ザ・パーク全国 スキップ`); continue; }
       let res;
-      try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] ザ・パーク: ${m}`); hp("thepark", "ザ・パーク", false, 0, m); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] ザ・パーク: ${res.skippedReason ?? "HTTP " + res.status}`); hp("thepark", "ザ・パーク", false, 0, res.skippedReason ?? "HTTP " + res.status); continue; }
+      try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] ザ・パーク: ${m}`); hp("thepark", "ザ・パーク", false, 0, m, { kind: "network", statusCounts: { network: 1 } }); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] ザ・パーク: ${res.skippedReason ?? "HTTP " + res.status}`); hp("thepark", "ザ・パーク", false, 0, res.skippedReason ?? "HTTP " + res.status, { kind: kindOfFetch(res), ...statusOf(res) }); continue; }
       const records = parseTheparkJson(res.html, { label: "ザ・パーク全国" });
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
       console.log(`[ok] ザ・パーク全国 | ${records.length}物件`);
-      hp("thepark", "ザ・パーク", records.length > 0, records.length, records.length ? null : "0件");
+      hp("thepark", "ザ・パーク", records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
       continue;
     }
 
