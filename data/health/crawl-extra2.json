@@ -1,5 +1,5 @@
 {
- "at": "2026-10-18T20:04:23.831Z",
+ "at": "2026-10-19T05:42:16.170Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet",
  "targets": [
@@ -8,21 +8,34 @@
    "label": "スペース二十四",
    "ok": false,
    "n": 0,
-   "reason": "一覧: スペース24一覧の取得に失敗: HTTP 403"
+   "reason": "停止中: 2026-10 先方が403で拒否。許可が出るまでアクセスしない",
+   "kind": "paused"
   },
   {
    "op": "jqparks",
    "label": "JQパークス",
    "ok": true,
    "n": 400,
-   "reason": null
+   "reason": null,
+   "tried": 400,
+   "noName": 0,
+   "statusCounts": {
+    "200": 400
+   }
   },
   {
    "op": "parknet",
    "label": "パークネット",
    "ok": true,
-   "n": 281,
-   "reason": null
+   "n": 384,
+   "reason": "総件数より少なかった市区1",
+   "pages": 109,
+   "shortCities": [
+    "旭川市"
+   ],
+   "statusCounts": {
+    "200": 109
+   }
   }
  ]
 }
