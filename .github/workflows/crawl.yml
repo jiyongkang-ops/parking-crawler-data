@@ -130,6 +130,9 @@ jobs:
           # 状態をコミットしないとローリングが毎回先頭に戻ってしまう。
           # .fetched は「一覧をいつ取り直したか」の記録。残さないと毎回作り直しになる
           git add data/prices.jsonl data/repark-crawl-state.json data/repark-sitemap.xml data/*.fetched
+          # リパークの地図の一覧（src/repark-map.js。週1回作り直す）。残さないと毎時の回で作り直しになり、毎時約100回を送ってしまう。
+          # 地図を使わない設定（REPARK_MAP_MAX_REQUESTS=0）のときは無いので、拾えなくても止めない
+          git add data/repark-map-ids.txt 2>/dev/null || true
           # 満空は data/vacancy-YYYY-MM-DD.jsonl（日ごと。2026-09 までは月ごと）。古い日は変わらないのでgitが太らない。
           # 月初の1回目はまだ無いことがあるので、拾えなくても止めない。
           git add data/vacancy-*.jsonl data/vacancy-lots.jsonl data/priority-lots.json data/health/*.json || true

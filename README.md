@@ -16,6 +16,12 @@
 - 物件一覧（sitemap / ids）の鮮度は、となりに置く **`<file>.fetched`（取得日時）** だけで測る（`src/cache-age.js`）。
   mtime は checkout が毎回「今」にし、git の最終コミット時刻も**浅いクローン（fetch-depth:1）では常に「今」**を返すため、
   どちらでも一度も更新されず、7月の一覧のまま2か月止まっていた。作り直しは1回の実行で2件まで（`LIST_REFRESH_MAX`）。
+- 三井のリパークの一覧は sitemap ＋ 公式の地図検索のマーカー（`src/repark-map.js`・`data/repark-map-ids.txt`）。sitemap は
+  lastmod が 2025-06-18 で止まっていて、それより後に開いた物件が載っていないため。地図は全国を約100の長方形に分けて週1回だけ聞く
+  （`REPARK_MAP_MAX_REQUESTS`。0 で使わない）。sitemap の lastmod の最新が90日より古いと health の reason に残し、
+  地図でも補えていなければ ok:false にする。地図の一覧の4列目は「地図に出なくなった日」（出ているあいだは空）なので、
+  作り直しても行が変わるのは物件が消えた・戻ったときだけ。分析リポジトリ（parking-price-crawler）は、リパークの今の一覧を
+  sitemap ＋ この一覧で作る（`analyzer/lib/repark-list.mjs`）。sitemap だけで作ると、地図で見つけた物件が「閉鎖」に一斉に出る。
 - `dashboard.html` と統一CSVは `publish.yml` で1日1回作る（毎時コミットすると派生物だけで月75MB太る）。
 - ローリング巡回は `ROLLING_BUDGET_MIN`（既定45分。毎時の `crawl.yml` は50分、タイムズの `crawl-times.yml` は90分）で切り上げ、状態を50件ごとに保存する。
   途中で殺されても、そこまでの観測と巡回状態は `if: always()` のコミットで残る。

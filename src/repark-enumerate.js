@@ -3,12 +3,14 @@
 // 一度に取得するのは「節度ある収集」と両立しない。
 // そこで sitemap から全 parkId を列挙し、「最も長く取得していないものから順に
 // 毎回 N 件だけ」取得するローリング方式で、数日かけて全国を1巡する。
+// 2026-10-18〜: sitemap の更新が止まっているので、地図のマーカー（repark-map.js）で見つけた番号も足す。
 
 import fs from "node:fs";
 import { cacheFresh, markFetched, keepPrevIfShrunk } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
 import { writeFileAtomic } from "./write-atomic.js";
+import { getMapParkIds, readMapList, mapIdsOf } from "./repark-map.js";
 
 const SITEMAP_URL = "https://www.repark.jp/sitemap_park.xml";
 
@@ -21,23 +23,92 @@ export function parkIdsFromSitemap(xml) {
   return [...ids];
 }
 
+/** sitemap の lastmod のいちばん新しい日（YYYY-MM-DD）。lastmod が無ければ null */
+export function newestLastmod(xml) {
+  let best = null;
+  for (const m of String(xml).matchAll(/<lastmod>\s*(\d{4}-\d{2}-\d{2})/g)) if (!best || m[1] > best) best = m[1];
+  return best;
+}
+/** sitemap の lastmod のいちばん新しい日がこれより古ければ、sitemap の更新が止まっているとみなす（日） */
+export const SITEMAP_STALE_DAYS = 90;
+/** 地図の一覧をこれより長く作り直せていなければ、地図の一覧も古いとみなす */
+const MAP_STALE_MS = 14 * 864e5;
+/** 地図の一覧（repark-map.js）と、初回に長方形を決める座標（満空の控え）。sitemap の控えと同じ置き場に置く */
+export const mapFileOf = (cacheFile) => path.join(path.dirname(path.resolve(cacheFile)), "repark-map-ids.txt");
+const coordsFileOf = (cacheFile) => path.join(path.dirname(path.resolve(cacheFile)), "vacancy-lots.jsonl");
+
 // sitemap をローカルにキャッシュし、parkId 一覧を返す。
 // 取れた sitemap の物件が前の一覧の半分未満（途中で切れた・作りが変わったなど。0件を含む）なら、前の一覧を使い続ける
 // （keepPrevIfShrunk。取得日は進めず、health で知らせる）。欠けた sitemap で上書きすると7日間その分を回らなくなるため
-export async function getAllParkIds({ cacheFile, cacheMs }) {
-  const abs = path.resolve(cacheFile);
-  const prev = fs.existsSync(abs) ? parkIdsFromSitemap(fs.readFileSync(abs, "utf8")) : [];
-  if (prev.length && cacheFresh(abs, cacheMs)) return prev;
-  const res = await politeFetch(SITEMAP_URL);
+async function sitemapList({ abs, cacheMs, fetcher }) {
+  const prevXml = fs.existsSync(abs) ? fs.readFileSync(abs, "utf8") : "";
+  const prev = parkIdsFromSitemap(prevXml);
+  if (prev.length && cacheFresh(abs, cacheMs)) return { ids: prev, xml: prevXml };
+  const res = await fetcher(SITEMAP_URL);
   if (res.skippedReason) throw new Error(`sitemap: ${res.skippedReason}`);
   if (!res.ok) throw new Error(`sitemap HTTP ${res.status}`);
   const ids = parkIdsFromSitemap(res.html);
   const kept = keepPrevIfShrunk("リパーク", ids, prev);
-  if (kept) return kept;
+  if (kept) return { ids: kept, xml: prevXml };
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, res.html);
   markFetched(abs);
+  return { ids, xml: res.html };
+}
+
+// 巡回の一覧 = sitemap の番号 ＋ 地図のマーカーで見つけた番号（repark-map.js）。
+// sitemap は lastmod が 2025-06-18 で止まっていて、それより後に開いた物件が載っていない（2026-10-18 の点検）。
+// 地図の一覧で sitemap に無い物件を足す。並びは sitemap の順のあとに地図だけの番号（番号の順）。
+// 返す配列に付けるもの（run.js が使う）:
+//   perRunIds  … 1回あたりの取得件数を決める番号（sitemap の分だけ）。地図で物件が増えても1回あたりの詳細ページは増やさない
+//               （1周にかかる回数が少し延びる）
+//   staleReason… 一覧が古いまま（health で ok:false。Advisor が知らせる）。sitemap の更新が SITEMAP_STALE_DAYS 日より前で止まっていて、
+//               しかも地図の一覧も14日より長く作れていない（地図を使わない設定を含む）とき（新しい物件を取る手立てが無いとき）
+//   listNote   … 気をつけること（ok のまま health の reason に残す）。sitemap が止まっているが地図で補えているときなど
+//   listInfo   … 件数の内訳（health に残す）
+export async function getAllParkIds({ cacheFile, cacheMs, mapFile = mapFileOf(cacheFile), coordsFile = coordsFileOf(cacheFile),
+  fetcher = politeFetch, nowMs = Date.now(), mapMaxRequests } = {}) {
+  const abs = path.resolve(cacheFile);
+  const sm = await sitemapList({ abs, cacheMs, fetcher });
+  const map = await getMapParkIds({ file: mapFile, coordsFile, fetcher, nowMs,
+    ...(mapMaxRequests !== undefined ? { maxRequests: mapMaxRequests } : {}) });
+  const inSitemap = new Set(sm.ids);
+  const mapOnly = map.ids.filter((id) => !inSitemap.has(id));
+  const ids = sm.ids.concat(mapOnly);
+  ids.perRunIds = sm.ids;
+  if (sm.ids.staleReason) ids.staleReason = sm.ids.staleReason;
+
+  const newest = newestLastmod(sm.xml);
+  const ageDays = newest ? Math.floor((nowMs - Date.parse(`${newest}T00:00:00+09:00`)) / 864e5) : null;
+  const sitemapStale = ageDays != null && ageDays > SITEMAP_STALE_DAYS;
+  const mapFresh = !map.disabled && !!map.completeAt && nowMs - map.completeAt < MAP_STALE_MS;
+  const notes = [];
+  if (sitemapStale) notes.push(`sitemap の更新が止まっている（いちばん新しい lastmod が ${newest}・${ageDays}日前）`);
+  if (map.disabled) { if (sitemapStale) notes.push("地図の一覧は使っていない（REPARK_MAP_MAX_REQUESTS=0）"); }
+  else if (!mapFresh) {
+    notes.push(`地図の一覧を${map.completeAt ? `${Math.floor((nowMs - map.completeAt) / 864e5)}日` : "一度も"}作り直せていない`
+      + (map.error ? `（${map.error}）` : ""));
+  }
+  if (!ids.staleReason && sitemapStale && !mapFresh) {
+    ids.staleReason = `${notes.join("。")}。sitemap に載っていない新しい物件を取れない`;
+  } else if (notes.length) {
+    ids.listNote = sitemapStale ? `${notes.join("。")}。地図の一覧（sitemap に無い${mapOnly.length}件）で補っている` : notes.join("。");
+  }
+  if (ids.staleReason || ids.listNote) console.warn(`::warning::[リパーク] ${ids.staleReason ?? ids.listNote}`);
+  ids.listInfo = { sitemap: sm.ids.length, sitemapNewest: newest, map: map.ids.length, mapOnly: mapOnly.length,
+    mapCompleteAt: map.completeAt ? new Date(map.completeAt).toISOString() : null,
+    ...(map.refreshed ? { mapRequests: map.requests } : {}) };
+  console.log(`[リパーク] 一覧: sitemap ${sm.ids.length}件（lastmod の最新 ${newest ?? "不明"}）＋地図だけの${mapOnly.length}件 = ${ids.length}件`);
   return ids;
+}
+
+/** 前の回の一覧（sitemap の控え＋地図の一覧）を読む。run.js が一覧を作り直す前に読み、unparkGone で「新しく載った番号」を見分ける */
+export function readCachedParkIds(cacheFile, nowMs = Date.now()) {
+  const abs = path.resolve(cacheFile);
+  const sm = fs.existsSync(abs) ? parkIdsFromSitemap(fs.readFileSync(abs, "utf8")) : [];
+  const inSitemap = new Set(sm);
+  const ids = sm.concat(mapIdsOf(readMapList(mapFileOf(cacheFile)), nowMs).filter((id) => !inSitemap.has(id)));
+  return ids.length ? ids : null;
 }
 
 // ローリング状態（parkId -> 最終取得ISO、または "ISO|時間帯マスク36進"）を読み書き。
@@ -283,9 +354,20 @@ export function matchPriority(want, allIds, keyOf = null) {
   return { ids, missing };
 }
 
+/** run.js の巡回の表（ROLLING_SITES）の1行 → pickRolling に渡す選び方。
+ *  spreadPriority・dailyFirst は、その行に印のある社（リパーク）だけ。hours（満空が取れる）だけでは付けない
+ *  （タイムズも hours だが、1日3回・1周約8日の社に付けると、優先物件の回数が減り、時間帯をならす仕組みも効かなくなる。2026-10-19 の点検） */
+export function pickOptsOf(site, { at = null, priority = [], priorityMinAgeMs = 3 * 3600e3 } = {}) {
+  return { spreadHours: !!site.hours, at, priority, priorityMinAgeMs,
+    spreadPriority: !!site.spreadPriority, dailyFirst: !!(site.hours && site.dailyFirst) };
+}
+
 /** 未取得 → 取得が古い順に N 件選ぶ。
- *  spreadHours を渡すと「その時刻をまだ見ていない物件」を先に回す（満空を時間帯ごと均等に採るため）。 */
-export function pickRolling(allIds, state, n, { spreadHours = false, at = null, priority = [], priorityMinAgeMs = 3 * 3600e3 } = {}) {
+ *  spreadHours を渡すと「その時刻をまだ見ていない物件」を先に回す（満空を時間帯ごと均等に採るため）。
+ *  spreadPriority を渡すと、優先物件を毎回少しずつ取る（説明は下）。毎時回る社（リパーク）だけが使う。
+ *  dailyFirst を渡すと、spreadHours の選び方で「今日まだ見ていない物件」を先にする（pickRollingRest の説明）。リパークだけが使う */
+export function pickRolling(allIds, state, n, { spreadHours = false, at = null, priority = [], priorityMinAgeMs = 3 * 3600e3,
+  spreadPriority = false, dailyFirst = false } = {}) {
   // 状態の文字列は1回だけ読む（比較関数の中で毎回分解すると数十万回になる）
   const parsed = new Map(allIds.map((id) => [id, parseState(state[id])]));
   const st = (id) => parsed.get(id);
@@ -299,21 +381,73 @@ export function pickRolling(allIds, state, n, { spreadHours = false, at = null, 
   const liveSet = new Set(live);
   const head = priority.filter((id) => liveSet.has(id) && nowMs - st(id).t >= priorityMinAgeMs)
     .sort((a, b) => st(a).t - st(b).t);
-  const headSet = new Set(head);
-  const rest = pickRollingRest(live.filter((id) => !headSet.has(id)), st, n, { spreadHours, nowMs });
+  let restN = n;
+  if (spreadPriority && head.length) {
+    // 優先物件を毎回少しずつ取る（2026-10-19）。
+    // 以前は3時間たった優先物件を全部まとめて先頭に置いていた。リパークの優先は約770件で、1回の予算（50分・4秒おきで約750件）を
+    // 優先だけで使い切るため、その回は全国の巡回が0件になり、優先を取る回は4時間おきの同じ時刻（日本時間 0・4・8・12・16・20時など）に
+    // そろっていた。本物の状態で試すと、ふつうの物件はその6つの時刻の満空がほとんど取れない（ほかの時刻の0〜5割）。
+    // そこで1回に取る優先物件を「優先の数 ÷ 間隔の時間」（3時間おきなら3分の1）までにする。優先の数が少なく1回で取り終わるときは
+    // これまでどおり3時間おき、多いときもこれまでと同じ約4時間おき（取る順番は古い順のまま）。
+    // 全国の巡回からは、この回に取る優先の数の半分を引く。以前は優先を取る回に全国の巡回が予算で削られていたので、
+    // 引かないと1日に取る回数が約1割増える（本物の状態で試すと、引けば直す前とほぼ同じ。±2%）
+    head.splice(Math.ceil(priority.length / Math.max(1, Math.round(priorityMinAgeMs / 3600e3))));
+    restN = Math.max(0, n - Math.floor(head.length / 2));
+  }
+  // spreadPriority のときは、優先物件は先頭の枠だけで取る（枠からあふれた優先物件を全国の巡回の側で拾うと、少しずつ取る意味が無くなる）
+  const skip = spreadPriority ? new Set(priority) : new Set(head);
+  const rest = pickRollingRest(live.filter((id) => !skip.has(id)), st, restN, { spreadHours, nowMs, dailyFirst });
   return head.concat(rest);
 }
-function pickRollingRest(live, st, n, { spreadHours, nowMs }) {
+/** 日本時間のその日の0時（ms）。「今日もう見たか」を決めるのに使う */
+const jstDayStart = (ms) => Math.floor((ms + 9 * 3600e3) / 864e5) * 864e5 - 9 * 3600e3;
+/** これより長く見ていない物件は、時間帯を問わず先に取る（spreadHours のとき。長く待たせないための歯止め） */
+export const STARVE_MS = 48 * 3600e3;
+
+function pickRollingRest(live, st, n, { spreadHours, nowMs, dailyFirst = false }) {
+  const byAge = (a, b) => st(a).t - st(b).t;
   if (!spreadHours) {
-    return [...live].sort((a, b) => st(a).t - st(b).t).slice(0, n);
+    // 古い順。今日もう見た物件は今日まだ見ていない物件より必ず新しいので、そのままで「まだ見ていない物件が先」になる
+    return [...live].sort(byAge).slice(0, n);
   }
   const bit = 1 << jstHour(nowMs);
-  const need = [], done = [];
-  // 24時間ぜんぶ見終わった物件を「どの時刻も済み」にすると、次の一巡に入れず後回しにされ続ける
-  for (const id of live) ((effectiveMask(st(id).mask) & bit) ? done : need).push(id);
-  const byAge = (a, b) => st(a).t - st(b).t;
-  need.sort(byAge);
-  if (need.length >= n) return need.slice(0, n);
-  // 穴が尽きたら（＝全物件がこの時刻を見終わったら）いつもどおり古い順で埋める
-  return need.concat(done.sort(byAge).slice(0, n - need.length));
+  if (!dailyFirst) {
+    // 1周に何日もかかる社（タイムズ）: 「この時刻をまだ見ていない物件」を先にする（直す前のまま）。
+    // 取る番が来た物件はほぼ毎回48時間より前に見たものなので、「今日まだ見ていない」や48時間の歯止めで分けても意味が無く、
+    // 時間帯をならす仕組みだけが効かなくなる（タイムズの本物の状態から40日回した試しで、まだ見ていない時刻の観測が 100%→93.9%）
+    const need = [], done = [];
+    // 24時間ぜんぶ見終わった物件を「どの時刻も済み」にすると、次の一巡に入れず後回しにされ続ける
+    for (const id of live) ((effectiveMask(st(id).mask) & bit) ? done : need).push(id);
+    need.sort(byAge);
+    if (need.length >= n) return need.slice(0, n);
+    // 穴が尽きたら（＝全物件がこの時刻を見終わったら）いつもどおり古い順で埋める
+    return need.concat(done.sort(byAge).slice(0, n - need.length));
+  }
+  // dailyFirst（1日に全体の大半を回れる社＝リパーク）は、次の順に選ぶ（それぞれの中は古い順）:
+  //   0. STARVE_MS（48時間）より長く見ていない
+  //   1. 今日（日本時間）まだ見ていない・この時刻をまだ見ていない
+  //   2. 今日まだ見ていない・この時刻はもう見た
+  //   3. 今日もう見た・この時刻をまだ見ていない
+  //   4. 今日もう見た・この時刻はもう見た
+  // 以前は「この時刻をまだ見ていない」だけで先に選んでいた。時間帯の印（24時間ぶん）は物件ごとに一巡するので、
+  // 多くの物件が22〜23時間ぶん見終わると、その物件はほとんどの時刻で「済み」になり、印の少ない一部の物件だけが
+  // その日のうちに何度も選ばれていた。リパークの1日の物件数は 10/01 の12,445件から 10/16 の5,651件まで減り
+  // （観測の回数は1日約1万4千回で変わらない）、手元で回すと数週間ごとに約4,600〜13,000件を行き来する作りだった。
+  // 印がそろうまで選ばれない物件は、最長で11日（270時間）見られていなかった（2026-10-18 の本物の状態から21日回した試し）。
+  // 今日まだ見ていない物件を先にすれば、取る回数は同じまま1日に見る物件が増える。時間帯をならすのは、今日まだ見ていない物件の中で行う。
+  // 0 の歯止めが無いと、印のそろいかけた物件が「今日まだ見ていない・この時刻はもう見た」に残り続け、最長で約3〜5日待つことがある
+  const dayStart = jstDayStart(nowMs);
+  const tiers = [[], [], [], [], []];
+  // 24時間ぜんぶ見終わった物件を「どの時刻も済み」にすると、次の一巡に入れず後回しにされ続ける（effectiveMask）
+  for (const id of live) {
+    const x = st(id);
+    if (nowMs - x.t >= STARVE_MS) { tiers[0].push(id); continue; }
+    tiers[1 + (x.t >= dayStart ? 2 : 0) + ((effectiveMask(x.mask) & bit) ? 1 : 0)].push(id);
+  }
+  const out = [];
+  for (const tier of tiers) {
+    if (out.length >= n) break;
+    out.push(...tier.sort(byAge).slice(0, n - out.length));
+  }
+  return out;
 }
