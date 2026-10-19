@@ -3,7 +3,7 @@
 // 駅ページ巡回は7日キャッシュ前提（初回のみ約222リクエスト）。
 import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
-import { politeFetch } from "./polite-fetch.js";
+import { politeFetch, failText } from "./polite-fetch.js";
 
 const TOP = "https://www.parking-kyushu.jp/";
 
@@ -12,7 +12,7 @@ export async function getAllJqparksIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) 
     if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const top = await politeFetch(TOP);
-  if (!top.ok) throw new Error(`JQパークス トップ取得失敗: HTTP ${top.status}`);
+  if (!top.ok) throw new Error(`JQパークス トップ取得失敗: ${failText(top)}`);
   const stations = [...new Set([...top.html.matchAll(/href="(\/station\/[^"]+)"/g)].map((m) => m[1]))];
   if (!stations.length) throw new Error("駅リンクが0件（ページ構造変更の可能性）");
   const ids = new Set();

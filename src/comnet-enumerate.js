@@ -3,7 +3,7 @@
 // が全件（現状195件）埋まっている。取れなかった場合は parking-sitemap.xml で代替。
 import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
-import { politeFetch } from "./polite-fetch.js";
+import { politeFetch, throwIfRobotsSkipped } from "./polite-fetch.js";
 
 const MAP_URL = "https://comnet-p.co.jp/";
 const SITEMAP_URL = "https://comnet-p.co.jp/parking-sitemap.xml";
@@ -15,6 +15,7 @@ export async function getAllComnetIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) {
   const ids = new Set();
 
   const res = await politeFetch(MAP_URL);
+  throwIfRobotsSkipped(res, "コムパーク一覧");   // 「0件（ページ構造変更の可能性）」と取り違えない
   if (res.ok) {
     for (const m of res.html.matchAll(/LINK\s*:\s*'https?:\/\/comnet-p\.co\.jp\/parking\/(\d+)\/'/g)) ids.add(m[1]);
   }

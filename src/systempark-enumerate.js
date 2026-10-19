@@ -3,7 +3,7 @@
 // 残りのタブを順に巡る（現状 9 タブ）。
 import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
-import { politeFetch } from "./polite-fetch.js";
+import { politeFetch, failText } from "./polite-fetch.js";
 
 const LIST_URL = (cat) => `https://systempark.biz/jisseki/index.php?cat=${cat}`;
 
@@ -13,7 +13,7 @@ export async function getAllSystemparkIds({ cacheFile, cacheMs = 7 * 864e5 } = {
   }
   const ids = new Set();
   const first = await politeFetch(LIST_URL(1));
-  if (!first.ok) throw new Error(`システムパーク一覧取得失敗: HTTP ${first.status}`);
+  if (!first.ok) throw new Error(`システムパーク一覧取得失敗: ${failText(first)}`);
   const collect = (html) => {
     for (const m of html.matchAll(/detail\.php\?id=(\d+)/g)) ids.add(m[1]);
   };
