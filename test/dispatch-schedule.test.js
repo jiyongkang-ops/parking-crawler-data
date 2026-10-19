@@ -159,10 +159,11 @@ echo "想定していない gh の呼び出し: $*" >&2; exit 3
       else fs.rmSync(p, { force: true });
     },
     // 1回動かす。返り値: 終了コード・出力・この回で起動したワークフロー
-    run(now) {
+    // extraEnv … ロケールなどを足して動かすとき（LC_ALL など）
+    run(now, extraEnv = {}) {
       const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", script], {
         encoding: "utf8",
-        env: { PATH: `${bin}:${process.env.PATH}`, FAKE_NOW: String(now), FAKE_GH: state, GITHUB_REPOSITORY: "owner/repo", GH_TOKEN: "dummy" },
+        env: { PATH: `${bin}:${process.env.PATH}`, FAKE_NOW: String(now), FAKE_GH: state, GITHUB_REPOSITORY: "owner/repo", GH_TOKEN: "dummy", ...extraEnv },
       });
       const log = fs.existsSync(path.join(state, "calls.log")) ? fs.readFileSync(path.join(state, "calls.log"), "utf8").trim().split("\n") : [];
       const mine = log.slice(calls);
@@ -236,6 +237,23 @@ test("同じ時に2回起動されても（手での実行・Cloud Scheduler の
   assert.equal(again.code, 0);
   assert.deepEqual(again.dispatched, []);
   assert.match(again.out, /crawl-others\.yml（JST 10時の回）: この時の回はもう起動されています/);
+});
+
+// 2026-10-19 点検: 変数のすぐ後ろに全角の文字を続ける書き方（"$WF（$WHEN）"）は、UTF-8 のロケールの bash 3.2（macOS）で
+// 全角の文字の先頭のバイトまで変数の名前とみなされ、表示が空になった。表示の変数は {} で囲む（GitHub の ubuntu では起きない）
+test("UTF-8 のロケールでも、知らせの文にワークフローの名前と回が出る", () => {
+  const UTF8 = ["C.UTF-8", "en_US.UTF-8", "ja_JP.UTF-8"].find((l) =>
+    spawnSync("bash", ["-c", "printf x"], { env: { LC_ALL: l }, encoding: "utf8" }).stderr === "");
+  const env = makeEnv();
+  env.run(epochJst(2026, 10, 20, 9), { LC_ALL: UTF8 ?? "C" });
+  const r11 = env.run(epochJst(2026, 10, 20, 11), { LC_ALL: UTF8 ?? "C" });
+  assert.match(r11.out, /::warning::crawl-others\.yml（JST 10時の回）が起動されていなかったので、いま起動します（1時間遅れ）/);
+  assert.match(r11.out, /起動しました: crawl-navipark\.yml（JST 11時の回）/);
+  const again = env.run(epochJst(2026, 10, 20, 11, 40), { LC_ALL: UTF8 ?? "C" });
+  assert.match(again.out, /crawl-navipark\.yml（JST 11時の回）: この時の回はもう起動されています/);
+  // crawl.yml の表示の文で、全角の文字の前の変数はすべて {} で囲む
+  const bad = dispatchScript().split("\n").filter((l) => /\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]/.test(l));
+  assert.deepEqual(bad, [], "全角の文字の前の変数に {} が無い行");
 });
 
 test("Cloud Scheduler が1時間抜けても、次の時に取り戻す（1回だけ・警告つき）。3時間抜けた回は取り戻さない", () => {

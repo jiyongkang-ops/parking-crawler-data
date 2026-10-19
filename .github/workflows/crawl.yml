@@ -228,22 +228,22 @@ jobs:
               fi
               if [ "$N" = unknown ]; then
                 if [ "$K" -gt 0 ]; then
-                  echo "::warning::$WF（$WHEN）: 起動済みかを確かめられないので、取り戻しの起動はしません（二重に起動しないため）"
+                  echo "::warning::${WF}（${WHEN}）: 起動済みかを確かめられないので、取り戻しの起動はしません（二重に起動しないため）"
                   continue
                 fi
-                echo "$WF（$WHEN）: 起動済みかを確かめられませんでしたが、この時の回なので起動します"
+                echo "${WF}（${WHEN}）: 起動済みかを確かめられませんでしたが、この時の回なので起動します"
               elif [ "$N" -gt 0 ]; then
-                if [ "$K" -eq 0 ]; then echo "$WF（$WHEN）: この時の回はもう起動されています。起動しません"; fi
+                if [ "$K" -eq 0 ]; then echo "${WF}（${WHEN}）: この時の回はもう起動されています。起動しません"; fi
                 continue
               elif [ "$K" -gt 0 ]; then
-                echo "::warning::$WF（$WHEN）が起動されていなかったので、いま起動します（${K}時間遅れ）"
+                echo "::warning::${WF}（${WHEN}）が起動されていなかったので、いま起動します（${K}時間遅れ）"
               fi
               if gh workflow run "$WF" --ref main -R "$GITHUB_REPOSITORY"; then
-                echo "起動しました: $WF（$WHEN）"
+                echo "起動しました: ${WF}（${WHEN}）"
               elif [ "$K" -lt "$LOOKBACK" ]; then
-                echo "::warning::$WF（$WHEN）を起動できませんでした。次の時の回でもう一度試します"
+                echo "::warning::${WF}（${WHEN}）を起動できませんでした。次の時の回でもう一度試します"
               else
-                echo "::warning::$WF（$WHEN）を起動できませんでした。取り戻せる時間（${LOOKBACK}時間）を過ぎたので、この回は動きません"
+                echo "::warning::${WF}（${WHEN}）を起動できませんでした。取り戻せる時間（${LOOKBACK}時間）を過ぎたので、この回は動きません"
               fi
             done
           done
