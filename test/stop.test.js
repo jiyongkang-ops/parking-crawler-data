@@ -178,3 +178,63 @@ test("巡回状態: flushCrawlStates は読み込んだ状態をすべて書き�
   assert.ok(flushCrawlStates() >= 1);
   assert.deepEqual(readJson(f), { a: "2026-10-01T00:00:00.000Z|0", b: "2026-10-18T00:00:00.000Z|1" });
 });
+
+// カーシェアーズ（src/carshares.js）も同じく、止められたら状態を書いてすぐ終わる（2026-10-19 の最終点検）。
+// ワークフローは exec node src/carshares.js。取りに行っている途中のページは列に戻す（済みにも数えず、落としもしない）
+const CS_STUB = `
+import fs from "node:fs";
+let n = 0;
+globalThis.fetch = async (url) => {
+  const u = new URL(String(url));
+  fs.appendFileSync(process.env.FAKE_LOG, u.href + "\\n");
+  if (u.pathname === "/robots.txt") return new Response("User-agent: *\\nDisallow: /pdf/\\n", { status: 200 });
+  const i = (u.pathname.match(/s(\\d+)\\/$/) || [])[1] ?? "0";
+  const page = \`<h1 class="mainTitle01">S\${i}</h1><a href="/reserve/?station_id=\${i}">予約</a>このステーションのクルマ（1台）
+<meta itemprop="latitude" content="35"><meta itemprop="longitude" content="139">料金プランの詳細\`;
+  if (++n === Number(process.env.STOP_AFTER)) fs.writeFileSync(process.env.STOP_PID_FILE, String(process.pid));
+  return new Response(page, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+};
+`;
+
+test("止められた（SIGINT）: カーシェアーズも状態を書いてすぐ終わり、取りに行っている途中のページは列に戻す", async () => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+  const paths = Array.from({ length: 100 }, (_, i) => `/station/tokyo/a/s${i + 1}/`);
+  const stateFile = path.join(dir, "data/carshares-crawl-state.json");
+  fs.writeFileSync(stateFile, JSON.stringify({ cycleStart: new Date().toISOString(), cycleEnd: null, queue: paths, done: ["/station/"], seen: [] }));
+  const stub = path.join(dir, "cs-stub.mjs");
+  fs.writeFileSync(stub, CS_STUB);
+  const child = spawn(process.execPath, ["--import", pathToFileURL(stub).href, path.join(ROOT, "src/carshares.js")], {
+    cwd: dir, stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, FAKE_LOG: path.join(dir, "fetch.log"), STOP_PID_FILE: path.join(dir, "stop.pid"), STOP_AFTER: "20", CARSHARE_DELAY_MS: "40" },
+  });
+  let out = "";
+  child.stdout.on("data", (d) => { out += d; });
+  child.stderr.on("data", (d) => { out += d; });
+  const done = new Promise((r) => child.on("exit", (code) => r({ code, out })));
+  // 20ページ取ったところで（50ページごとの保存より前）、node にだけ SIGINT を送る
+  for (let i = 0; i < 1000 && !fs.existsSync(path.join(dir, "stop.pid")); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.ok(fs.existsSync(path.join(dir, "stop.pid")), "20ページ取る前に終わった");
+  const sentAt = Date.now();
+  child.kill("SIGINT");
+  const r = await done;
+  assert.ok(Date.now() - sentAt < 5000, "SIGINT のあとすぐ終わらなかった");
+  assert.equal(r.code, 130, r.out);
+  assert.match(r.out, /SIGINT を受けました/);
+
+  const st = readJson(stateFile);                                         // 壊れていない JSON
+  const rows = lines(path.join(dir, "data/carshare-mitsui.jsonl")).map((l) => JSON.parse(l));
+  const doneStations = st.done.filter((p) => p !== "/station/");
+  assert.ok(doneStations.length >= 20 && doneStations.length < 50, `済み ${doneStations.length}`);
+  assert.equal(rows.length, doneStations.length);                         // 書いたステーションはみな済みに入っている
+  assert.equal(st.seen.length, doneStations.length);
+  // 済みと列で全ページがそろう（途中のページを落とさず、二重にもしない）
+  assert.deepEqual([...doneStations, ...st.queue].sort(), [...paths].sort());
+  assert.equal(st.queue.filter((p) => doneStations.includes(p)).length, 0);
+  assert.equal(st.cycleEnd, null);
+  assert.deepEqual(fs.readdirSync(path.join(dir, "data")).filter((f) => f.endsWith(".tmp")), []);
+  // SIGINT のあとは取りに行かない
+  const nFetch = lines(path.join(dir, "fetch.log")).length;
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(lines(path.join(dir, "fetch.log")).length, nFetch);
+});

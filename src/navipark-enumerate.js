@@ -19,7 +19,8 @@
 //  ・飛ばした所が MAX_SKIPPED を超える、403・429・取り直しても取れない 5xx・タイムアウト、robots.txt で見送り、
 //    取り直しや時間の上限を超えた、前の一覧の9割に満たない（取れなかった所の前の番号を残したあと）、
 //    今回読めた番号が前の一覧の半分に満たない、のどれかなら、作り直しの失敗とする。
-//    欠けた一覧で上書きせず、前の一覧を使い続ける（取得日 .fetched は進めない。次に試すのは20時間あと）。
+//    欠けた一覧で上書きせず、前の一覧を使い続ける（取得日 .fetched は進めない。次に試すのは20時間あと。
+//    失敗が続けば 2日→4日→7日 と延ばす。RETRY_AFTER_FAIL_MS）。
 //    以前は都道府県ページや市区ページが取れなくても黙って飛ばし、欠けた一覧を「作り直した」と記録していた。
 //    robots.txt に届かない・断られているときは、47都道府県を全部飛ばして0件の一覧を書き、7日間1件も回らないところだった
 //    （2026-10-18 の点検の試しで分かった。本番では起きていない）。
@@ -28,7 +29,7 @@
 // 収集した code 一覧をローカルキャッシュ。巡回状態は repark-enumerate の汎用関数を共用。
 
 import fs from "node:fs";
-import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
+import { cacheFresh, markFetched, cacheAgeMs, readFailStamp, writeFailStamp, clearFailStamp } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch, sleep, failText, fetchErrorText } from "./polite-fetch.js";
 import { writeFileAtomic } from "./write-atomic.js";
@@ -57,14 +58,19 @@ const MAX_MINUTES = 90;
 const MAX_SKIPPED = 10;
 /** 市区で読めた件数が「該当駐車場件数」のこの割合より少なければ、その市区は取れなかったとみなす（2ページ目以降が保守の画面など） */
 const SHORT_RATIO = 0.5;
-/** 作り直しに失敗したあと、次に作り直しを試すまでの間（1日3回の回のうち、おおむね1日1回にする）。
- *  一覧づくりは1回で約500リクエストあるので、失敗が続くときに毎回やり直すと相手先の負荷が増える */
-const RETRY_AFTER_FAIL_MS = 20 * 3600e3;
+/** 作り直しに失敗したあと、次に作り直しを試すまでの間。続けて失敗した回数（<一覧>.failed に残す）ごとに
+ *  1回目 20時間（1日3回の回のうち、おおむね1日1回）→ 2回目 2日 → 3回目 4日 → 4回目から 7日（上限）。作り直せたら元に戻る。
+ *  一覧づくりは1回で約500リクエストあるので、失敗が続くときに毎回やり直すと相手先の負荷が増える。
+ *  20時間のままだと、断られている・保守が長いときも毎日約500回を送り続けていた（2026-10-19 の最終点検） */
+const RETRY_AFTER_FAIL_MS = [20 * 3600e3, 2 * 864e5, 4 * 864e5, 7 * 864e5];
+/** 続けて count 回失敗したあとの待ち */
+export const retryAfterFailMs = (count) =>
+  RETRY_AFTER_FAIL_MS[Math.min(Math.max(1, Math.floor(count) || 1), RETRY_AFTER_FAIL_MS.length) - 1];
+const hoursText = (ms) => (ms < 864e5 * 2 ? `${ms / 3600e3}時間` : `${ms / 864e5}日`);
 /** health の reason に並べる、取れなかった所の数 */
 const NOTE_MAX = 5;
 
 const readList = (abs) => fs.readFileSync(abs, "utf8").split("\n").filter(Boolean);
-const failStampOf = (abs) => `${abs}.failed`;
 /** 市区ごとの番号の控え（取れなかった市区の番号を残すため）。{ at, missing: [{ key, why }], cities: { "13-112": [番号…] } } */
 const citiesFileOf = (abs) => `${abs}.cities.json`;
 
@@ -264,7 +270,7 @@ const missingNote = (missing) =>
 
 // 物件コード一覧を返す（キャッシュ優先）。
 // 作り直しに失敗したら（上の「取れなかったときの扱い」）、前の一覧があればそれを使い続ける。
-// .fetched は進めないが、次に試すのは RETRY_AFTER_FAIL_MS あと（失敗の時刻を <一覧>.failed に残す）。
+// .fetched は進めないが、次に試すのは RETRY_AFTER_FAIL_MS あと（失敗の時刻と続けて失敗した回数を <一覧>.failed に残す）。
 // 前の一覧が無いときだけ例外にする。長く作り直せていないときは返す配列に staleReason を付ける（health は ok:false）。
 // 一部の市区を飛ばしたとき・作り直せず前の一覧を使っているときは listNote を付ける（health の reason に出す。ok は true のまま）。
 // fetcher・maxCityPages・retryWaitMs・maxRetries・maxMinutes・maxSkipped はテスト用（既定は polite-fetch と上の定数）。
@@ -291,15 +297,15 @@ export async function getAllNaviparkCodes({
   };
 
   // 前回の作り直しが失敗して間もないなら、この回は試さない（失敗が続くときに毎回約500リクエストを重ねない）
-  if (old?.length) {
-    try {
-      const [at, ...why] = fs.readFileSync(failStampOf(abs), "utf8").trim().split(" ");
-      const since = Date.now() - Date.parse(at);
-      if (since < RETRY_AFTER_FAIL_MS) {
-        console.log(`[ナビパーク] 前回の作り直しが ${(since / 3600e3).toFixed(1)}時間前に失敗したので、この回は試さない（${RETRY_AFTER_FAIL_MS / 3600e3}時間あける）`);
-        return useOld(`前回の失敗: ${why.join(" ")}`);
-      }
-    } catch { /* 失敗の記録が無い */ }
+  const failed = old?.length ? readFailStamp(abs) : null;
+  if (failed) {
+    const since = Date.now() - failed.at;
+    const wait = retryAfterFailMs(failed.count);
+    if (since < wait) {
+      console.log(`[ナビパーク] 前回の作り直しが ${(since / 3600e3).toFixed(1)}時間前に失敗した（続けて${failed.count}回）ので、` +
+        `この回は試さない（${hoursText(wait)}あける）`);
+      return useOld(`前回の失敗: ${failed.why}（続けて${failed.count}回。次に試すのは${hoursText(wait)}あと）`);
+    }
   }
 
   const st = { t0: Date.now(), requests: 0, retried: 0, failed: 0, pages: 0, cities: 0, declared: 0, capped: [], short: [] };
@@ -317,7 +323,7 @@ export async function getAllNaviparkCodes({
   } catch (e) {
     console.warn(`[ナビパーク] 一覧づくり: 取得${st.requests}回（取り直し${st.retried}回・失敗${st.failed}件）・市区ページ${st.pages}枚・約${Math.round((Date.now() - st.t0) / 60000)}分で止めた`);
     if (!old?.length) throw e;
-    try { fs.writeFileSync(failStampOf(abs), `${new Date().toISOString()} ${e.message}`); } catch { /* 書けなくても巡回は続ける */ }
+    writeFailStamp(abs, e.message, (failed?.count ?? 0) + 1);
     return useOld(e.message);
   }
 
@@ -342,6 +348,6 @@ export async function getAllNaviparkCodes({
   writeFileAtomic(abs, list.join("\n") + "\n");   // 書いている途中で止められても、欠けた一覧を残さない
   writeCities(abs, got.missing, cities);
   markFetched(abs);
-  fs.rmSync(failStampOf(abs), { force: true });   // 失敗の記録は、作り直せたら消す
+  clearFailStamp(abs);   // 失敗の記録は、作り直せたら消す（待ちも元に戻る）
   return list;
 }

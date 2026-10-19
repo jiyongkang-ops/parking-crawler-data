@@ -124,8 +124,8 @@ const ROLLING_SITES = [
   // エコロは閉じた物件を 404 ではなく 301 でトップ（/ や /park/）へ転送する。転送を追うとトップのページを物件として
   // 読み、料金が空の行（名前「コインパーキング・駐車場経営ならエコロパーク」）を24件書いていた。閉鎖として寝かせる（2026-10-18）
   //   goneOnRedirect: 転送を追わずに受け取り、転送先（location）を渡すと「閉鎖か」を返す関数。
-  //                   物件ページ以外（/ や /park/）への転送だけを閉鎖（GONE）とみなす。別の物件ページへの転送や
-  //                   転送先が無いときは閉鎖と決めつけず、いつもの失敗（時刻だけ進める）にする
+  //                   同じホストの / と /park/ への転送だけを閉鎖（GONE）とみなす。保守・ログイン・別のホスト・
+  //                   別の物件ページへの転送や、転送先が無いときは閉鎖と決めつけず、いつもの失敗（時刻だけ進める）にする
   //   recheckDropped : 一覧から外れた物件を一度だけ取り直し、閉鎖なら GONE にする（外れたまま古い日付で残さない）
   { op: "ecolo", label: "エコロパーク", enumerate: getAllEcoloIds, detailUrl: ecoloDetailUrl, parse: parseEcoloDetail,
     idsCache: STATE.ecoloIdsCache, stateFile: STATE.ecoloCrawlState, defaultPerRun: 2500,
@@ -568,8 +568,10 @@ async function main() {
       // （先方が答えたら数え直す。打ち切った回の kind はこの中でいちばん多いもの）
       const statusCounts = makeCounter(), failKinds = makeCounter(), streakKinds = makeCounter();
       // 一斉の閉鎖の歯止め（makeMassGone の説明）。前は生きていた物件の閉鎖（404・410・掲載終了の転送）が
-      // 30件以上、かつ答えが返った数の半分以上になったら、この回に付けた閉鎖の印を全部戻して打ち切る。MASS_GONE_MIN・MASS_GONE_RATIO で変えられる
-      const massGone = makeMassGone({ min: Number(process.env.MASS_GONE_MIN) || 30, ratio: Number(process.env.MASS_GONE_RATIO) || 0.5 });
+      // 30件以上、かつ答えが返った数の半分以上になったら、または閉鎖でない答えをはさまず続けて20件になったら（回の途中から
+      // 保守の画面などに切り替わったとき）、この回に付けた閉鎖の印を全部戻して打ち切る。MASS_GONE_MIN・MASS_GONE_RATIO・MASS_GONE_STREAK で変えられる
+      const massGone = makeMassGone({ min: Number(process.env.MASS_GONE_MIN) || 30, ratio: Number(process.env.MASS_GONE_RATIO) || 0.5,
+        streak: Number(process.env.MASS_GONE_STREAK) || 20 });
       let massRestored = 0;
       for (let pass = 0; pass < passes && !out; pass++) {
         if (pass > 0) {
@@ -608,9 +610,11 @@ async function main() {
         const watch = prevState !== undefined && !String(prevState).startsWith("GONE|") && listed.has(id) && !confirmSet.has(id);
         const tripIfMassGone = () => {
           if (!massGone.closed(id, prevState, watch)) return false;
-          const { answered, closed } = massGone.stats;
+          const { answered, closed, streak, trippedBy } = massGone.stats;
           massRestored = massGone.restore(state);
-          broke = `閉鎖とみなした物件が多すぎる（前は取れていた物件${answered}件のうち${closed}件が 404・掲載終了の転送）。` +
+          broke = (trippedBy === "streak"
+            ? `閉鎖とみなした物件が続きすぎる（前は取れていた物件が続けて${streak}件 404・掲載終了の転送。この回の答え${answered}件のうち閉鎖${closed}件）。`
+            : `閉鎖とみなした物件が多すぎる（前は取れていた物件${answered}件のうち${closed}件が 404・掲載終了の転送）。`) +
             `先方のサイトの作り替え・保守の見込みがあるので、この回に付けた閉鎖の印${massRestored}件を戻して打ち切り`;
           brokeKind = "mass-gone";
           console.warn(`  [mass-gone] ${rolling.label}: ${broke}。${done}件取れたところで止める`);
@@ -639,19 +643,20 @@ async function main() {
         }
         // 先方が答えた（不調ではない）。打ち切りの数え直しと、一斉の閉鎖の「答えた数」に入れる。
         // 混み合いのページ（HTTP 200 で中身が無い）は答えたことにしないので、読んで確かめてから呼ぶ
-        const answered = () => { breaker.ok(); streakKinds.reset(); if (watch) massGone.answered(); };
+        // isClosed … 閉鎖の答え（404・410・掲載終了の転送）か。閉鎖でない答えなら、一斉の閉鎖の連続の数を0に戻す
+        const answered = (isClosed = false) => { breaker.ok(); streakKinds.reset(); if (watch) massGone.answered(isClosed); };
         // 閉じた物件をトップへ転送する社（エコロ・名鉄協商）。404 と同じく寝かせる
         if (rolling.goneOnRedirect && res.status >= 300 && res.status < 400 && rolling.goneOnRedirect(res.location)) {
-          answered(); failKinds.add("parse");
+          answered(true); failKinds.add("parse");
           console.log(`  [gone] ${id} → ${res.location}（転送＝掲載終了）`); mark({ status: 404 }); nGone++;
           if (confirmSet.has(id)) confirmGone++;
           if (tripIfMassGone()) { out = true; break; }
           continue;
         }
         if (!res.ok || res.skippedReason) {
-          answered(); failKinds.add(kindOfFetch(res));
-          console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`);
           const closed = res.status === 404 || res.status === 410;
+          answered(closed); failKinds.add(kindOfFetch(res));
+          console.error(`  [error] ${id} ${res.skippedReason ?? "HTTP " + res.status}`);
           if (confirmSet.has(id) && closed) confirmGone++;
           mark(res);
           if (closed && tripIfMassGone()) { out = true; break; }

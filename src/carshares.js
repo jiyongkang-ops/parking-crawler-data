@@ -18,9 +18,16 @@
 // 2026-10-18 の直しの途中（robots.txt に届かないとき本ページを送らなくした直し）では、残りの一覧を1回も取りに行かないまま
 // 全部「済み」にし、列が空になったので「1巡終わり」として、見なかった全ステーションに gone を書いていた
 // （点検の試しで2,135行。本番では起きていない）。
+//
+// 止められたとき（巡回の手順の時間切れ・ジョブの取り消し）は、SIGINT・SIGTERM を受けて、そこまでの状態を書いてすぐ終わる
+// （run.js と同じ考え方。ワークフローは exec node src/carshares.js で node 自身を手順のいちばん上にしている）。
+// 取りに行っている途中のページは列の先頭に戻す（済みにしない）。状態は一時ファイルに書いてから置き換える（write-atomic.js）。
+// 以前は止められると最後の50ページごとの保存より後の進み（済み・見たステーション）を失い、書き途中なら壊れた JSON が残るおそれがあった
+// （2026-10-19 の最終点検）。ステーションの行は取るたびに追記済みなので、止めても失わない。
 import fs from "node:fs";
 import { politeFetch, fetchErrorText } from "./polite-fetch.js";
 import { isTransient } from "./repark-enumerate.js";
+import { writeFileAtomic } from "./write-atomic.js";
 
 const BASE = "https://www.carshares.jp";
 const STATE = process.env.CARSHARE_STATE || "data/carshares-crawl-state.json";
@@ -35,6 +42,8 @@ const NOT_PREF = new Set(["area", "car", "drive", "new", "shinkansen"]);
 
 const txt = (s) => String(s ?? "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 const load = (f, d) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return d; } };
+/** 止められたときに状態を書く処理（main が巡回を始めたら入れる。それまでは書くものが無い） */
+let onStop = null;
 
 /** ステーションのページなら中身、違えば null */
 export function parseStation(html, path) {
@@ -88,13 +97,22 @@ async function main() {
   let pages = 0, stations = 0, written = 0, streak = 0, aborted = null;
   const save = () => {
     st.done = [...done]; st.seen = [...seen]; st.retried = [...retried]; st.failed = [...failed];
-    fs.writeFileSync(STATE, JSON.stringify(st));
+    writeFileAtomic(STATE, JSON.stringify(st));   // 書いている途中で止められても、壊れた JSON を残さない
+  };
+  // 取りに行っている途中のページ（列から出したが、まだ答えを受けていない）。止められたら列の先頭に戻す
+  let current = null;
+  onStop = () => {
+    if (current) { st.queue.unshift(current); current = null; }
+    save();
+    console.log(`[carshares] 取得 ${pages}ページ・ステーション ${stations}・書いた ${written}・残りの一覧 ${st.queue.length}（止められたので、ここまでの状態を書いた）`);
   };
   while (st.queue.length && Date.now() - t0 < BUDGET_MS) {
     const path = st.queue.shift();
     if (done.has(path)) continue;
     let r, err = null;
+    current = path;
     try { r = await politeFetch(BASE + encodeURI(path), { minDelay: DELAY }); } catch (e) { r = null; err = fetchErrorText(e); }
+    current = null;   // ここから次の取得までは await が無いので、止められても状態の途中にはならない
     // robots.txt で断られた（401・403）・届かない（通信の失敗・5xx）。本ページは送っていないし、残りのページも同じ答えになる。
     // このページは列の先頭に戻し（済みにしない・取得にも数えない）、この回は打ち切る。次の回に robots.txt から取り直す
     if (r?.blocked || r?.transient) {
@@ -150,9 +168,24 @@ async function main() {
       `${failed.size ? `（取れなかった${failed.size}ページの下の${kept}件は、無くなったとしない）` : ""}`);
     retried.clear(); failed.clear();
   }
+  onStop = null;
   save();
   console.log(`[carshares] 取得 ${pages}ページ・ステーション ${stations}・書いた ${written}・残りの一覧 ${st.queue.length}` +
     `${aborted ? `・打ち切り: ${aborted}` : ""}`);
   if (aborted) process.exitCode = 1;
 }
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (import.meta.url === `file://${process.argv[1]}`) {
+  // 止められたとき（run.js の最後と同じ考え方）。ランナーは手順のいちばん上のプロセスにだけ SIGINT を送り、
+  // 7.5秒後に SIGTERM、さらに2.5秒後に kill する。状態を書いてすぐ終わる（取得の途中でも待たない）。2回目の合図ではそのまま終わる
+  let stopping = false;
+  for (const [sig, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+    process.on(sig, () => {
+      if (stopping) process.exit(code);
+      stopping = true;
+      console.error(`[stop] ${sig} を受けました。ここまでの状態を書いて終わります`);
+      try { onStop?.(); } catch (e) { console.error(`[stop] 状態を書けませんでした: ${e?.message ?? e}`); }
+      process.exit(code);
+    });
+  }
+  main();
+}

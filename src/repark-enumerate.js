@@ -256,30 +256,37 @@ export function makeBreaker(limit = 8) {
 /** 一斉の閉鎖の歯止め（2026-10-18 の点検）。先方がサイトの作り替えや保守で、全ページを同じ所（/misc/404.php や /）へ
  *  転送したり 404 を返したりすると、その回に取った物件が全部 GONE（30〜60日寝かせ、studio-index.mjs の相場からも外れる）になる。
  *  一覧はほとんど変わらないので unparkGone でも起こされない。
- *  answered() … 「前は生きていた物件」（run.js の watch。一覧に載っていて、取った記録があり、寝かせていないもの）で先方が答えた1件。
+ *  answered(isClosed) … 「前は生きていた物件」（run.js の watch。一覧に載っていて、取った記録があり、寝かせていないもの）で先方が答えた1件。
+ *    閉鎖でない答え（isClosed が false）なら、閉鎖の連続の数を0に戻す。
  *  closed(id, prev, watch) … 閉鎖とみなして印を付けた1件（prev は印を付ける前の状態の値）。数えるのは watch の分だけ。
  *    一覧から外れた物件・一覧から消えた物件の確かめ・寝かせた物件の起き抜け・初めての物件は、閉鎖が多くて当たり前なので数えない
  *    （数えると、正しい閉鎖が続いただけで止まり、戻した物件が次の回も先頭に来て巡回が進まなくなる）。
  *    watch の閉鎖が min 件以上、かつ answered の ratio 以上になったら true を返す。
+ *    また watch の閉鎖が（閉鎖でない答えをはさまず）続けて streak 件になったときも true を返す。
+ *    回の途中から先方が保守の画面などに切り替わると、それまでに取れた件数で割合が薄まり、割合の条件だけでは止まらない
+ *    （300件取れたあとに全部が転送になると、閉鎖が300件に達するまで印を付け続ける。2026-10-19 の最終点検）。
+ *    どちらで止めたかは stats.trippedBy（"ratio" か "streak"）。
  *  restore(state) … この回に付けた閉鎖の印を、数えなかった分も含めて全部前の値に戻し、戻した件数を返す
  *    （確かめられていない閉鎖で相場から外さない。正しい閉鎖は次の回以降にまた確かめる）。
  *  名鉄協商の最初の数回は正しい閉鎖が約22%（今の状態ファイルで試すと、30件を超えてからの割合は最大26%）なので止まらない */
-export function makeMassGone({ min = 30, ratio = 0.5 } = {}) {
-  let answered = 0, counted = 0;
+export function makeMassGone({ min = 30, ratio = 0.5, streak = 20 } = {}) {
+  let answered = 0, counted = 0, run = 0, trippedBy = null;
   const marked = new Map();
   return {
-    answered: () => { answered++; },
+    answered: (isClosed = false) => { answered++; if (!isClosed) run = 0; },
     closed(id, prev, watch = true) {
       if (!marked.has(id)) marked.set(id, prev);
       if (!watch) return false;
-      counted++;
-      return counted >= min && counted >= answered * ratio;
+      counted++; run++;
+      if (counted >= min && counted >= answered * ratio) trippedBy = "ratio";
+      else if (run >= streak) trippedBy = "streak";
+      return !!trippedBy;
     },
     restore(state) {
       for (const [id, prev] of marked) { if (prev === undefined) delete state[id]; else state[id] = prev; }
       const n = marked.size; marked.clear(); return n;
     },
-    get stats() { return { answered, closed: counted, marked: marked.size }; },
+    get stats() { return { answered, closed: counted, marked: marked.size, streak: run, trippedBy }; },
   };
 }
 

@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // 読み込む前に外す。だからこのファイルでは src を import 文ではなく、ここで読み込む
 process.env.LIST_REFRESH_MAX = "99";
 const {
-  getAllNaviparkCodes, parseCityLinks, parseCodes, nextPageNo, declaredCount, cityPageUrl, prefUrl, isEmptyAreaPage,
+  getAllNaviparkCodes, parseCityLinks, parseCodes, nextPageNo, declaredCount, cityPageUrl, prefUrl, isEmptyAreaPage, retryAfterFailMs,
 } = await import("../src/navipark-enumerate.js");
 
 const ORIGIN = "https://www.navipark1.com";
@@ -394,6 +394,49 @@ test("守り: 作り直しに失敗したら、次に試すのは20時間あと�
   assert.deepEqual(await getAllNaviparkCodes(opts(f, later.fetcher)), ALL);
   assert.ok(later.calls.length > 0);
   assert.ok(!fs.existsSync(`${f}.failed`));
+});
+
+test("守り: 作り直しの失敗が続いたら、次に試すまでを 20時間→2日→4日→7日（上限）と延ばす。作り直せたら元に戻す", async () => {
+  const H = 3600e3, D = 864e5;
+  assert.deepEqual([1, 2, 3, 4, 5, 30].map(retryAfterFailMs), [20 * H, 2 * D, 4 * D, 7 * D, 7 * D, 7 * D]);
+  assert.equal(retryAfterFailMs(0), 20 * H);   // 回数が読めないときは1回目とみなす
+  const f = tmpList(ALL, eightDaysAgo);
+  const down = () => fakeSite(SITE, { fail: () => ({ ok: false, status: 403, html: "" }) });
+  const stamp = (agoMs, n) => fs.writeFileSync(`${f}.failed`, `${new Date(Date.now() - agoMs).toISOString()} 連続${n}回 HTTP 403`);
+  const count = () => Number(fs.readFileSync(`${f}.failed`, "utf8").match(/ 連続(\d+)回 /)?.[1]);
+  /** 1回呼んで、送った回数を返す */
+  const tryOnce = async (site) => { await getAllNaviparkCodes(opts(f, site.fetcher)); return site.calls.length; };
+
+  assert.equal(await tryOnce(down()), 1);       // 1回目の失敗（403 は取り直さない）
+  assert.equal(count(), 1);
+  // 1回目のあとは20時間あける
+  stamp(19 * H, 1); assert.equal(await tryOnce(down()), 0);
+  stamp(21 * H, 1); assert.equal(await tryOnce(down()), 1);
+  assert.equal(count(), 2);
+  // 2回続けて失敗したら2日
+  stamp(21 * H, 2); assert.equal(await tryOnce(down()), 0);
+  const skipped = await getAllNaviparkCodes(opts(f, down().fetcher));
+  assert.match(skipped.listNote, /前回の失敗: HTTP 403（続けて2回。次に試すのは2日あと）/);
+  stamp(47 * H, 2); assert.equal(await tryOnce(down()), 0);
+  stamp(49 * H, 2); assert.equal(await tryOnce(down()), 1);
+  assert.equal(count(), 3);
+  // 3回で4日
+  stamp(3.9 * D, 3); assert.equal(await tryOnce(down()), 0);
+  stamp(4.1 * D, 3); assert.equal(await tryOnce(down()), 1);
+  assert.equal(count(), 4);
+  // 4回目からは7日（上限。それより延ばさない）
+  stamp(6.9 * D, 4); assert.equal(await tryOnce(down()), 0);
+  stamp(6.9 * D, 12); assert.equal(await tryOnce(down()), 0);
+  stamp(7.1 * D, 12); assert.equal(await tryOnce(down()), 1);
+  assert.equal(count(), 13);
+  // 作り直せたら記録を消す（待ちも元に戻る）
+  stamp(7.1 * D, 13);
+  assert.deepEqual(await getAllNaviparkCodes(opts(f, fakeSite(SITE).fetcher)), ALL);
+  assert.ok(!fs.existsSync(`${f}.failed`));
+  makeOld(f);
+  assert.equal(await tryOnce(down()), 1);
+  assert.equal(count(), 1);                      // また1回目から数える
+  stamp(21 * H, 1); assert.equal(await tryOnce(down()), 1);
 });
 
 test("キャッシュ: 取得日が新しければ取りに行かない（いままでどおり）。前の一覧が空なら取得日が新しくても作り直す", async () => {

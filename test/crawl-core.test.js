@@ -573,13 +573,34 @@ test("一斉の閉鎖の歯止め: 前は生きていた物件の閉鎖が min �
   for (const k of ["a", "b", "c", "d", "e"]) state[k] = "GONE|now";
   g.answered();
   assert.equal(g.closed("c", "t3"), true);                                 // 3件・答えた4件の75%
-  assert.deepEqual(g.stats, { answered: 4, closed: 3, marked: 5 });
+  assert.deepEqual(g.stats, { answered: 4, closed: 3, marked: 5, streak: 1, trippedBy: "ratio" });   // 間に閉鎖でない答えがあったので連続は1件
   assert.equal(g.restore(state), 5);                                       // 数えなかった分も戻す
   assert.deepEqual(state, { a: "t1", b: "t2", c: "t3", e: "GONE|old" });
   // 割合が足りなければ止めない
   const h = makeMassGone({ min: 3, ratio: 0.5 });
   for (let i = 0; i < 10; i++) h.answered();
   for (const id of ["a", "b", "c", "d"]) assert.equal(h.closed(id, "t"), false);   // 4件・10件中40%
+});
+
+test("一斉の閉鎖の歯止め: 前は生きていた物件の閉鎖が続けて streak 件になったら止める（取れた件数で割合が薄まっても）。閉鎖でない答えで数え直す", () => {
+  const g = makeMassGone({ min: 30, ratio: 0.5, streak: 5 });
+  const state = {};
+  for (let i = 0; i < 300; i++) g.answered(false);                         // 300件取れた
+  for (let i = 0; i < 4; i++) { state[`x${i}`] = "GONE|now"; g.answered(true); assert.equal(g.closed(`x${i}`, `t${i}`), false); }
+  g.answered(false);                                                       // 閉鎖でない答え → 0 に戻す
+  assert.equal(g.stats.streak, 0);
+  for (let i = 4; i < 8; i++) { state[`x${i}`] = "GONE|now"; g.answered(true); assert.equal(g.closed(`x${i}`, `t${i}`), false); }
+  // 数えない物件（初めての物件など）の閉鎖は、連続にも入れず、0 にも戻さない
+  state.new1 = "GONE|now"; assert.equal(g.closed("new1", undefined, false), false);
+  state.x8 = "GONE|now"; g.answered(true);
+  assert.equal(g.closed("x8", "t8"), true);                                // 続けて5件（割合は 9/309 で足りない）
+  assert.deepEqual(g.stats, { answered: 310, closed: 9, marked: 10, streak: 5, trippedBy: "streak" });
+  assert.equal(g.restore(state), 10);
+  assert.deepEqual(state, Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`x${i}`, `t${i}`])));
+  // 割合の条件で止めたときは ratio
+  const h = makeMassGone({ min: 3, ratio: 0.5, streak: 20 });
+  for (const id of ["a", "b", "c"]) { h.answered(true); h.closed(id, "t"); }
+  assert.equal(h.stats.trippedBy, "ratio");
 });
 
 const MK = (id) => `https://mkp.jp/search/detail/${id}`;
@@ -593,7 +614,8 @@ function mkpFiles(n) {
 
 test("通しの巡回: 全ページが /misc/404.php へ転送される（作り替え・保守）と、30件で止めて閉鎖の印を戻す。health は mass-gone", () => {
   const { ids, state, files } = mkpFiles(45);
-  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "45" }, files,
+  // 割合の条件（30件以上かつ半分以上）を確かめるため、続けての条件（既定20件）は外す
+  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "45", MASS_GONE_STREAK: "1000" }, files,
     routes: { "*": { status: 302, location: "../../../misc/404.php" } } });
   assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 30);   // 30件目で止める（残り15件は送らない）
   assert.deepEqual(JSON.parse(readText(r.dir, "data/mkp-crawl-state.json")), state);   // 印は全部戻す（日付も進めない）
@@ -613,9 +635,9 @@ test("通しの巡回: 止めたときは、数えなかった物件（一覧か
   const r = runCrawl({ env: { CRAWL_ONLY: "ecolo", ROLLING_PER_RUN: "50" },
     files: { "data/ecolo-ids.txt": ids.join("\n") + "\n", "data/ecolo-ids.txt.fetched": new Date().toISOString(), "data/ecolo-crawl-state.json": JSON.stringify(state) },
     routes: { "*robots": { status: 200, body: "" }, "*": { status: 301, location: "https://service.ecolocity.co.jp/" } } });
-  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 40);   // 外れた10件＋一覧の30件で止める
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 30);   // 外れた10件＋一覧の20件（続けて20件）で止める
   assert.deepEqual(JSON.parse(readText(r.dir, "data/ecolo-crawl-state.json")), state);
-  assert.deepEqual([r.health[0].kind, r.health[0].restored], ["mass-gone", 40]);
+  assert.deepEqual([r.health[0].kind, r.health[0].restored], ["mass-gone", 30]);
 });
 
 test("通しの巡回: 404 が一斉に返ったときも同じく止める（転送の無い社）", () => {
@@ -625,9 +647,43 @@ test("通しの巡回: 404 が一斉に返ったときも同じく止める（�
   const r = runCrawl({ env: { CRAWL_ONLY: "repark", ROLLING_PER_RUN: "40" },
     files: { "data/repark-sitemap.xml": xml, "data/repark-sitemap.xml.fetched": new Date().toISOString(), "data/repark-crawl-state.json": JSON.stringify(state) },
     routes: { "*": { status: 404 } } });
-  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 30);
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 20);   // 続けて20件で止める
   assert.deepEqual(JSON.parse(readText(r.dir, "data/repark-crawl-state.json")), state);
   assert.equal(r.health[0].kind, "mass-gone");
+});
+
+test("通しの巡回: 300件取れたあとに全部が転送（回の途中から保守の画面など）になっても、続けて20件で止め、閉鎖の印を残さない（エコロ）", () => {
+  const E = (id) => `https://service.ecolocity.co.jp/park/coin-parking/${id}/`;
+  const page = (id) => `<p class="p-coin-parking-detail__address">東京都墨田区押上${id}</p><h1 class="p-coin-parking-detail__title">エコロパーク ${id}</h1>
+<table><tr><th>台数</th><td>4台</td></tr><tr><th>料金</th><td>全日 最大 24時間 600円</td></tr></table>`;
+  const good = Array.from({ length: 300 }, (_, i) => String(10000 + i));     // 古い順の先頭300件は取れる
+  const later = Array.from({ length: 40 }, (_, i) => String(20000 + i));     // そのあとは全部トップへ転送
+  const ids = [...good, ...later];
+  const state = { _list: listHash(ids), ...Object.fromEntries(ids.map((id, i) => [id, new Date(Date.now() - (400 - i) * 3600e3).toISOString()])) };
+  const routes = { "*robots": { status: 200, body: "" }, "*": { status: 301, location: "https://service.ecolocity.co.jp/" },
+    ...Object.fromEntries(good.map((id) => [E(id), { status: 200, body: page(id) }])) };
+  const r = runCrawl({ env: { CRAWL_ONLY: "ecolo", ROLLING_PER_RUN: "340" },
+    files: { "data/ecolo-ids.txt": ids.join("\n") + "\n", "data/ecolo-ids.txt.fetched": new Date().toISOString(), "data/ecolo-crawl-state.json": JSON.stringify(state) },
+    routes });
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 320);   // 300件＋転送20件で止める（残り20件は送らない）
+  assert.ok(!r.calls.includes(E(later[20])));
+  const after = JSON.parse(readText(r.dir, "data/ecolo-crawl-state.json"));
+  for (const id of later) assert.equal(after[id], state[id], id);                // 閉鎖の印は残らない（日付も進めない）
+  assert.equal(Object.values(after).filter((v) => String(v).startsWith("GONE|")).length, 0);
+  for (const id of good) assert.ok(after[id] > state[id], id);                   // 取れた物件はいつもどおり進む
+  assert.deepEqual([r.health[0].ok, r.health[0].kind, r.health[0].restored], [false, "mass-gone", 20]);
+  assert.match(r.health[0].reason, /閉鎖とみなした物件が続きすぎる（前は取れていた物件が続けて20件 404・掲載終了の転送。この回の答え320件のうち閉鎖20件）。.*閉鎖の印20件を戻して打ち切り/);
+});
+
+test("通しの巡回: 保守の画面（/maintenance/）への転送は閉鎖にせず、いつもの失敗にする（エコロ）", () => {
+  const ids = Array.from({ length: 5 }, (_, i) => String(7000 + i));
+  const state = { _list: listHash(ids), ...Object.fromEntries(ids.map((id, i) => [id, new Date(Date.now() - (50 - i) * 3600e3).toISOString()])) };
+  const r = runCrawl({ env: { CRAWL_ONLY: "ecolo", ROLLING_PER_RUN: "5" },
+    files: { "data/ecolo-ids.txt": ids.join("\n") + "\n", "data/ecolo-ids.txt.fetched": new Date().toISOString(), "data/ecolo-crawl-state.json": JSON.stringify(state) },
+    routes: { "*robots": { status: 200, body: "" }, "*": { status: 302, location: "https://service.ecolocity.co.jp/maintenance/" } } });
+  const after = JSON.parse(readText(r.dir, "data/ecolo-crawl-state.json"));
+  for (const id of ids) assert.ok(!String(after[id]).startsWith("GONE|"), `${id}: ${after[id]}`);
+  assert.doesNotMatch(r.log, /\[gone\]/);
 });
 
 test("通しの巡回: 寝かせた期限が切れた物件（起き抜け）がまた 404 でも一斉の閉鎖に数えず、寝かせ直す", () => {

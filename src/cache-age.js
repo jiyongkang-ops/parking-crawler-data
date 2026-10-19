@@ -44,6 +44,31 @@ export function cacheFresh(file, cacheMs) {
   return false;
 }
 
+// 一覧の作り直しに失敗した記録 <file>.failed（ナビパーク・エコロパーク）。
+// 作り直せず前の一覧を使った回に書き、次に作り直しを試すまでの間をあけるのに使う（作り直せたら消す）。
+// 1行「時刻 連続N回 理由」。N は続けて失敗した回数（以前の「時刻 理由」も読める。そのときは1回とみなす）
+const failStampOf = (file) => `${path.resolve(file)}.failed`;
+
+/** 失敗の記録 { at（ミリ秒）, count（続けて失敗した回数）, why }。無い・読めなければ null */
+export function readFailStamp(file) {
+  try {
+    const m = fs.readFileSync(failStampOf(file), "utf8").trim().match(/^(\S+)(?: 連続(\d+)回)?(?: ([\s\S]*))?$/);
+    const at = m ? Date.parse(m[1]) : NaN;
+    if (!Number.isFinite(at)) return null;
+    return { at, count: Number(m[2]) || 1, why: m[3] ?? "" };
+  } catch { return null; }   // 記録が無い
+}
+
+/** 失敗の記録を書く（count は今回を含めて続けて失敗した回数）。書けなくても巡回は続ける */
+export function writeFailStamp(file, why, count = 1) {
+  try { fs.writeFileSync(failStampOf(file), `${new Date().toISOString()} 連続${count}回 ${why}`); } catch { /* 書けなくても巡回は続ける */ }
+}
+
+/** 失敗の記録を消す（作り直せたとき） */
+export function clearFailStamp(file) {
+  fs.rmSync(failStampOf(file), { force: true });
+}
+
 /** 作り直した一覧が前の一覧の minRatio（既定は半分）未満なら、作り直しの失敗とみなして前の一覧を返す。
  *  使ってよければ null。前の一覧を返すときは取得日（.fetched）を進めないので、次の回にまた作り直す。
  *  前の一覧には staleReason を付ける（run.js が health に ok:false で出して知らせる）。新しい一覧が少なく、

@@ -27,15 +27,27 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
-      - run: node src/carshares.js
+      # exec で node を手順のいちばん上のプロセスにする（ほかの巡回と同じ）。ランナーは時間切れ・取り消しのとき
+      # 手順のいちばん上にだけ SIGINT を送るので、そのままだと node に届かないことがある（2026-10-19 の最終点検）。
+      # node は SIGINT を受けると、そこまでの巡回状態を書いてすぐ終わる（src/carshares.js の最後）
+      - run: exec node src/carshares.js
+        # ジョブの時間切れ（230分）より10分早く巡回を止め、下のコミットの手順の時間を残す（ほかの巡回と同じ）。
+        # ふつうは CARSHARE_BUDGET_MIN（200分）で自分から切り上げる
+        timeout-minutes: 220
         env:
           CARSHARE_BUDGET_MIN: "200"
           CARSHARE_CYCLE_DAYS: "7"
       - name: commit data if changed
-        if: always()
+        if: always()   # 途中で殺されても、そこまでの観測は残す
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
+          # 巡回（node）が残っていたら止めてから git add する。ふつうは上の exec で巡回の手順と一緒に終わっているが、
+          # 残っていると git pull の間も状態ファイルやステーションの一覧に書き続け、pull とコミットが失敗する（ほかの巡回と同じ）
+          if pkill -INT -f 'node src/carshares.js'; then
+            for i in $(seq 1 20); do pgrep -f 'node src/carshares.js' >/dev/null || break; sleep 1; done
+            pkill -KILL -f 'node src/carshares.js' || true
+          fi
           # 列挙失敗でファイルが無い社があっても他社のデータを失わないよう data/ 配下をまとめて追加
           git add -A data/
           if ! git diff --cached --quiet; then

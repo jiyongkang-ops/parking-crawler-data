@@ -13,10 +13,16 @@ export function detailUrl(id) {
 
 /** 物件ページを取ったときの転送が「閉鎖（掲載終了）」か。
  *  閉じた物件は 301 で / や /park/ へ飛ばされる（2026-10-18 に 6672→/、9345→/park/ を確認）。
- *  別の物件ページへの転送や、転送先が無いときは閉鎖と決めつけない（番号の付け替えやサイトの引っ越しで
- *  全件を寝かせないため） */
+ *  閉鎖とみなすのは、同じホストの「/」と「/park/」への転送だけ。それ以外（保守の画面・ログイン・別のホスト・
+ *  別の物件ページへの転送など）や転送先が無いときは閉鎖と決めつけず、いつもの失敗にする（run.js が時刻だけ進める）。
+ *  以前は物件ページ以外への転送をすべて閉鎖としていたので、保守の画面へ転送されると取った物件を全部寝かせるところだった
+ *  （2026-10-19 の最終点検。番号の付け替えやサイトの引っ越しでも全件を寝かせないため） */
 export function isClosedRedirect(location) {
-  return !!location && !/\/coin-parking\/\d+\/?(\?|$)/.test(location);
+  if (!location) return false;
+  let u;
+  try { u = new URL(location, BASE); } catch { return false; }   // 読めない転送先
+  if (u.host !== new URL(BASE).host || !/^https?:$/.test(u.protocol)) return false;
+  return (u.pathname === "/" || u.pathname === "/park/") && !u.search;
 }
 
 function cellText(html, thLabel) {
