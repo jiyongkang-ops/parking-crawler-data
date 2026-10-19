@@ -376,3 +376,25 @@ test("通しの巡回: 2ページ目以降が空のページで返った市区�
   assert.match(h.reason, /総件数より少なかった市区1/);
   assert.match(log, /総件数59件のうち10件しか載っていなかった/);
 });
+
+test("通しの巡回（run.js の担当と合わせた形）: health に送ったページの状態コードの数（statusCounts）が出る。ok:false のときの kind は health-kind.js の言葉", () => {
+  const routes = asRoutes({ ...cityRoutes("01", "札幌市中央区", 23), ...cityRoutes("30", "和歌山市", 4) });
+  routes[cityListUrl("01", "札幌市中央区", 20)] = { status: 500, body: "error" };
+  routes[cityListUrl("30", "和歌山市", 0)] = { throw: "ECONNRESET" };
+  const files = { "data/parknet-cities.txt": "01\t札幌市中央区\n30\t和歌山市\n", "data/parknet-cities.txt.fetched": new Date().toISOString(),
+    "data/prices-test.jsonl": "" };
+  const { health } = runCrawl({ routes, files });
+  const h = health.find((t) => t.op === "parknet");
+  assert.equal(h.ok, true);
+  assert.equal(h.kind, undefined);   // ok の行には kind を付けない
+  assert.deepEqual(h.statusCounts, { 200: 2, 500: 1, network: 1 });
+  assert.deepEqual(h.partialCities, ["札幌市中央区"]);
+  assert.deepEqual(h.failedCities, ["和歌山市"]);
+  // 1件も取れず、取れなかった理由が通信の失敗だけなら kind は network
+  const bad = runCrawl({ routes: { [cityListUrl("30", "和歌山市", 0)]: { status: 503, body: "busy" } }, files: { ...files, "data/parknet-cities.txt": "30\t和歌山市\n" } });
+  const hb = bad.health.find((t) => t.op === "parknet");
+  assert.deepEqual([hb.ok, hb.kind, hb.statusCounts], [false, "network", { 503: 1 }]);
+  // robots.txt が届かない（5xx）ときは、以前の unreachable ではなく network
+  const unr = runCrawl({ routes: { [ROBOTS]: { status: 503 } }, files });
+  assert.equal(unr.health.find((t) => t.op === "parknet").kind, "network");
+});
