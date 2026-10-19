@@ -685,13 +685,14 @@ async function main() {
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
       // 不調で打ち切った回も失敗として知らせる（2026-10-02 は半分取れたので「成功」になり、気づけなかった）。
       // 一覧を長く作り直せず前の一覧で回している社（staleReason。times-enumerate.js・cache-age.js の keepPrevIfShrunk）も知らせる。
+      // 一覧の一部の市区が取れなかった・作り直せず前の一覧で回している（listNote。navipark-enumerate.js）は、ok のまま reason の最後に出す。
       // 一覧が0件の回も失敗（以前は「取る物件が無かった回」として成功になる作りで、2026-10-18 の点検の試しでは、ナビパークが0件の一覧で
       // 7日止まっても health は成功のままだった）
       // kind（失敗の種類。src/health-kind.js）は reason と同じ順で決める: 打ち切った理由 → 一覧の問題 → この回の失敗でいちばん多い種類
       const listProblem = !!ids.staleReason || ids.length === 0;
       hp(rolling.op, rolling.label, !broke && !listProblem && (tried === 0 || got > 0), got,
         broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
-          ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null),
+          ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null) ?? ids.listNote ?? null,
         { tried, noName, ...(busy ? { busy } : {}), statusCounts: statusCounts.toJSON(),
           kind: brokeKind ?? (listProblem ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse",
           ...(massRestored ? { restored: massRestored } : {}) });
