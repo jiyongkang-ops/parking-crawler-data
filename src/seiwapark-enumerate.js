@@ -5,7 +5,7 @@
 // 1ページ20件。ページャは現在地周辺しか出さないため、毎ページ最大値を取り直す。
 import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
-import { politeFetch } from "./polite-fetch.js";
+import { politeFetch, throwIfRobotsSkipped } from "./polite-fetch.js";
 
 const QS = "post_type=search&type%5B0%5D=35"; // 35 = コインパーキング
 const LIST_URL = (page, filtered) => {
@@ -24,6 +24,7 @@ export async function getAllSeiwaparkIds({ cacheFile, cacheMs = 7 * 864e5 } = {}
     let last = 1;
     for (let page = 1; page <= Math.min(last, MAX_PAGES); page++) {
       const res = await politeFetch(LIST_URL(page, filtered));
+      throwIfRobotsSkipped(res, "セイワパーク一覧");   // 「0件（ページ構造変更の可能性）」と取り違えない
       if (!res.ok) break;
       const found = [...res.html.matchAll(/href="https:\/\/www\.seiwapark\.co\.jp\/search\/([^"\/?]+)"/g)].map((m) => m[1]);
       const before = ids.size;

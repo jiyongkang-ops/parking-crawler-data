@@ -6,7 +6,8 @@
 - 収集は GitHub Actions。**NPC・三井のリパークは1時間おき**（満空が取れる2社。1周25時間で
   同じ物件を見る時刻が1時間ずつずれ、約25日で24時間・7回の観測で7曜日を通る）、
   **他社は1日2〜3回**。同一物件の再訪間隔は概ね**1〜3日**
-  （リパーク約1日・タイムズ約10日で全国1巡、ザ・パーク/エコロ/ナビパーク/名鉄協商はほぼ毎回全件）。
+  （リパーク約1日・タイムズ約10日・エコロ約2日で全国1巡、ザ・パーク/ナビパーク/名鉄協商はほぼ毎回全件）。
+  エコロの一覧は先方のサイトマップ（約3,945件）から作る（2026-10-18。それまではエリアページの1ページ目＝各10件だけで1,032件だった）。
   タイムズは1日3回・1回90分（約900件）。Advisor の優先物件（約620件）はおおむね1日1回取り直す（2026-10-17。それまでは1回45分・約16日で1巡で、優先物件は番号の書き方の違いで1件も効いていなかった）。
 - 満空（空車/混雑/満車）は NPC・三井のリパークから取得し、`data/vacancy-YYYY-MM.jsonl` に
   巡回のたび追記する（料金の変動とは無関係に毎回残す）。名前・座標は `data/vacancy-lots.jsonl`
@@ -15,6 +16,12 @@
 - 物件一覧（sitemap / ids）の鮮度は、となりに置く **`<file>.fetched`（取得日時）** だけで測る（`src/cache-age.js`）。
   mtime は checkout が毎回「今」にし、git の最終コミット時刻も**浅いクローン（fetch-depth:1）では常に「今」**を返すため、
   どちらでも一度も更新されず、7月の一覧のまま2か月止まっていた。作り直しは1回の実行で2件まで（`LIST_REFRESH_MAX`）。
+- 三井のリパークの一覧は sitemap ＋ 公式の地図検索のマーカー（`src/repark-map.js`・`data/repark-map-ids.txt`）。sitemap は
+  lastmod が 2025-06-18 で止まっていて、それより後に開いた物件が載っていないため。地図は全国を約100の長方形に分けて週1回だけ聞く
+  （`REPARK_MAP_MAX_REQUESTS`。0 で使わない）。sitemap の lastmod の最新が90日より古いと health の reason に残し、
+  地図でも補えていなければ ok:false にする。地図の一覧の4列目は「地図に出なくなった日」（出ているあいだは空）なので、
+  作り直しても行が変わるのは物件が消えた・戻ったときだけ。分析リポジトリ（parking-price-crawler）は、リパークの今の一覧を
+  sitemap ＋ この一覧で作る（`analyzer/lib/repark-list.mjs`）。sitemap だけで作ると、地図で見つけた物件が「閉鎖」に一斉に出る。
 - `dashboard.html` と統一CSVは `publish.yml` で1日1回作る（毎時コミットすると派生物だけで月75MB太る）。
 - ローリング巡回は `ROLLING_BUDGET_MIN`（既定45分。毎時の `crawl.yml` は50分、タイムズの `crawl-times.yml` は90分）で切り上げ、状態を50件ごとに保存する。
   途中で殺されても、そこまでの観測と巡回状態は `if: always()` のコミットで残る。
@@ -104,5 +111,39 @@ Python なら `pandas.read_json("data/prices-ecolo.jsonl", lines=True)`。
 ## 構成（開発者向け）
 
 - `src/` — 事業者別クローラ（`node src/run.js`）。`config.js` に節度設定を集約
-- `.github/workflows/crawl-*.yml` — 定期実行（public リポジトリのため Actions 無料）
+- `.github/workflows/crawl-*.yml` — 定期実行（public リポジトリのため Actions 無料）。起動のしかたは下の「定期実行の起動」
 - 分析・レポート生成は別リポジトリ（private）で行い、本リポジトリのデータを参照する
+
+## 定期実行の起動
+
+GitHub の cron は混むと数時間遅れて始まり、正時（:00）の枠は落ちることもあるので、**cron は使っていない**
+（2026-10-04〜10-17 の14日で、エコロ・ナビパーク・名鉄協商ほかは予定42回のうち32〜33回、NPC の満空は56回のうち44回しか走らず、
+走った回も中央値で約4〜5時間遅れていた）。
+Cloud Scheduler（poc-aimo / asia-northeast1 の `crawl-parking-vacancy-hourly`、毎時07分JST）が `crawl.yml` を起動し、
+`crawl.yml` の `dispatch` ジョブが、ほかの巡回を JST の決まった時刻に `workflow_dispatch` で起動する（2026-10-18〜。タイムズは 2026-09-27〜）。
+1日の回数はもとの cron のままで、先方への負荷は変えていない。
+
+| ワークフロー | 起動のしかた | JST の時（07分ごろ） | 1日の回数 | もとの cron（UTC） |
+|---|---|---|---|---|
+| `crawl.yml`（NPC・リパーク） | Cloud Scheduler | 毎時 | 24 | 2026-09-15 にやめた |
+| `crawl-times.yml` | crawl.yml から | 昼9〜14時・夕方15〜20時・夜〜朝21〜翌8時から1回ずつ（日ごとにずらす） | 3 | 2026-09-27 にやめた |
+| `crawl-others.yml`（名鉄協商・ザ・パーク） | crawl.yml から | 10・16・22時 | 3 | `0 1,7,13` |
+| `crawl-npc.yml`（NPC の満空を27分おきに11回） | crawl.yml から | 4・10・16・22時 | 4 | `13 1,7,13,19` |
+| `crawl-navipark.yml` | crawl.yml から | 11・17・23時 | 3 | `0 2,8,14` |
+| `crawl-extra.yml`（キョウテク・ル・パルク・GSパーク） | crawl.yml から | 11・23時 | 2 | `30 2,14` |
+| `crawl-ecolo.yml` | crawl.yml から | 1・13・19時 | 3 | `0 4,10,16` |
+| `crawl-extra2.yml`（スペース二十四・JQパークス・パークネット） | crawl.yml から | 2・14時 | 2 | `30 5,17` |
+| `crawl-extra3.yml`（タマパーク他） | crawl.yml から | 5・17時 | 2 | `30 8,20` |
+| `crawl-carshares.yml` | crawl.yml から | 3時（1巡が終わって7日たつまでは何もせず終わる） | 1 | `0 18` |
+| `publish.yml`（dashboard.html・統一CSV） | crawl.yml から | 6時（studio-data の7:30より前） | 1 | `40 21` |
+
+- **cron のままのワークフローは無い。** 新しく足すときも、cron と crawl.yml の両方からは起動しない（同じ回が2回走り、先方への負荷が増える）。
+  時刻表は `crawl.yml` の `dispatch` ジョブの `FIXED` にあり、`test/dispatch-schedule.test.js` がこの表・回数・重なりを確かめる。
+- 起動に失敗しても毎時の巡回（NPC・リパーク）は止まらない（別のジョブにしてある）。失敗は `::warning::` になり、
+  起動されなかった回（Cloud Scheduler の抜け・gh の失敗）は、2時間あとまでの毎時の回で1回だけ取り戻す。
+  同じ時に2回起動されても（手での実行など）、2回目は何も起動しない。
+- 同じワークフローの回と回の間（6時間以上）は、どのジョブの時間切れ（最長350分）より長い。前の回が残っていても、
+  concurrency（`cancel-in-progress: false`）で終わるのを待ってから走る（同時には走らない）。
+- どのワークフローにも `workflow_dispatch` の入力は無い。手で1回だけ動かすときは Actions の画面か `gh workflow run crawl-ecolo.yml` など。
+- Cloud Scheduler が止まると、すべての巡回が止まる（2026-10-17 までは crawl.yml とタイムズだけだった）。
+  各ワークフローの health（`data/health/*.json`）の `at` が更新されなくなる。

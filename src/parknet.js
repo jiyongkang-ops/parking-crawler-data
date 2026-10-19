@@ -4,10 +4,33 @@
 //   料金ブロック: area_alltime（オールタイム）/ area_daytime（昼）/ area_nighttime（夜）
 //     各 li: day_block（月～金 等・省略時は全日）、d_start_time〜d_end_time、kizami（N分）、rate（M円）
 //   最大料金: area_max_rate の li: max_time（24時間 等）＋ rate
+// 市区一覧は10件ずつのページ送り（2026-10-18 に確かめた）。総件数は「該当した駐車場：<strong>59</strong>件」。
+//   ページ送りのリンクは parking.php?search=1&offset=10（検索の条件をサイト側のセッションに持つ作り）だが、
+//   市区の URL に &offset=10 を足すだけでも、クッキー無しで 11〜20件目が返る（札幌市中央区で確かめた。1ページ目と重なり0件）。
+//   以前は1ページ目しか取っておらず、10件を超える市区（札幌市中央区 59件・大阪市北区 15件など10市区）は10件で止まっていた
 const BASE = "https://parknet.shinmaywa.co.jp/parknet/search/";
 
 export const prefListUrl = (prefCd) => `${BASE}city_list_${prefCd}.html`;
-export const cityListUrl = (prefCd, city) => `${BASE}list.html?pref_cd=${prefCd}&city=${encodeURIComponent(city)}`;
+// offset … 何件目から（0 始まり・10 刻み）。1ページ目（0）は以前と同じ URL にする（料金の記録の _requestUrl を変えない）
+export const cityListUrl = (prefCd, city, offset = 0) =>
+  `${BASE}list.html?pref_cd=${prefCd}&city=${encodeURIComponent(city)}${offset > 0 ? `&offset=${offset}` : ""}`;
+
+// 1ページの件数と、1市区あたりに取るページ数の上限（10ページ＝100件。いちばん多い札幌市中央区で59件・6ページ）。
+// 上限に当たった市区は health の capped に出るので、そのときは上限を見直す
+export const PARKNET_PAGE_SIZE = 10;
+export const PARKNET_MAX_PAGES = 10;
+
+/** 「該当した駐車場：<strong>59</strong>件」の件数。読めなければ null */
+export function parseParknetTotal(html) {
+  const m = String(html ?? "").match(/該当した駐車場[：:]\s*(?:<strong>)?\s*([\d,]+)\s*(?:<\/strong>)?\s*件/);
+  return m ? Number(m[1].replace(/,/g, "")) : null;
+}
+
+/** ページ送り（page_list_link）のリンクに出ている offset の一覧。総件数が読めないときに「次のページがあるか」を決めるのに使う */
+export function parsePagerOffsets(html) {
+  const box = (String(html ?? "").match(/<div class="page_list_link">([\s\S]*?)<\/div>/) || [])[1] ?? "";
+  return [...new Set([...box.matchAll(/[?&](?:amp;)?offset=(\d+)/g)].map((m) => Number(m[1])))].sort((a, b) => a - b);
+}
 
 const txt = (s) => (s ?? "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
 const pick = (html, cls) => { const m = html.match(new RegExp(`<span class="${cls}"[^>]*>([\\s\\S]*?)</span>`)); return m ? txt(m[1]) : null; };

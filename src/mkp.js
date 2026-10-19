@@ -4,6 +4,7 @@
 //   ヘッダ列: 最大料金 / 通常料金（駐輪場は 一時料金 / 一時料金(1日)）
 //   1セルに複数の <p> が入りうる（例: 入庫より24時間まで600円 / 12時間まで500円）
 // robots.txt は /admin//batch//config/ のみ禁止で、詳細ページは許可。
+// 掲載を終えた物件は 302 で /misc/404.php へ転送される（run.js の goneOnRedirect で閉鎖として扱う）。
 
 import * as cheerio from "cheerio";
 
@@ -11,6 +12,15 @@ const BASE = "https://mkp.jp/search/detail/";
 
 export function detailUrl(id) {
   return `${BASE}${id}`;
+}
+
+/** 物件ページを取ったときの転送が「掲載終了」か。
+ *  掲載を終えた物件は 302 で ../../../misc/404.php（＝/misc/404.php）へ転送される
+ *  （2026-10-18 に、名前が読めない552件のうち 001145-0・001188-0・001184-2 の3件を確かめて、3件とも同じ転送）。
+ *  転送を追うと 404.php が返り、名前の無いページとして毎回「取れたが読めない」になっていた（一覧2,553件の22%）。
+ *  ほかの転送（別の物件ページなど）は閉鎖と決めつけない（いつもの失敗にする） */
+export function isClosedRedirect(location) {
+  return !!location && /(^|\/)misc\/404\.php(\?|$)/.test(location);
 }
 
 function extractLd(html) {
@@ -55,7 +65,9 @@ export function parseMkpDetail(html, { id, label } = {}) {
   const $ = cheerio.load(html);
   const ld = extractLd(html);
 
-  const name = ld?.name ?? ($("h1").first().text().trim() || null);
+  // 掲載終了の物件の雛形は名前が「名鉄協商パーキング 」（社名だけ）・住所が空・座標が 0,0。物件として読まない
+  const rawName = (ld?.name ?? $("h1").first().text()).trim();
+  const name = rawName && rawName !== "名鉄協商パーキング" ? rawName : null;
   const addr = ld?.address ?? {};
   const address = addr.streetAddress || [addr.addressRegion, addr.addressLocality].filter(Boolean).join("") || null;
 
@@ -95,8 +107,8 @@ export function parseMkpDetail(html, { id, label } = {}) {
     label: label ?? null,
     name,
     address,
-    lat: ld?.geo?.latitude ?? null,
-    lng: ld?.geo?.longitude ?? null,
+    lat: Number(ld?.geo?.latitude) ? ld.geo.latitude : null,
+    lng: Number(ld?.geo?.longitude) ? ld.geo.longitude : null,
     capacity: null, // 名鉄協商は収容台数を静的に出していない
     openingHours: ld?.openinghours ?? null,
     unitCharges,
