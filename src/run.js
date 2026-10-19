@@ -46,8 +46,7 @@ import { detailUrl as kintetsuUrl, parseKintetsuDetail } from "./kintetsu.js";
 import { getAllKintetsuIds } from "./kintetsu-enumerate.js";
 import { detailUrl as tokyulifiaUrl, parseTokyuLifiaDetail } from "./tokyulifia.js";
 import { getAllTokyuLifiaIds } from "./tokyulifia-enumerate.js";
-import { cityListUrl as parknetCityUrl, parseParknetList } from "./parknet.js";
-import { getAllParknetCities } from "./parknet-enumerate.js";
+import { getAllParknetCities, crawlParknetCities, parknetHealth } from "./parknet-enumerate.js";
 import { listUrl as mdenListUrl, parseMdenList } from "./mden.js";
 import { detailUrl as seiwaparkUrl, parseSeiwaparkDetail } from "./seiwapark.js";
 import { getAllSeiwaparkIds } from "./seiwapark-enumerate.js";
@@ -744,22 +743,18 @@ async function main() {
         cities = await getAllParknetCities({ cacheFile: STATE.parknetCitiesCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); hp("parknet", "パークネット", false, 0, `一覧: ${e.message}`, { kind: listKind(e.message) }); continue; }
       console.log(`[パークネット] 市区${cities.length}件を巡回`);
-      let count = 0, stop = null, stopKind = null;
+      // 市区ごとに最後のページまで取る（10件ずつのページ送り）。中身は parknet-enumerate.js の crawlParknetCities・parknetHealth。
+      // 途中のページが取れなかった市区は、そこまでの分を記録して次の市区へ進む（何も消さない）。市区ごとの印は health の補足に残す。
+      // 状態コードはページごとの答え（onFetch。例外は null＝network）で数え、失敗の種類は取れなかったページの答え（failures[].res）と
+      // 打ち切ったときの答え（stopRes）から決める（health-kind.js）
       const statusCounts = makeCounter(), failKinds = makeCounter();
-      for (const line of cities) {
-        const [prefCd, city] = line.split("\t");
-        if (!prefCd || !city) continue;
-        const url = parknetCityUrl(prefCd, city);
-        let res;
-        try { res = await politeFetch(url); } catch (e) { countStatus(statusCounts, null); failKinds.add("network"); console.error(`  [error] ${city}: ${fetchErrorText(e)}`); continue; }
-        if (res.blocked || res.transient) { stop = res.skippedReason; stopKind = kindOfFetch(res); console.warn(`  [abort] パークネット: ${stop}`); break; }
-        countStatus(statusCounts, res);
-        if (!res.ok || res.skippedReason) { failKinds.add(kindOfFetch(res)); continue; }
-        for (const rec of parseParknetList(res.html)) { rec._requestUrl = url; handleRecord(rec); count++; }
-      }
-      console.log(`[ok] パークネット | ${count}物件`);
-      hp("parknet", "パークネット", count > 0 && !stop, count, stop ?? (count ? null : "0件"),
-        { statusCounts: statusCounts.toJSON(), kind: stopKind ?? dominantKind(failKinds.counts) ?? "parse" });
+      const sum = await crawlParknetCities(cities, { onRecord: (rec) => handleRecord(rec), onFetch: (res) => countStatus(statusCounts, res) });
+      for (const f of sum.failures) failKinds.add(kindOfFetch(f.res));
+      console.log(`[ok] パークネット | ${sum.count}物件（${sum.pages}ページ）`);
+      const ph = parknetHealth(sum);
+      hp("parknet", "パークネット", ph.ok, ph.n, ph.reason,
+        { ...ph.extra, statusCounts: statusCounts.toJSON(),
+          kind: (sum.stopRes ? kindOfFetch(sum.stopRes) : null) ?? dominantKind(failKinds.counts) ?? "parse" });
       continue;
     }
 
