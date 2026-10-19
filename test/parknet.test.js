@@ -2,7 +2,7 @@
 // 2026-10-18 の点検で見つかったこと: 市区一覧は10件ずつのページ送りなのに1ページ目しか取っておらず、
 // 10件を超える10市区（札幌市中央区 59件・大阪市北区 15件など）は毎回10件で止まっていた。
 // ページはサイトの作り（list_box・「該当した駐車場：<strong>N</strong>件」・page_list_link）を写して組み立てる。
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { config } from "../config.js";
 
 const { cityListUrl, parseParknetList, parseParknetTotal, parsePagerOffsets, PARKNET_MAX_PAGES } = await import("../src/parknet.js");
-const { crawlParknetCity } = await import("../src/parknet-enumerate.js");
+const { crawlParknetCity, crawlParknetCities, parknetHealth } = await import("../src/parknet-enumerate.js");
 const { _resetRobotsCache } = await import("../src/polite-fetch.js");
 config.minDelayMs = 0;   // テストでは待たない
 
@@ -201,10 +201,87 @@ test("robots.txt が 403 なら本ページは送らずに stop（blocked）を�
   assert.match(r.stop, /robots\.txt が HTTP 403/);
 });
 
+test("2ページ目以降が0件のページで返ったら（総件数は読めている）、short で知らせる。dup・failed・capped は立てない", async () => {
+  // 総件数59と出ているのに、2ページ目から空の一覧が返る（offset が効かなくなって空のページを返す形）
+  let calls = stubFetch(cityRoutes("01", "札幌市中央区", 59, { ids: Array.from({ length: 10 }, (_, i) => `j${8000 + i}`) }));
+  let r = await crawlParknetCity("01", "札幌市中央区", { onPage: () => {} });
+  assert.equal(pagesOf(calls).length, 2);          // 空のページの先へは行かない
+  assert.equal(r.total, 59);
+  assert.equal(r.got, 10);
+  assert.equal(r.short, true);
+  assert.equal(r.dup, false);
+  assert.equal(r.failed, null);
+  assert.equal(r.capped, false);
+  // 総件数40・実際は25件で、4ページ目が空（点検の試しと同じ形）
+  calls = stubFetch(cityRoutes("13", "台東区", 40, { ids: Array.from({ length: 25 }, (_, i) => `j${7000 + i}`) }));
+  r = await crawlParknetCity("13", "台東区", { onPage: () => {} });
+  assert.equal(pagesOf(calls).length, 4);
+  assert.equal(r.got, 25);
+  assert.equal(r.short, true);
+});
+
+test("総件数どおりに取れたとき・総件数が読めないとき・取れなかった／上限／dup のときは short にしない（そちらで知らせる）", async () => {
+  stubFetch(cityRoutes("01", "札幌市中央区", 59));
+  assert.equal((await crawlParknetCity("01", "札幌市中央区", { onPage: () => {} })).short, false);
+  stubFetch(cityRoutes("01", "函館市", 25, { showTotal: false, ids: Array.from({ length: 12 }, (_, i) => `j${6000 + i}`) }));
+  assert.equal((await crawlParknetCity("01", "函館市", { onPage: () => {} })).short, false);   // 総件数が無ければ比べられない
+  const routes = cityRoutes("01", "札幌市中央区", 59);
+  routes[cityListUrl("01", "札幌市中央区", 30)] = { status: 503, body: "busy" };
+  stubFetch(routes);
+  let r = await crawlParknetCity("01", "札幌市中央区", { onPage: () => {} });
+  assert.ok(r.failed);
+  assert.equal(r.short, false);
+  stubFetch(cityRoutes("13", "台東区", 150));
+  r = await crawlParknetCity("13", "台東区", { onPage: () => {} });
+  assert.equal(r.capped, true);
+  assert.equal(r.short, false);
+  const same = cityPage({ total: 59, offset: 0 });
+  stubFetch(Object.fromEntries([0, 10, 20, 30, 40, 50].map((o) => [cityListUrl("01", "札幌市中央区", o), same])));
+  r = await crawlParknetCity("01", "札幌市中央区", { onPage: () => {} });
+  assert.equal(r.dup, true);
+  assert.equal(r.short, false);
+});
+
+test("市区をまとめて取る: 市区ごとの印を集め、health の補足（extra と reason）に shortCities などを残す。ok の決め方は以前と同じ", async () => {
+  const routes = {
+    ...cityRoutes("01", "札幌市中央区", 59, { ids: Array.from({ length: 10 }, (_, i) => `ja${i}`) }),   // 2ページ目が空 → short
+    ...cityRoutes("27", "大阪市北区", 15, { ids: Array.from({ length: 15 }, (_, i) => `jb${i}`) }),
+    ...cityRoutes("13", "台東区", 23, { ids: Array.from({ length: 23 }, (_, i) => `jc${i}`) }),
+  };
+  routes[cityListUrl("13", "台東区", 10)] = { status: 500, body: "error" };   // 台東区は2ページ目から取れない
+  routes[cityListUrl("30", "和歌山市", 0)] = { throw: "ECONNRESET" };         // 和歌山市は1ページ目から取れない
+  stubFetch(routes);
+  const recs = [], fetched = [];
+  const quiet = { log() {}, warn() {}, error() {} };
+  const sum = await crawlParknetCities(["01	札幌市中央区", "27	大阪市北区", "13	台東区", "30	和歌山市", "", "壊れた行"],
+    { onRecord: (rec) => recs.push(rec), onFetch: (res) => fetched.push(res?.status ?? null), log: quiet });
+  assert.equal(sum.count, 10 + 15 + 10);
+  assert.equal(recs.length, sum.count);
+  assert.equal(recs.find((x) => x.parkId === "jb12")._requestUrl, cityListUrl("27", "大阪市北区", 10));
+  assert.deepEqual(sum.shortCities, ["札幌市中央区"]);
+  assert.deepEqual(sum.partialCities, ["台東区"]);
+  assert.deepEqual(sum.failedCities, ["和歌山市"]);
+  assert.deepEqual(sum.failures.map((f) => [f.city, f.res?.status ?? null]), [["台東区", 500], ["和歌山市", null]]);
+  assert.deepEqual(fetched, [200, 200, 200, 200, 200, 500, null]);
+  const h = parknetHealth(sum);
+  assert.equal(h.ok, true);
+  assert.equal(h.n, 35);
+  assert.equal(h.reason, "取れなかった市区1・途中のページから取れなかった市区1・総件数より少なかった市区1");
+  assert.deepEqual(h.extra, { pages: 5, failedCities: ["和歌山市"], partialCities: ["台東区"], shortCities: ["札幌市中央区"] });
+  // 打ち切り・0件のときは以前と同じ（ok:false）
+  assert.deepEqual(parknetHealth({ ...sum, stop: "robots.txt が HTTP 403", stopKind: "blocked" }).ok, false);
+  assert.equal(parknetHealth({ ...sum, stop: "robots.txt が HTTP 403", stopKind: "blocked" }).extra.kind, "blocked");
+  const empty = parknetHealth({ count: 0, pages: 0, stop: null, stopKind: null, failedCities: [], partialCities: [], cappedCities: [], dupCities: [], shortCities: [] });
+  assert.deepEqual([empty.ok, empty.reason, empty.extra], [false, "0件", { pages: 0 }]);
+});
+
 // ---- run.js を通しで動かす ----
 
 /** run.js を別のプロセスで動かす（CRAWL_ONLY=parknet）。fetch は routes で差し替え、呼んだ URL を控える */
-function runCrawl({ routes, files, dir = fs.mkdtempSync(path.join(os.tmpdir(), "parknet-")) }) {
+const tmpDirs = [];
+after(() => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }); });   // テストの一時ディレクトリを消す
+function runCrawl({ routes, files, dir = null }) {
+  if (!dir) { dir = fs.mkdtempSync(path.join(os.tmpdir(), "parknet-")); tmpDirs.push(dir); }
   fs.mkdirSync(path.join(dir, "data"), { recursive: true });
   for (const [f, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, f), body);
   const routesFile = path.join(dir, "routes.json"), callsFile = path.join(dir, "calls.txt");
@@ -285,4 +362,17 @@ test("通しの巡回: robots.txt が 403 なら市区のページは1つも送�
   assert.equal(h.ok, false);
   assert.equal(h.kind, "blocked");
   assert.match(h.reason, /robots\.txt が HTTP 403/);
+});
+
+test("通しの巡回: 2ページ目以降が空のページで返った市区は、health の shortCities と reason に出る（ok のまま）", () => {
+  const routes = asRoutes(cityRoutes("01", "札幌市中央区", 59, { ids: Array.from({ length: 10 }, (_, i) => `jd${i}`) }));
+  const files = { "data/parknet-cities.txt": "01\t札幌市中央区\n", "data/parknet-cities.txt.fetched": new Date().toISOString() };
+  const { calls, health, rows, log } = runCrawl({ routes, files });
+  assert.equal(pagesOf(calls).length, 2);
+  assert.equal(rows.length, 10);
+  const h = health.find((t) => t.op === "parknet");
+  assert.equal(h.ok, true);
+  assert.deepEqual(h.shortCities, ["札幌市中央区"]);
+  assert.match(h.reason, /総件数より少なかった市区1/);
+  assert.match(log, /総件数59件のうち10件しか載っていなかった/);
 });

@@ -46,7 +46,7 @@ import { detailUrl as kintetsuUrl, parseKintetsuDetail } from "./kintetsu.js";
 import { getAllKintetsuIds } from "./kintetsu-enumerate.js";
 import { detailUrl as tokyulifiaUrl, parseTokyuLifiaDetail } from "./tokyulifia.js";
 import { getAllTokyuLifiaIds } from "./tokyulifia-enumerate.js";
-import { getAllParknetCities, crawlParknetCity } from "./parknet-enumerate.js";
+import { getAllParknetCities, crawlParknetCities, parknetHealth } from "./parknet-enumerate.js";
 import { listUrl as mdenListUrl, parseMdenList } from "./mden.js";
 import { detailUrl as seiwaparkUrl, parseSeiwaparkDetail } from "./seiwapark.js";
 import { getAllSeiwaparkIds } from "./seiwapark-enumerate.js";
@@ -693,34 +693,14 @@ async function main() {
         cities = await getAllParknetCities({ cacheFile: STATE.parknetCitiesCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); hp("parknet", "パークネット", false, 0, `一覧: ${e.message}`); continue; }
       console.log(`[パークネット] 市区${cities.length}件を巡回`);
-      // 市区ごとに最後のページまで取る（10件ずつのページ送り。parknet-enumerate.js の crawlParknetCity）。
-      // 途中のページが取れなかった市区は、そこまでの分を記録して次の市区へ進む（何も消さない）。件数は health の補足に残す
-      let count = 0, stop = null, stopKind = null, pages = 0;
-      const failedCities = [], partialCities = [], cappedCities = [], dupCities = [];
-      for (const line of cities) {
-        const [prefCd, city] = line.split("\t");
-        if (!prefCd || !city) continue;
-        const r = await crawlParknetCity(prefCd, city, {
-          onPage: (recs, url) => { for (const rec of recs) { rec._requestUrl = url; handleRecord(rec); count++; } },
-        });
-        pages += r.pages;
-        if (r.stop) { stop = r.stop; stopKind = r.stopKind; console.warn(`  [abort] パークネット: ${stop}`); break; }
-        if (r.failed) {
-          (r.pages ? partialCities : failedCities).push(city);
-          console.error(`  [error] ${city} ${r.failed.offset + 1}件目から: ${r.failed.why}${r.pages ? `（${r.got}件は記録した）` : ""}`);
-        }
-        if (r.capped) { cappedCities.push(city); console.warn(`  [warn] ${city}: ${r.total}件のうち、上限の${r.pages}ページ（${r.got}件）で止めた`); }
-        if (r.dup) { dupCities.push(city); console.warn(`  [warn] ${city}: ${r.pages}ページ目が前のページと同じ物件だけだったので止めた（ページ送りの作りの変更の可能性）`); }
-        if (r.pages > 1) console.log(`  ${city}: ${r.got}件（${r.pages}ページ${r.total != null ? `・総件数 ${r.total}` : ""}）`);
-      }
-      console.log(`[ok] パークネット | ${count}物件（${pages}ページ）`);
-      const note = [failedCities.length && `取れなかった市区${failedCities.length}`, partialCities.length && `途中のページから取れなかった市区${partialCities.length}`,
-        cappedCities.length && `上限のページ数で止めた市区${cappedCities.length}`,
-        dupCities.length && `ページ送りが効かなかった市区${dupCities.length}`].filter(Boolean).join("・") || null;
-      hp("parknet", "パークネット", count > 0 && !stop, count, stop ?? (count ? note : "0件"),
-        { pages, ...(stopKind ? { kind: stopKind } : {}), ...(failedCities.length ? { failedCities } : {}),
-          ...(partialCities.length ? { partialCities } : {}), ...(cappedCities.length ? { cappedCities } : {}),
-          ...(dupCities.length ? { dupCities } : {}) });
+      // 市区ごとに最後のページまで取る（10件ずつのページ送り）。中身は parknet-enumerate.js の crawlParknetCities・parknetHealth。
+      // 途中のページが取れなかった市区は、そこまでの分を記録して次の市区へ進む（何も消さない）。市区ごとの印は health の補足に残す。
+      // HTTP の状態を数えるときは、crawlParknetCities の onFetch(res, url) にページごとの答え（例外は null）が来る。
+      // 取れなかったページの答えは sum.failures[].res、打ち切ったときの答えは sum.stopRes
+      const sum = await crawlParknetCities(cities, { onRecord: (rec) => handleRecord(rec) });
+      console.log(`[ok] パークネット | ${sum.count}物件（${sum.pages}ページ）`);
+      const ph = parknetHealth(sum);
+      hp("parknet", "パークネット", ph.ok, ph.n, ph.reason, ph.extra);
       continue;
     }
 
