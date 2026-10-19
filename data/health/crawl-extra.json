@@ -1,5 +1,5 @@
 {
- "at": "2026-10-19T03:03:54.154Z",
+ "at": "2026-10-19T15:04:12.361Z",
  "workflow": "crawl-extra",
  "only": "kyotech,leparc,gspark",
  "targets": [
@@ -7,12 +7,12 @@
    "op": "kyotech",
    "label": "キョウテク",
    "ok": true,
-   "n": 675,
+   "n": 673,
    "reason": null,
-   "tried": 675,
+   "tried": 673,
    "noName": 0,
    "statusCounts": {
-    "200": 675
+    "200": 673
    }
   },
   {
