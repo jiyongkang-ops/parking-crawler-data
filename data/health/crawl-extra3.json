@@ -1,5 +1,5 @@
 {
- "at": "2026-10-19T22:11:40.732Z",
+ "at": "2026-10-20T10:09:09.859Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -65,12 +65,12 @@
    "op": "seiwapark",
    "label": "セイワパーク",
    "ok": true,
-   "n": 340,
+   "n": 344,
    "reason": null,
-   "tried": 340,
+   "tried": 344,
    "noName": 0,
    "statusCounts": {
-    "200": 340
+    "200": 344
    }
   },
   {
