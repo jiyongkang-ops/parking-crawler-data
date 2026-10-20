@@ -1,5 +1,5 @@
 {
- "at": "2026-10-20T06:57:43.886Z",
+ "at": "2026-10-20T07:51:25.149Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -17,12 +17,12 @@
    "op": "repark",
    "label": "三井のリパーク",
    "ok": true,
-   "n": 742,
+   "n": 646,
    "reason": "sitemap の更新が止まっている（いちばん新しい lastmod が 2025-06-18・489日前）。地図の一覧（sitemap に無い1371件）で補っている",
-   "tried": 742,
+   "tried": 646,
    "noName": 0,
    "statusCounts": {
-    "200": 742
+    "200": 646
    },
    "list": {
     "sitemap": 15715,
