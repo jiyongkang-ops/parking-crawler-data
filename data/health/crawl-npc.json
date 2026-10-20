@@ -1,5 +1,5 @@
 {
- "at": "2026-10-19T23:38:44.111Z",
+ "at": "2026-10-20T05:38:43.316Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -97,7 +97,7 @@
    "op": "npc",
    "label": "NPC全国 10/11",
    "ok": true,
-   "n": 1691,
+   "n": 1692,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -107,7 +107,7 @@
    "op": "npc",
    "label": "NPC全国 11/11",
    "ok": true,
-   "n": 1691,
+   "n": 1692,
    "reason": null,
    "statusCounts": {
     "200": 1
