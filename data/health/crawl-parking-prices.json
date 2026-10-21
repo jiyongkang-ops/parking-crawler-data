@@ -1,5 +1,5 @@
 {
- "at": "2026-10-21T14:10:57.882Z",
+ "at": "2026-10-21T15:09:28.468Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -7,7 +7,7 @@
    "op": "npc",
    "label": "NPC全国 1/1",
    "ok": true,
-   "n": 1693,
+   "n": 1692,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -20,10 +20,10 @@
    "n": 0,
    "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は HTTP 502）",
    "kind": "network",
-   "tried": 31,
+   "tried": 16,
    "noName": 0,
    "statusCounts": {
-    "502": 31
+    "502": 16
    },
    "list": {
     "sitemap": 15715,
