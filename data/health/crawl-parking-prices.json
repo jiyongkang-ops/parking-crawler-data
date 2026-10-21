@@ -1,5 +1,5 @@
 {
- "at": "2026-10-21T13:11:36.705Z",
+ "at": "2026-10-21T14:10:57.882Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -17,14 +17,13 @@
    "op": "repark",
    "label": "三井のリパーク",
    "ok": false,
-   "n": 25,
+   "n": 0,
    "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は HTTP 502）",
    "kind": "network",
-   "tried": 48,
+   "tried": 31,
    "noName": 0,
    "statusCounts": {
-    "200": 25,
-    "502": 23
+    "502": 31
    },
    "list": {
     "sitemap": 15715,
