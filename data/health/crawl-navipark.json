@@ -1,16 +1,17 @@
 {
- "at": "2026-10-21T08:53:16.372Z",
+ "at": "2026-10-21T14:53:24.574Z",
  "workflow": "crawl-navipark",
  "only": "navipark",
  "targets": [
   {
    "op": "navipark",
    "label": "ナビパーク",
-   "ok": true,
-   "n": 675,
-   "reason": null,
+   "ok": false,
+   "n": 0,
+   "reason": "675件取りに行って0件（名前が読めない675件）",
+   "kind": "parse",
    "tried": 675,
-   "noName": 0,
+   "noName": 675,
    "statusCounts": {
     "200": 675
    }
