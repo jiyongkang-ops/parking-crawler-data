@@ -1,18 +1,19 @@
 {
- "at": "2026-10-21T07:53:45.908Z",
+ "at": "2026-10-21T13:09:05.665Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
   {
    "op": "mkp",
    "label": "名鉄協商",
-   "ok": true,
-   "n": 675,
-   "reason": null,
-   "tried": 675,
+   "ok": false,
+   "n": 0,
+   "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は HTTP 403）",
+   "kind": "blocked",
+   "tried": 8,
    "noName": 0,
    "statusCounts": {
-    "200": 675
+    "403": 8
    }
   },
   {
