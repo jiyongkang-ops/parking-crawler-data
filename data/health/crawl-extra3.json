@@ -1,5 +1,5 @@
 {
- "at": "2026-10-22T09:29:47.903Z",
+ "at": "2026-10-22T21:29:43.110Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -20,8 +20,8 @@
    "label": "あなぶきパーク",
    "ok": false,
    "n": 0,
-   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（HTTP 502）",
-   "kind": "network",
+   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（HTTP 429）",
+   "kind": "rate",
    "tried": 0,
    "noName": 0,
    "statusCounts": {}
