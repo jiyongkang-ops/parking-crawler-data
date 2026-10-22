@@ -1,5 +1,5 @@
 {
- "at": "2026-10-21T23:38:59.395Z",
+ "at": "2026-10-22T05:38:48.348Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -7,7 +7,7 @@
    "op": "npc",
    "label": "NPC全国 1/11",
    "ok": true,
-   "n": 1692,
+   "n": 1751,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -17,7 +17,7 @@
    "op": "npc",
    "label": "NPC全国 2/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -27,7 +27,7 @@
    "op": "npc",
    "label": "NPC全国 3/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -37,7 +37,7 @@
    "op": "npc",
    "label": "NPC全国 4/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -47,7 +47,7 @@
    "op": "npc",
    "label": "NPC全国 5/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -57,7 +57,7 @@
    "op": "npc",
    "label": "NPC全国 6/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -67,7 +67,7 @@
    "op": "npc",
    "label": "NPC全国 7/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -77,7 +77,7 @@
    "op": "npc",
    "label": "NPC全国 8/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -87,7 +87,7 @@
    "op": "npc",
    "label": "NPC全国 9/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -97,7 +97,7 @@
    "op": "npc",
    "label": "NPC全国 10/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
@@ -107,7 +107,7 @@
    "op": "npc",
    "label": "NPC全国 11/11",
    "ok": true,
-   "n": 1692,
+   "n": 1755,
    "reason": null,
    "statusCounts": {
     "200": 1
