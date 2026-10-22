@@ -1,5 +1,5 @@
 {
- "at": "2026-10-22T09:09:40.290Z",
+ "at": "2026-10-22T10:09:33.639Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
