@@ -1,18 +1,19 @@
 {
- "at": "2026-10-21T21:08:59.948Z",
+ "at": "2026-10-22T09:29:47.903Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
   {
    "op": "tamapark",
    "label": "タマパーク",
-   "ok": false,
-   "n": 0,
-   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（HTTP 502）",
-   "kind": "network",
-   "tried": 0,
+   "ok": true,
+   "n": 200,
+   "reason": null,
+   "tried": 200,
    "noName": 0,
-   "statusCounts": {}
+   "statusCounts": {
+    "200": 200
+   }
   },
   {
    "op": "anabuki",
@@ -49,13 +50,14 @@
   {
    "op": "tokyulifia",
    "label": "東急ライフィア",
-   "ok": false,
-   "n": 0,
-   "reason": "robots.txt が HTTP 403（断られている）。この回は打ち切り",
-   "kind": "blocked",
-   "tried": 0,
+   "ok": true,
+   "n": 109,
+   "reason": null,
+   "tried": 109,
    "noName": 0,
-   "statusCounts": {}
+   "statusCounts": {
+    "200": 109
+   }
   },
   {
    "op": "seiwapark",
