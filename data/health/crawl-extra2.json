@@ -1,5 +1,5 @@
 {
- "at": "2026-10-22T05:35:01.667Z",
+ "at": "2026-10-22T17:41:27.878Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet",
  "targets": [
@@ -28,10 +28,12 @@
    "label": "パークネット",
    "ok": false,
    "n": 0,
-   "reason": "robots.txt に届かない（相手先の障害の可能性）（fetch failed（ECONNREFUSED））",
-   "kind": "network",
-   "pages": 0,
-   "statusCounts": {}
+   "reason": "0件",
+   "kind": "parse",
+   "pages": 94,
+   "statusCounts": {
+    "200": 94
+   }
   }
  ]
 }
