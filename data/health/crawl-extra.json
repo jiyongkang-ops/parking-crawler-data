@@ -1,5 +1,5 @@
 {
- "at": "2026-10-22T02:56:12.755Z",
+ "at": "2026-10-22T15:04:25.434Z",
  "workflow": "crawl-extra",
  "only": "kyotech,leparc,gspark",
  "targets": [
@@ -30,10 +30,12 @@
   {
    "op": "gspark",
    "label": "GSパーク全国",
-   "ok": false,
-   "n": 0,
-   "reason": "一覧: robots.txt に届かない（相手先の障害の可能性）",
-   "kind": "network"
+   "ok": true,
+   "n": 903,
+   "reason": null,
+   "statusCounts": {
+    "200": 118
+   }
   }
  ]
 }
