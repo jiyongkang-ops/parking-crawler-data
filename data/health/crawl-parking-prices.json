@@ -1,5 +1,5 @@
 {
- "at": "2026-10-23T11:09:31.239Z",
+ "at": "2026-10-23T12:08:32.394Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -18,13 +18,11 @@
    "label": "三井のリパーク",
    "ok": false,
    "n": 0,
-   "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は HTTP 502）",
+   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（HTTP 503）",
    "kind": "network",
-   "tried": 16,
+   "tried": 0,
    "noName": 0,
-   "statusCounts": {
-    "502": 16
-   },
+   "statusCounts": {},
    "list": {
     "sitemap": 15715,
     "sitemapNewest": "2025-06-18",
