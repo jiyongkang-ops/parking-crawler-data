@@ -1,18 +1,20 @@
 {
- "at": "2026-10-24T04:08:28.113Z",
+ "at": "2026-10-24T10:53:22.317Z",
  "workflow": "crawl-ecolo",
  "only": "ecolo",
  "targets": [
   {
    "op": "ecolo",
    "label": "エコロパーク",
-   "ok": false,
-   "n": 0,
-   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（fetch failed（UND_ERR_CONNECT_TIMEOUT））",
-   "kind": "network",
-   "tried": 0,
+   "ok": true,
+   "n": 670,
+   "reason": null,
+   "tried": 675,
    "noName": 0,
-   "statusCounts": {}
+   "statusCounts": {
+    "200": 670,
+    "301": 5
+   }
   }
  ]
 }
