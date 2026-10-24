@@ -6,6 +6,7 @@
 // - ページキャッシュで短時間の再取得を防ぐ
 
 import { config } from "../config.js";
+import { maintenanceTitle } from "./maintenance.js";
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -86,7 +87,11 @@ async function getRobots(origin) {
       signal: AbortSignal.timeout(config.timeoutMs),
     });
     const st = res.status;
-    if (res.ok) {
+    // 断られた・多すぎる・届かないの答えでも、中身がメンテナンスの告知なら一時的な見送りにする。
+    // メンテナンスの告知を 403・429 で返すサイトがある（2026-10-22〜 ザ・パーク 403・あなぶき 429・近鉄不動産 403）
+    const mt = !res.ok && (st === 401 || st === 403 || st === 429 || st >= 500) ? maintenanceTitle(await res.text().catch(() => "")) : null;
+    if (mt) entry = { kind: "maintenance", rules: [], status: st, why: `メンテナンス中（「${mt}」・HTTP ${st}）`, title: mt };
+    else if (res.ok) {
       const txt = await res.text();
       entry = { kind: "ok", rules: rulesFor(parseRobots(txt), config.userAgent), status: st };
     } else if (st === 401 || st === 403) entry = { kind: "blocked", rules: [], status: st };
@@ -96,11 +101,12 @@ async function getRobots(origin) {
     entry = { kind: "unreachable", rules: [], status: null, why: fetchErrorText(e) };
   }
   entry.fetchedAt = Date.now();
-  entry.ttl = entry.kind === "unreachable" ? (config.robotsUnreachableCacheMs ?? 10 * 60_000) : config.robotsCacheMs;
+  entry.ttl = entry.kind === "unreachable" || entry.kind === "maintenance" ? (config.robotsUnreachableCacheMs ?? 10 * 60_000) : config.robotsCacheMs;
   // 取り直したときだけ1回出す（origin ごと。あとから「robots.txt が何を返していたか」を確かめられるように）
   const how = { ok: `HTTP ${entry.status}（規則${entry.rules.length}件）`, none: `HTTP ${entry.status}（無い＝制限なし）`,
     blocked: `HTTP ${entry.status}（断られている。この origin には取りに行かない）`,
-    unreachable: `届かない: ${entry.why}（${Math.round(entry.ttl / 60_000)}分見送る）` }[entry.kind];
+    unreachable: `届かない: ${entry.why}（${Math.round(entry.ttl / 60_000)}分見送る）`,
+    maintenance: `${entry.why}（${Math.round(entry.ttl / 60_000)}分見送る）` }[entry.kind];
   (entry.kind === "ok" || entry.kind === "none" ? console.log : console.warn)(`[robots] ${origin} ${how}`);
   robotsCache.set(origin, entry);
   return entry;
@@ -137,6 +143,9 @@ export async function politeFetch(url, opts = {}) {
   }
   if (robots.kind === "unreachable") {
     return { ok: false, transient: true, status: null, skippedReason: "robots.txt に届かない（相手先の障害の可能性）", robotsError: robots.why };
+  }
+  if (robots.kind === "maintenance") {
+    return { ok: false, transient: true, maintenance: robots.title, status: null, skippedReason: `相手先のサイトがメンテナンス中（「${robots.title}」）` };
   }
   if (!isAllowed(robots.rules, u.pathname)) {
     return { ok: false, skippedReason: `robots.txt で Disallow: ${u.pathname}` };
