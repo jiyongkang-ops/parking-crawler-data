@@ -1,5 +1,5 @@
 {
- "at": "2026-10-24T09:29:37.019Z",
+ "at": "2026-10-24T21:29:23.948Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -13,15 +13,16 @@
    "noName": 0,
    "statusCounts": {
     "200": 200
-   }
+   },
+   "lastOkAt": "2026-10-24T21:29:23.948Z"
   },
   {
    "op": "anabuki",
    "label": "あなぶきパーク",
    "ok": false,
    "n": 0,
-   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（HTTP 429）",
-   "kind": "rate",
+   "reason": "相手先のサイトがメンテナンス中（「メンテナンス中 | Under maintenance」）のでこの回は見送り（原因不明）",
+   "kind": "maintenance",
    "tried": 0,
    "noName": 0,
    "statusCounts": {},
@@ -35,7 +36,8 @@
    "reason": null,
    "statusCounts": {
     "200": 1
-   }
+   },
+   "lastOkAt": "2026-10-24T21:29:23.948Z"
   },
   {
    "op": "kintetsu",
@@ -59,7 +61,8 @@
    "noName": 0,
    "statusCounts": {
     "200": 109
-   }
+   },
+   "lastOkAt": "2026-10-24T21:29:23.948Z"
   },
   {
    "op": "seiwapark",
@@ -71,7 +74,8 @@
    "noName": 0,
    "statusCounts": {
     "200": 344
-   }
+   },
+   "lastOkAt": "2026-10-24T21:29:23.948Z"
   },
   {
    "op": "systempark",
@@ -83,7 +87,8 @@
    "noName": 0,
    "statusCounts": {
     "200": 289
-   }
+   },
+   "lastOkAt": "2026-10-24T21:29:23.948Z"
   },
   {
    "op": "comnet",
@@ -95,7 +100,8 @@
    "noName": 0,
    "statusCounts": {
     "200": 196
-   }
+   },
+   "lastOkAt": "2026-10-24T21:29:23.948Z"
   },
   {
    "op": "keio",
@@ -107,7 +113,8 @@
    "noName": 0,
    "statusCounts": {
     "200": 69
-   }
+   },
+   "lastOkAt": "2026-10-24T21:29:23.948Z"
   },
   {
    "op": "odakyu",
