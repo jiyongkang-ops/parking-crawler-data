@@ -14,7 +14,8 @@
    "noName": 0,
    "statusCounts": {
     "403": 16
-   }
+   },
+   "lastOkAt": "2026-10-21T07:53:45.908Z"
   },
   {
    "op": "thepark",
@@ -22,7 +23,8 @@
    "ok": false,
    "n": 0,
    "reason": "robots.txt が HTTP 403（断られている）",
-   "kind": "blocked"
+   "kind": "blocked",
+   "lastOkAt": "2026-10-22T01:09:51.053Z"
   }
  ]
 }
