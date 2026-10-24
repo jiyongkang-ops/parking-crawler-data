@@ -1,5 +1,5 @@
 {
- "at": "2026-10-24T01:09:51.588Z",
+ "at": "2026-10-24T07:09:28.135Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -8,13 +8,12 @@
    "label": "名鉄協商",
    "ok": false,
    "n": 0,
-   "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は fetch failed（UND_ERR_CONNECT_TIMEOUT））",
+   "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は HTTP 403）",
    "kind": "blocked",
    "tried": 16,
    "noName": 0,
    "statusCounts": {
-    "403": 14,
-    "network": 2
+    "403": 16
    }
   },
   {
