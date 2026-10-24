@@ -1,5 +1,5 @@
 {
- "at": "2026-10-24T05:41:24.014Z",
+ "at": "2026-10-24T17:41:27.997Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet",
  "targets": [
@@ -21,7 +21,8 @@
    "noName": 0,
    "statusCounts": {
     "200": 400
-   }
+   },
+   "lastOkAt": "2026-10-24T17:41:27.997Z"
   },
   {
    "op": "parknet",
