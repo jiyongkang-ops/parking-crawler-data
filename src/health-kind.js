@@ -9,6 +9,8 @@
 //   blocked    … 断られた（401・403。robots.txt が 401・403、robots.txt の Disallow で見送った分も含む）
 //   rate       … 多すぎると言われた（429。robots.txt が 429 のときも）
 //   network    … 届かない（通信の失敗・タイムアウト・5xx・robots.txt に届かない・タイムズの「混み合っております」のページ）
+//   maintenance … 相手先のサイトがメンテナンス中（題名が「メンテナンス」「一時停止」など。403・429 で返すサイトもある。
+//                src/maintenance.js。2026-10-24 名鉄協商・近鉄不動産・ザ・パーク・あなぶきが断られた・多すぎると取り違えられていた）
 //   parse      … 取れたが読めない（解析の失敗・名前が読めない・0件・404 などで物件として読めなかった）
 //   stale-list … 一覧を作り直せていない（前の一覧で回している・一覧が0件・一覧が作れない）
 //   mass-gone  … 閉鎖が一斉に出たので止めた（先方のサイトの作り替え・保守の見込み）
@@ -20,7 +22,7 @@
 // statusCounts … 送った本ページ（詳細・一覧のページ）の HTTP の状態コードごとの件数（例 {"200":880,"403":3}）。
 //   応答が無かった通信の失敗・タイムアウトは "network" に数える。robots.txt で見送った分（送っていない）は数えない
 
-export const KINDS = ["paused", "blocked", "rate", "network", "parse", "stale-list", "mass-gone"];
+export const KINDS = ["paused", "blocked", "rate", "network", "maintenance", "parse", "stale-list", "mass-gone"];
 
 /** 状態コード → 失敗の種類。2xx なら null。
  *  404・410（閉鎖）・転送などのほかの答えは、先方は答えたが物件として読めなかったので parse */
@@ -35,6 +37,7 @@ export function kindOfStatus(status) {
 /** politeFetch の結果 → 失敗の種類。res が無い（例外）は通信の失敗。取れた（2xx）なら null */
 export function kindOfFetch(res) {
   if (!res) return "network";
+  if (res.maintenance) return "maintenance";                                 // robots.txt の答えがメンテナンスの告知
   if (res.blocked) return "blocked";                                         // robots.txt が 401・403
   if (res.transient) return /HTTP 429\b/.test(res.robotsError ?? "") ? "rate" : "network";   // robots.txt に届かない
   if (res.skippedReason) return "blocked";                                   // robots.txt の Disallow（送っていない）
@@ -45,6 +48,7 @@ export function kindOfFetch(res) {
 export function kindOfText(msg) {
   const s = String(msg ?? "");
   if (/^停止中/.test(s)) return "paused";
+  if (/メンテナンス中/.test(s)) return "maintenance";
   if (/robots\.txt が HTTP 40[13]|断られている|Disallow|HTTP 40[13]\b/.test(s)) return "blocked";
   if (/HTTP 429\b/.test(s)) return "rate";
   if (/robots\.txt に届かない|fetch failed|TIMEOUT|timed? ?out|aborted|ECONN|ENOTFOUND|EAI_AGAIN|UND_ERR|socket|HTTP 5\d\d\b/i.test(s)) return "network";
@@ -73,4 +77,22 @@ export function countStatus(counter, res) {
   if (!res) { counter.add("network"); return; }
   if (res.blocked || res.transient || res.skippedReason) return;
   counter.add(String(res.status));
+}
+
+/** 事業者ごとの「最後に取れた時刻」（lastOkAt）を前の回の health から引き継ぐ。取れた行は今回の時刻、取れなかった行は前の回の値。
+ *  studio-index が一覧型（ザ・パーク・NPC など、毎回全件を取る社）の「最後に確かめた日」に使う。
+ *  以前は直近の1回が失敗すると全件を料金の記録の日に戻していて、ザ・パークがメンテナンスに入った 10/23 の翌朝に
+ *  約3,400件が一斉に「60日より前」の印になった（2026-10-24 週次の見直し）。
+ *  同じ事業者が1つのファイルに何行もある（NPC全国 1/11 …）ので、op と label の組で引き継ぐ */
+export function withLastOk(rows, prev, at) {
+  const key = (t) => `${t.op}\t${t.label}`;
+  const before = new Map();
+  for (const t of prev?.targets ?? []) {
+    const v = t.ok ? (prev.at ?? null) : (t.lastOkAt ?? null);
+    if (v) before.set(key(t), v);
+  }
+  return rows.map((t) => {
+    const lastOkAt = t.ok ? at : before.get(key(t)) ?? null;
+    return lastOkAt ? { ...t, lastOkAt } : t;
+  });
 }

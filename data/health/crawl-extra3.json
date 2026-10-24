@@ -24,7 +24,8 @@
    "kind": "rate",
    "tried": 0,
    "noName": 0,
-   "statusCounts": {}
+   "statusCounts": {},
+   "lastOkAt": "2026-10-21T10:07:43.409Z"
   },
   {
    "op": "mden",
@@ -45,7 +46,8 @@
    "kind": "blocked",
    "tried": 0,
    "noName": 0,
-   "statusCounts": {}
+   "statusCounts": {},
+   "lastOkAt": "2026-10-21T10:07:43.409Z"
   },
   {
    "op": "tokyulifia",

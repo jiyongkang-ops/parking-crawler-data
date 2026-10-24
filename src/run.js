@@ -62,7 +62,8 @@ import { flushCrawlStates } from "./repark-enumerate.js";
 import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
 import { gapFilled } from "./record-gap.js";
-import { kindOfFetch, kindOfText, dominantKind, makeCounter, countStatus } from "./health-kind.js";
+import { kindOfFetch, kindOfText, dominantKind, makeCounter, countStatus, withLastOk } from "./health-kind.js";
+import { markMaintenance } from "./maintenance.js";
 
 const STATE = {
   reparkSitemapCache: "data/repark-sitemap.xml",
@@ -230,7 +231,16 @@ const statusOf = (res) => { const c = makeCounter(); countStatus(c, res); return
 const listKind = (msg) => kindOfText(msg) ?? "stale-list";
 function writeHealth() {
   const name = healthName();
-  writeHealthFile(name, { at: new Date().toISOString(), workflow: name, only: process.env.CRAWL_ONLY || null, targets: health });
+  const at = new Date().toISOString();
+  let prev = null;
+  try { prev = JSON.parse(fs.readFileSync(`data/health/${name}.json`, "utf8")); } catch { /* 初回・壊れている */ }
+  writeHealthFile(name, { at, workflow: name, only: process.env.CRAWL_ONLY || null, targets: withLastOk(health, prev, at) });
+}
+/** 巡回の最後: 失敗した事業者の入口を1回ずつ見てメンテナンスを見分けてから、health を書く */
+async function finishHealth() {
+  try { await markMaintenance(health, (u) => politeFetch(u)); }
+  catch (e) { console.warn(`[health] メンテナンスの確認ができませんでした: ${e?.message ?? e}`); }
+  writeHealth();
 }
 function healthName() {
   return (process.env.HEALTH_NAME || process.env.GITHUB_WORKFLOW || process.env.CRAWL_ONLY || "local").replace(/[^\w.-]+/g, "_");
@@ -849,4 +859,4 @@ for (const [sig, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
   });
 }
 
-main().then(writeHealth).catch((e) => { console.error(e); onFailure(String(e?.message ?? e)); process.exit(1); });
+main().then(finishHealth).catch((e) => { console.error(e); onFailure(String(e?.message ?? e)); process.exit(1); });

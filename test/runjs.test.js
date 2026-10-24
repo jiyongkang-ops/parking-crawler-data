@@ -213,7 +213,7 @@ test("通しの巡回: 混み合いのページが1件だけなら止めず、�
 // ==== (2) health の種類（kind）と状態コードの件数（statusCounts） ====
 
 test("health の種類: 状態コード・取得の結果・文から決める", () => {
-  assert.deepEqual(KINDS, ["paused", "blocked", "rate", "network", "parse", "stale-list", "mass-gone"]);
+  assert.deepEqual(KINDS, ["paused", "blocked", "rate", "network", "maintenance", "parse", "stale-list", "mass-gone"]);
   assert.deepEqual([200, 204, 301, 302, 400, 401, 403, 404, 410, 429, 500, 502, 503].map(kindOfStatus),
     [null, null, "parse", "parse", "parse", "blocked", "blocked", "parse", "parse", "rate", "network", "network", "network"]);
   assert.equal(kindOfFetch(null), "network");
