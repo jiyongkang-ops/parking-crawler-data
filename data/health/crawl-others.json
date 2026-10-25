@@ -1,5 +1,5 @@
 {
- "at": "2026-10-24T13:10:07.107Z",
+ "at": "2026-10-25T01:10:05.596Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -8,13 +8,13 @@
    "label": "名鉄協商",
    "ok": false,
    "n": 0,
-   "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は The operation was aborted due to timeout（TIMEOUT））",
+   "reason": "相手先の不調で打ち切り（8件続けて取れず。最後は fetch failed（UND_ERR_CONNECT_TIMEOUT））",
    "kind": "blocked",
    "tried": 16,
    "noName": 0,
    "statusCounts": {
-    "403": 15,
-    "network": 1
+    "403": 14,
+    "network": 2
    },
    "lastOkAt": "2026-10-21T07:53:45.908Z"
   },
