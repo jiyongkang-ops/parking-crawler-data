@@ -1,5 +1,5 @@
 {
- "at": "2026-10-26T07:10:12.554Z",
+ "at": "2026-10-26T13:10:30.064Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -21,11 +21,13 @@
   {
    "op": "thepark",
    "label": "ザ・パーク",
-   "ok": false,
-   "n": 0,
-   "reason": "相手先のサイトがメンテナンス中（「メンテナンスのお知らせ」）",
-   "kind": "maintenance",
-   "lastOkAt": "2026-10-22T01:09:51.053Z"
+   "ok": true,
+   "n": 3495,
+   "reason": null,
+   "statusCounts": {
+    "200": 1
+   },
+   "lastOkAt": "2026-10-26T13:10:30.064Z"
   }
  ]
 }
