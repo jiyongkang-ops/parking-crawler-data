@@ -1,5 +1,5 @@
 {
- "at": "2026-10-26T05:38:32.205Z",
+ "at": "2026-10-26T11:38:41.696Z",
  "workflow": "crawl-times",
  "only": "times",
  "targets": [
@@ -7,14 +7,15 @@
    "op": "times",
    "label": "タイムズ",
    "ok": true,
-   "n": 831,
+   "n": 506,
    "reason": null,
-   "tried": 831,
+   "tried": 538,
    "noName": 0,
    "statusCounts": {
-    "200": 831
+    "200": 506,
+    "network": 32
    },
-   "lastOkAt": "2026-10-26T05:38:32.205Z"
+   "lastOkAt": "2026-10-26T11:38:41.696Z"
   }
  ]
 }
