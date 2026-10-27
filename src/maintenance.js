@@ -4,8 +4,11 @@
 // メンテナンスの告知ページを 403・429 で返すサイトがあり、状態コードだけでは断られたのと区別できない。
 // 断られたと取り違えると、朝のお知らせで「断られている」の欄に並び、止める判断を誤るおそれがある。
 //
-// 見分け方は**ページの題名（<title>・無ければ最初の見出し）だけ**で行う。普段のトップページにも
-// 「システムメンテナンスのお知らせ（10/30）」のような見出しが本文に並ぶことはよくあるため、本文は見ない。
+// 見分け方は**ページの題名（<title>・無ければ最初の見出し）**と、**本文の決まった言い回し**（maintenanceBody）。
+// 普段のトップページにも「システムメンテナンスのお知らせ（10/30）」のような見出しが本文に並ぶことはよくあるため、
+// 本文は「ただいまメンテナンス中です」「サービスを停止しております」のような、止まっている最中にしか書かない言い回しだけを見る。
+// 2026-10-27: パークネットは題名を「パークネット | 新明和工業株式会社」のまま、本文だけを「ただいまメンテナンス中です」に
+// 差し替えていて、題名だけでは見分けられず「0件（parse）」と記録されていた（10/22〜）。
 
 const RE = /メンテナンス|maintenance|一時停止|一時休止|サービス停止|システム停止|臨時休止|ただいま工事中/i;
 
@@ -17,6 +20,23 @@ export function maintenanceTitle(html) {
   const h1 = strip(s.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "");
   const head = title || h1;
   return head && RE.test(head) ? head.slice(0, 60) : null;
+}
+
+// 止まっている最中にしか書かない言い回し。「メンテナンスのお知らせ」「メンテナンス予定」のような予告は入れない
+const BODY_RE = /ただいまメンテナンス中です|現在メンテナンス中です|メンテナンス中のため(?:現在)?(?:この)?(?:サイト|サービス|ページ)|(?:サービス|サイト|ウェブサイト|Webサイト)を(?:一時)?停止(?:して)?(?:おります|いたします|しています)|(?:サイト|サービス)は(?:現在)?ご利用いただけません|temporarily unavailable due to (?:system )?maintenance|under maintenance/i;
+
+/** 本文（スクリプト・スタイル・タグを除いた文字）に、止まっている最中の言い回しがあれば、その言い回しを返す。違えば null */
+export function maintenanceBody(html) {
+  const s = String(html ?? "").slice(0, 60000)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/\s+/g, " ");
+  const m = s.match(BODY_RE);
+  return m ? m[0].slice(0, 60) : null;
+}
+
+/** 題名か本文がメンテナンスの告知なら、その言葉を返す（題名を先に見る）。違えば null */
+export function maintenanceOf(html) {
+  return maintenanceTitle(html) ?? maintenanceBody(html);
 }
 
 /** 事業者のサイトの入口（トップページ）。巡回で失敗した事業者のメンテナンスを確かめるときに、ここを1回だけ見る */
@@ -39,8 +59,11 @@ const CHECK = new Set(["blocked", "rate", "parse"]);
 
 /** health の行のうち、失敗した事業者の入口を1回ずつ見て、メンテナンスなら kind と reason を書き換える。
  *  fetchTop(url) は politeFetch（robots.txt と間隔を守る）。同じ入口は1回の巡回で1回だけ見る。
- *  入口を見られなかった（robots.txt で断られた・届かない）ときは元の行のまま */
-export async function markMaintenance(rows, fetchTop) {
+ *  robots.txt が 401・403 で入口を見られなかったときだけ、fetchTopDirect(url) で入口を1回だけ見る
+ *  （RFC 9309 2.3.1.3: robots.txt が 4xx のときはどのページを取ってもよい。ふだんは控えめに「断られた」と同じ扱いに
+ *  しているが、メンテナンスかどうかを確かめる入口の1回だけは見る。2026-10-27 本人了承「全部進めて」）。
+ *  止めている社（paused）は CHECK に入らないので、ここには来ない。届かないときは元の行のまま */
+export async function markMaintenance(rows, fetchTop, fetchTopDirect = null) {
   const seen = new Map();
   // 0件（parse）でも、送ったページの答えが閉鎖（404・410）中心なら閉鎖の扱いでメンテナンスではない。
   // 見に行くのは「ページは取れた（200）のに読めない」とき（パークネットは 200 の空のページを返していた）
@@ -54,8 +77,9 @@ export async function markMaintenance(rows, fetchTop) {
     if (!seen.has(origin)) {
       let title = null;
       try {
-        const res = await fetchTop(`${origin}/`);
-        title = res?.maintenance ?? (res?.html ? maintenanceTitle(res.html) : null);
+        let res = await fetchTop(`${origin}/`);
+        if (res?.blocked && (res.status === 401 || res.status === 403) && fetchTopDirect) res = await fetchTopDirect(`${origin}/`);
+        title = res?.maintenance ?? (res?.html ? maintenanceOf(res.html) : null);
       } catch { /* 見られなければ元のまま */ }
       seen.set(origin, title);
     }

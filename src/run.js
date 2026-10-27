@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
-import { politeFetch, sleep, fetchErrorText } from "./polite-fetch.js";
+import { politeFetch, sleep, fetchErrorText, fetchOnceIgnoringRobots } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
@@ -64,6 +64,7 @@ import { politeFetch as pf2 } from "./polite-fetch.js";
 import { gapFilled } from "./record-gap.js";
 import { kindOfFetch, kindOfText, dominantKind, makeCounter, countStatus, withLastOk } from "./health-kind.js";
 import { markMaintenance } from "./maintenance.js";
+import { holdOf, holdReason } from "./hold.js";
 
 const STATE = {
   reparkSitemapCache: "data/repark-sitemap.xml",
@@ -238,7 +239,7 @@ function writeHealth() {
 }
 /** 巡回の最後: 失敗した事業者の入口を1回ずつ見てメンテナンスを見分けてから、health を書く */
 async function finishHealth() {
-  try { await markMaintenance(health, (u) => politeFetch(u)); }
+  try { await markMaintenance(health, (u) => politeFetch(u), (u) => fetchOnceIgnoringRobots(u)); }
   catch (e) { console.warn(`[health] メンテナンスの確認ができませんでした: ${e?.message ?? e}`); }
   writeHealth();
 }
@@ -490,12 +491,21 @@ async function main() {
     // ---- 列挙 → 古い順に少しずつ詳細を取る（表にある全社で共通） ----
     const rolling = ROLLING_SITES.find((x) => x.op === t.operator);
     if (rolling && t.mode === "nationwide") {
+      // 保留（config の hold。src/hold.js）。様子見の1件だけ取り、一覧は作り直さない
+      // CRAWL_HOLD=off で保留を効かせない（通しの巡回のテストは本物の設定を読むので、日付で結果が変わらないようにする）
+      // CRAWL_TODAY（YYYY-MM-DD）は、その日として期限を読む（テスト用）
+      const hold = process.env.CRAWL_HOLD === "off" ? null
+        : holdOf(t, process.env.CRAWL_TODAY ? new Date(`${process.env.CRAWL_TODAY}T03:00:00Z`) : new Date());
+      if (hold) console.log(`[保留] ${rolling.label}: ${hold.until}まで（${hold.reason}）。様子見の1件だけ取る`);
       let ids;
       const prevIds = readPrevList(rolling);   // 作り直す前の一覧（作り直すと上書きされるので先に読む）
       const listStartedAt = Date.now();
       try {
-        ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: 7 * 864e5 });
-      } catch (e) { const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`); hp(rolling.op, rolling.label, false, 0, `一覧: ${m}`, { kind: listKind(m) }); continue; }
+        ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: hold ? 3650 * 864e5 : 7 * 864e5 });
+      } catch (e) {
+        const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`);
+        hp(rolling.op, rolling.label, false, 0, hold ? holdReason(hold, `一覧: ${m}`) : `一覧: ${m}`, { kind: hold ? "maintenance" : listKind(m) }); continue;
+      }
       const state = loadCrawlState(rolling.stateFile);
       // 一覧に新しく載った物件のうち、404で寝かせていたものを起こす（復活している見込みがあるため）。
       // 一覧が変わっても、前から載っている寝かせた物件は起こさない（寝かせる期限は物件ごとに30〜60日。goneMsOf）
@@ -570,7 +580,7 @@ async function main() {
       let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0;
       let out = false;
       // 相手先の不調（5xx・429・403・タイムアウト・混み合いのページ）が続いたら、この回は打ち切る（makeBreaker の説明）
-      const breakerN = Number(process.env.ROLLING_BREAKER) || 8;
+      const breakerN = hold ? 1 : Number(process.env.ROLLING_BREAKER) || 8;
       const breaker = makeBreaker(breakerN);
       let broke = null, retried = 0, brokeKind = null;
       // health に足す数（src/health-kind.js）。statusCounts … 送った本ページの状態コードごとの件数。
@@ -637,6 +647,9 @@ async function main() {
           const again = recordTransient(state, id, at, { hours: !!rolling.hours });
           if (again) retried++;
           console.error(`  [error] ${id}: ${why}${again ? "（次の回に取り直す）" : ""}`);
+          // 保留中は様子見の1件で止める（前の回も取れなかった物件でも数える。数えないと、何日も失敗が続いた社では
+          // 取り直しの物件ばかりが選ばれて、保留中なのに何件も送ってしまう）
+          if (hold) { broke = `様子見の1件が取れず（${why}）`; brokeKind = kind; console.warn(`  [保留] ${rolling.label}: ${broke}。この回は止める`); return true; }
           // 前の回も取れなかった物件（取り直しの2回目）は数えない。壊れたページは取り直しで古い順の先頭に
           // 並ぶので、数えると先方が元気でも打ち切ってしまう
           if (!again) return false;
@@ -720,11 +733,15 @@ async function main() {
       // 7日止まっても health は成功のままだった）
       // kind（失敗の種類。src/health-kind.js）は reason と同じ順で決める: 打ち切った理由 → 一覧の問題 → この回の失敗でいちばん多い種類
       const listProblem = !!ids.staleReason || ids.length === 0;
-      hp(rolling.op, rolling.label, !broke && !listProblem && (tried === 0 || got > 0), got,
-        broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
-          ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null) ?? ids.listNote ?? null,
+      const okRun = !broke && !listProblem && (tried === 0 || got > 0);
+      const why = broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
+        ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null) ?? ids.listNote ?? null;
+      // 保留中で取れなかった回は「メンテナンス」。取れた回はいつもどおり（保留は期限まで残るが、取れているあいだは効かない）
+      const heldFail = !!hold && !okRun;
+      hp(rolling.op, rolling.label, okRun, got, heldFail ? holdReason(hold, why) : why,
         { tried, noName, ...(busy ? { busy } : {}), statusCounts: statusCounts.toJSON(),
-          kind: brokeKind ?? (listProblem ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse",
+          kind: heldFail ? "maintenance" : brokeKind ?? (listProblem ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse",
+          ...(hold ? { hold: hold.until } : {}),
           ...(massRestored ? { restored: massRestored } : {}),
           ...(ids.listInfo ? { list: ids.listInfo } : {}) });
       continue;

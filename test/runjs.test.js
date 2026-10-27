@@ -51,7 +51,7 @@ globalThis.fetch = async function stub(url, opts) {
 `);
   const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT, "src/run.js")], {
     cwd: dir, encoding: "utf8", timeout: 60_000,
-    env: { ...process.env, HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl", ...env },
+    env: { ...process.env, CRAWL_HOLD: "off", HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl", ...env },
   });
   const log = `${p.stdout}\n${p.stderr}`;
   assert.equal(p.status, status, log);
@@ -245,6 +245,8 @@ test("health の種類: 状態コード・取得の結果・文から決める",
 });
 
 /** タイムズの12件を、本ページの答え route で通しに巡回した health の1行 */
+/** 入口（トップページ）を除いたページ。robots.txt が 401・403 の社は、メンテナンスかを確かめる入口だけ1回見る */
+const notTop = (urls) => urls.filter((u) => !/^https?:\/\/[^/]+\/$/.test(u));
 const timesHealth = (route, robots = ROBOTS_OK) => {
   const { files } = timesFiles(12);
   return runCrawl({ env: { CRAWL_ONLY: "times" }, files, routes: { "*robots": robots, "*": route } });
@@ -263,7 +265,9 @@ test("通しの巡回の health: 403 が続いて打ち切ったら blocked、42
   assert.deepEqual([rr.detail.length, rr.health[0].kind, rr.health[0].statusCounts], [0, "rate", {}]);
   assert.match(rr.health[0].reason, /robots\.txt に届かない.*HTTP 429/);
   const rb = timesHealth({ status: 200, body: "x" }, { status: 401 });
-  assert.deepEqual([rb.detail.length, rb.health[0].kind], [0, "blocked"]);
+  // 物件のページは送らない。メンテナンスかを確かめる入口（トップページ）だけ1回見る（2026-10-27）
+  assert.deepEqual([notTop(rb.detail).length, rb.health[0].kind], [0, "blocked"]);
+  assert.deepEqual(rb.detail.filter((u) => !notTop([u]).length), ["https://times-info.net/"]);
 });
 
 test("通しの巡回の health: 取れたが1件も読めなければ parse。取れた回は kind なしで statusCounts だけ", () => {
@@ -299,7 +303,7 @@ test("通しの巡回の health: 一覧の問題は stale-list（0件の一覧�
   assert.deepEqual([p.health[0].kind], ["parse"]);
   // GSパーク（一覧型）の一覧も同じ。robots.txt が 403 なら blocked
   const g = runCrawl({ env: { CRAWL_ONLY: "gspark" }, routes: { "*robots": { status: 403 } } });
-  assert.deepEqual([g.detail.length, g.health[0].kind], [0, "blocked"]);
+  assert.deepEqual([notTop(g.detail).length, g.health[0].kind], [0, "blocked"]);
 });
 
 test("通しの巡回の health: 止めている社は paused、1件だけ取る社（エムデン・ザ・パーク）も種類と状態コードを付ける", () => {
