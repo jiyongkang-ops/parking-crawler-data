@@ -1,5 +1,5 @@
 {
- "at": "2026-10-26T21:30:21.902Z",
+ "at": "2026-10-27T04:37:22.601Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -14,18 +14,15 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-10-26T21:30:21.902Z"
+   "lastOkAt": "2026-10-27T04:37:22.601Z"
   },
   {
    "op": "anabuki",
    "label": "あなぶきパーク",
    "ok": false,
    "n": 0,
-   "reason": "相手先のサイトがメンテナンス中（「メンテナンス中 | Under maintenance」）のでこの回は見送り（原因不明）",
+   "reason": "一覧: anabuki 一覧: 相手先のサイトがメンテナンス中（「メンテナンス中 | Under maintenance」）",
    "kind": "maintenance",
-   "tried": 0,
-   "noName": 0,
-   "statusCounts": {},
    "lastOkAt": "2026-10-21T10:07:43.409Z"
   },
   {
@@ -37,18 +34,19 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-10-26T21:30:21.902Z"
+   "lastOkAt": "2026-10-27T04:37:22.601Z"
   },
   {
    "op": "kintetsu",
    "label": "近鉄不動産",
    "ok": false,
    "n": 0,
-   "reason": "robots.txt が HTTP 403（断られている）。この回は打ち切り",
-   "kind": "blocked",
+   "reason": "保留中（2026-11-24まで）: 2026-10-21 から相手先が緊急メンテナンス中（10/27 確認）。様子見の1件も取れなかった（robots.txt が HTTP 403（断られている）。この回は打ち切り）",
+   "kind": "maintenance",
    "tried": 0,
    "noName": 0,
    "statusCounts": {},
+   "hold": "2026-11-24",
    "lastOkAt": "2026-10-21T10:07:43.409Z"
   },
   {
@@ -62,7 +60,7 @@
    "statusCounts": {
     "200": 109
    },
-   "lastOkAt": "2026-10-26T21:30:21.902Z"
+   "lastOkAt": "2026-10-27T04:37:22.601Z"
   },
   {
    "op": "seiwapark",
@@ -75,7 +73,7 @@
    "statusCounts": {
     "200": 344
    },
-   "lastOkAt": "2026-10-26T21:30:21.902Z"
+   "lastOkAt": "2026-10-27T04:37:22.601Z"
   },
   {
    "op": "systempark",
@@ -88,7 +86,7 @@
    "statusCounts": {
     "200": 289
    },
-   "lastOkAt": "2026-10-26T21:30:21.902Z"
+   "lastOkAt": "2026-10-27T04:37:22.601Z"
   },
   {
    "op": "comnet",
@@ -101,7 +99,7 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-10-26T21:30:21.902Z"
+   "lastOkAt": "2026-10-27T04:37:22.601Z"
   },
   {
    "op": "keio",
@@ -114,7 +112,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-10-26T21:30:21.902Z"
+   "lastOkAt": "2026-10-27T04:37:22.601Z"
   },
   {
    "op": "odakyu",
