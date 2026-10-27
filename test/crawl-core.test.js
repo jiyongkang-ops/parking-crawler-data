@@ -737,7 +737,7 @@ test("通しの巡回: 保留中の社は様子見の1件だけ取り、取れ�
   assert.equal(r.health[0].ok, false);
   assert.equal(r.health[0].kind, "maintenance");
   assert.equal(r.health[0].hold, "2026-11-24");
-  assert.match(r.health[0].reason, /^保留中（2026-11-24まで）: .*一時停止.*様子見の1件も取れなかった/);
+  assert.match(r.health[0].reason, /^保留中（2026-11-24まで）: .*一時停止.*。様子見の1件も取れなかった（HTTP 403）$/);
   assert.ok(ids.length === 20);
 });
 
