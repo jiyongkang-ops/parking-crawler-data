@@ -478,7 +478,7 @@ globalThis.fetch = async (url) => {
 `);
   const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT, "src/run.js")], {
     cwd: dir, encoding: "utf8", timeout: 60_000,
-    env: { ...process.env, HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl",
+    env: { ...process.env, CRAWL_HOLD: "off", HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl",
       CRAWL_ONLY: "repark", ...env },
   });
   const log = `${p.stdout}\n${p.stderr}`;

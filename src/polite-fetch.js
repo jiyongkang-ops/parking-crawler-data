@@ -6,7 +6,7 @@
 // - ページキャッシュで短時間の再取得を防ぐ
 
 import { config } from "../config.js";
-import { maintenanceTitle } from "./maintenance.js";
+import { maintenanceOf } from "./maintenance.js";
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -89,7 +89,7 @@ async function getRobots(origin) {
     const st = res.status;
     // 断られた・多すぎる・届かないの答えでも、中身がメンテナンスの告知なら一時的な見送りにする。
     // メンテナンスの告知を 403・429 で返すサイトがある（2026-10-22〜 ザ・パーク 403・あなぶき 429・近鉄不動産 403）
-    const mt = !res.ok && (st === 401 || st === 403 || st === 429 || st >= 500) ? maintenanceTitle(await res.text().catch(() => "")) : null;
+    const mt = !res.ok && (st === 401 || st === 403 || st === 429 || st >= 500) ? maintenanceOf(await res.text().catch(() => "")) : null;
     if (mt) entry = { kind: "maintenance", rules: [], status: st, why: `メンテナンス中（「${mt}」・HTTP ${st}）`, title: mt };
     else if (res.ok) {
       const txt = await res.text();
@@ -165,6 +165,15 @@ export async function politeFetch(url, opts = {}) {
   });
   const html = await res.text();
   return { ok: res.ok, status: res.status, html, location: res.headers.get("location") };
+}
+
+/** robots.txt を見ずに、1ページだけ取る。メンテナンスの確かめ（markMaintenance）で、robots.txt が 401・403 だった社の
+ *  入口（トップページ）を1回だけ見るためだけに使う（RFC 9309 2.3.1.3 では 4xx のときは取ってよい）。間隔は守る */
+export async function fetchOnceIgnoringRobots(url) {
+  await pace(config.minDelayMs);
+  const res = await fetch(url, { headers: { "User-Agent": config.userAgent, "Accept-Language": "ja,en;q=0.8" },
+    signal: AbortSignal.timeout(config.timeoutMs), redirect: "follow" });
+  return { ok: res.ok, status: res.status, html: await res.text().catch(() => "") };
 }
 
 /** 取れなかった理由の短い文。robots.txt で見送ったときは status が null なので、「HTTP null」ではなく見送りの理由を出す */

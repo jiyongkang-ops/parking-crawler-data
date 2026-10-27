@@ -38,7 +38,12 @@ export const config = {
 
     // 名鉄協商 — 全国 約2,553件（sitemapはPC/SP両方を含むため実数は半分）。
     // ※別ワークフロー(crawl-others.yml, CRAWL_ONLY=mkp)で実行。
-    { operator: "mkp", mode: "nationwide", label: "名鉄協商全国" },
+    // hold … 保留（src/hold.js）。人が見て相手先のサイトの一時停止を確かめた社。期限まで様子見の1件だけ取り、取れなければ
+    //   「メンテナンス」と記録する（「断られている」にしない）。期限を過ぎたら自動で外れる。取れるようになったら消してよい
+    //   名鉄協商: 2026-10-21 から mkp.jp が「セキュリティ対策のため Webサイトを一時停止。再開まで日数を要する見込み」（10/27 に確かめた）。
+    //   GitHub のサーバーには告知ではなく素の 403・タイムアウトが返り、巡回では見分けられない
+    { operator: "mkp", mode: "nationwide", label: "名鉄協商全国",
+      hold: { until: "2026-11-24", reason: "2026-10-21 から相手先が Webサイトを一時停止（セキュリティ対策・10/27 確認）" } },
 
     // ナビパーク(スターツアメニティー) — エリア階層を辿って列挙・ローリング巡回。
     // ※別ワークフロー(crawl-navipark.yml, CRAWL_ONLY=navipark)で実行。
@@ -64,7 +69,10 @@ export const config = {
     { operator: "tamapark", mode: "nationwide", label: "タマパーク" },
     { operator: "anabuki", mode: "nationwide", label: "あなぶきパーク全国" },
     { operator: "mden", mode: "nationwide", label: "エムデン・テクノパーキング" },
-    { operator: "kintetsu", mode: "nationwide", label: "近鉄不動産" },
+    // 近鉄不動産: 2026-10-21 から parking.kintetsu-re.co.jp が「緊急メンテナンスのお知らせ」（10/27 に確かめた）。
+    //   GitHub のサーバーには robots.txt が素の 403 で返る
+    { operator: "kintetsu", mode: "nationwide", label: "近鉄不動産",
+      hold: { until: "2026-11-24", reason: "2026-10-21 から相手先が緊急メンテナンス中（10/27 確認）" } },
     { operator: "tokyulifia", mode: "nationwide", label: "東急ライフィア" },
     { operator: "seiwapark", mode: "nationwide", label: "セイワパーク" },
     { operator: "systempark", mode: "nationwide", label: "システムパーク（仙台）" },

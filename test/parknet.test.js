@@ -303,7 +303,7 @@ globalThis.fetch = async (url) => {
 `);
   const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT, "src/run.js")], {
     cwd: dir, encoding: "utf8", timeout: 60_000,
-    env: { ...process.env, CRAWL_ONLY: "parknet", HEALTH_NAME: "test", OUT_FILE: "data/prices-test.jsonl" },
+    env: { ...process.env, CRAWL_HOLD: "off", CRAWL_ONLY: "parknet", HEALTH_NAME: "test", OUT_FILE: "data/prices-test.jsonl" },
   });
   const log = `${p.stdout}\n${p.stderr}`;
   assert.equal(p.status, 0, log);
@@ -356,7 +356,8 @@ test("通しの巡回: robots.txt が 403 なら市区のページは1つも送�
   const files = { "data/parknet-cities.txt": "01\t札幌市中央区\n13\t台東区\n", "data/parknet-cities.txt.fetched": new Date().toISOString(),
     "data/prices-test.jsonl": "" };
   const { calls, health, rows } = runCrawl({ routes, files });
-  assert.deepEqual(calls, [ROBOTS]);
+  // 市区のページは送らない。メンテナンスかを確かめる入口（トップページ）だけ1回見る（2026-10-27）
+  assert.deepEqual(calls, [ROBOTS, "https://parknet.shinmaywa.co.jp/"]);
   assert.equal(rows.length, 0);
   const h = health.find((t) => t.op === "parknet");
   assert.equal(h.ok, false);
