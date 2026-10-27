@@ -52,6 +52,14 @@ export const ORIGINS = {
   // 止めている社（space24・odakyu）は載せない。許可が出るまでトップにも行かない
 };
 
+/** 入口がトップページ（/）でない社。パークネットのトップは「サイトインデックス」だけの小さなページで、
+ *  メンテナンスの告知は巡回で取る検索のページ（/parknet/search/ → /parknet/index.html）に出ていた（2026-10-27 確認）。
+ *  巡回で取っているページなので、見に行っても新しい所にはアクセスしない */
+export const ENTRY_PATHS = { parknet: "/parknet/search/" };
+
+/** 事業者の入口の URL（メンテナンスを確かめるときに見るページ）。載っていなければ null */
+export const entryOf = (op) => (ORIGINS[op] ? `${ORIGINS[op]}${ENTRY_PATHS[op] ?? "/"}` : null);
+
 /** メンテナンスを確かめる失敗の種類。取り違えが実際に起きた「断られた・多すぎる・0件」だけ。
  *  届かない（network・503・タイムアウト）は、もともと一時的な失敗として扱っていて取り違えても困らないので、入口を見に行かない
  *  （相手先の不調のあいだに1回でも多く送らないため）。止めている（paused）・閉鎖が一斉に出た（mass-gone）・一覧の作り直しも対象外 */
@@ -72,18 +80,18 @@ export async function markMaintenance(rows, fetchTop, fetchTopDirect = null) {
   for (const r of rows) {
     if (r.ok || !CHECK.has(r.kind)) continue;
     if (r.kind === "parse" && mostlyGone(r)) continue;
-    const origin = ORIGINS[r.op];
-    if (!origin) continue;
-    if (!seen.has(origin)) {
+    const entry = entryOf(r.op);
+    if (!entry) continue;
+    if (!seen.has(entry)) {
       let title = null;
       try {
-        let res = await fetchTop(`${origin}/`);
-        if (res?.blocked && (res.status === 401 || res.status === 403) && fetchTopDirect) res = await fetchTopDirect(`${origin}/`);
+        let res = await fetchTop(entry);
+        if (res?.blocked && (res.status === 401 || res.status === 403) && fetchTopDirect) res = await fetchTopDirect(entry);
         title = res?.maintenance ?? (res?.html ? maintenanceOf(res.html) : null);
       } catch { /* 見られなければ元のまま */ }
-      seen.set(origin, title);
+      seen.set(entry, title);
     }
-    const title = seen.get(origin);
+    const title = seen.get(entry);
     if (!title) continue;
     r.reason = `相手先のサイトがメンテナンス中（「${title}」）。この回は見送り（巡回の記録: ${r.reason ?? r.kind}）`;
     r.kind = "maintenance";
