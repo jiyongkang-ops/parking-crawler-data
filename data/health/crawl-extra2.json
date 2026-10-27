@@ -1,5 +1,5 @@
 {
- "at": "2026-10-27T05:41:30.163Z",
+ "at": "2026-10-27T17:35:50.277Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet",
  "targets": [
@@ -22,19 +22,15 @@
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-10-27T05:41:30.163Z"
+   "lastOkAt": "2026-10-27T17:35:50.277Z"
   },
   {
    "op": "parknet",
    "label": "パークネット",
    "ok": false,
    "n": 0,
-   "reason": "0件",
-   "kind": "parse",
-   "pages": 94,
-   "statusCounts": {
-    "200": 94
-   },
+   "reason": "相手先のサイトがメンテナンス中（「ただいまメンテナンス中です」）。この回は見送り（巡回の記録: 一覧: 都道府県リンクが0件（ページ構造変更の可能性））",
+   "kind": "maintenance",
    "lastOkAt": "2026-10-21T05:42:14.990Z"
   }
  ]
