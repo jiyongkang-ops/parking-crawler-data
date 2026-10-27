@@ -49,9 +49,28 @@ test("失敗した事業者だけ入口を1回ずつ見て、メンテナンス�
   assert.equal(rows[3].kind, "paused");                     // 止めている社は入口にも行かない
   assert.equal(rows[4].kind, "parse");                      // メンテナンスでなければそのまま
   assert.equal(rows[5].kind, "network");                    // 届かない（503）は入口を見に行かない
-  assert.deepEqual(asked, [`${ORIGINS.mkp}/`, `${ORIGINS.parknet}/`]);
+  assert.deepEqual(asked, [`${ORIGINS.mkp}/`, `${ORIGINS.parknet}/parknet/search/`]); // パークネットは検索のページを見る
   assert.equal(ORIGINS.space24, undefined);
   assert.equal(ORIGINS.odakyu, undefined);
+});
+
+test("パークネットの入口は robots.txt で許されている検索のページ（トップは Disallow: / で、告知も無い）", async () => {
+  _resetRobotsCache();
+  const real = globalThis.fetch;
+  const asked = [];
+  const pn = page("パークネット | 新明和工業株式会社", "<h2>ただいまメンテナンス中です</h2><p>サービスを停止しております。</p>");
+  globalThis.fetch = async (url) => {
+    asked.push(new URL(String(url)).pathname);
+    if (String(url).endsWith("/robots.txt")) return new Response("User-agent: *\nDisallow: /\nAllow: /parknet/\n", { status: 200 });
+    return new Response(pn, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const rows = [{ op: "parknet", label: "パークネット", ok: false, n: 0, kind: "parse", reason: "0件" }];
+    await markMaintenance(rows, (u) => politeFetch(u));
+    assert.equal(rows[0].kind, "maintenance");
+    assert.match(rows[0].reason, /ただいまメンテナンス中です/);
+    assert.deepEqual(asked, ["/robots.txt", "/parknet/search/"]);   // トップ（/）には行かない
+  } finally { globalThis.fetch = real; _resetRobotsCache(); }
 });
 
 test("入口を見られなかったときは元の行のまま", async () => {

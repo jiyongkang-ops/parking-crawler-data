@@ -356,8 +356,8 @@ test("通しの巡回: robots.txt が 403 なら市区のページは1つも送�
   const files = { "data/parknet-cities.txt": "01\t札幌市中央区\n13\t台東区\n", "data/parknet-cities.txt.fetched": new Date().toISOString(),
     "data/prices-test.jsonl": "" };
   const { calls, health, rows } = runCrawl({ routes, files });
-  // 市区のページは送らない。メンテナンスかを確かめる入口（トップページ）だけ1回見る（2026-10-27）
-  assert.deepEqual(calls, [ROBOTS, "https://parknet.shinmaywa.co.jp/"]);
+  // 市区のページは送らない。メンテナンスかを確かめる入口（パークネットは検索のページ）だけ1回見る（2026-10-27）
+  assert.deepEqual(calls, [ROBOTS, "https://parknet.shinmaywa.co.jp/parknet/search/"]);
   assert.equal(rows.length, 0);
   const h = health.find((t) => t.op === "parknet");
   assert.equal(h.ok, false);

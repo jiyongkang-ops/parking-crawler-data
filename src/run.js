@@ -649,7 +649,7 @@ async function main() {
           console.error(`  [error] ${id}: ${why}${again ? "（次の回に取り直す）" : ""}`);
           // 保留中は様子見の1件で止める（前の回も取れなかった物件でも数える。数えないと、何日も失敗が続いた社では
           // 取り直しの物件ばかりが選ばれて、保留中なのに何件も送ってしまう）
-          if (hold) { broke = `様子見の1件が取れず（${why}）`; brokeKind = kind; console.warn(`  [保留] ${rolling.label}: ${broke}。この回は止める`); return true; }
+          if (hold) { broke = why; brokeKind = kind; console.warn(`  [保留] ${rolling.label}: 様子見の1件が取れず（${why}）。この回は止める`); return true; }
           // 前の回も取れなかった物件（取り直しの2回目）は数えない。壊れたページは取り直しで古い順の先頭に
           // 並ぶので、数えると先方が元気でも打ち切ってしまう
           if (!again) return false;
