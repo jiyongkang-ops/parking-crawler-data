@@ -86,7 +86,7 @@ globalThis.fetch = async function stub(url, opts) {
   const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT, script)], {
     cwd: dir, encoding: "utf8", timeout: 60_000,
     // リパークの地図の一覧（src/repark-map.js）は、既定では使わない（地図を試すテストは env で渡す。test/repark-list.test.js）
-    env: { ...process.env, HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl",
+    env: { ...process.env, CRAWL_HOLD: "off", HEALTH_NAME: "test", LIST_REFRESH_MAX: "1000", ROLLING_PASSES: "1", OUT_FILE: "data/prices-test.jsonl",
       REPARK_MAP_MAX_REQUESTS: "0", ...env },
   });
   const log = `${p.stdout}\n${p.stderr}`;
@@ -230,7 +230,8 @@ test("通しの巡回: 相手先が落ちている（robots.txt に届かない�
 test("通しの巡回: robots.txt が 403 ならすぐ打ち切り、本ページは送らない", () => {
   const { state, files } = timesFiles(12);
   const { calls, health, dir } = runCrawl({ env: { CRAWL_ONLY: "times" }, files, routes: { "*robots": { status: 403 }, "*": { status: 200, body: "x" } } });
-  assert.deepEqual(calls, ["https://times-info.net/robots.txt"]);
+  // 物件のページは送らない。メンテナンスかを確かめる入口（トップページ）だけ1回見る（2026-10-27。maintenance.js markMaintenance）
+  assert.deepEqual(calls, ["https://times-info.net/robots.txt", "https://times-info.net/"]);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "data/times-crawl-state.json"), "utf8")), state);
   assert.equal(health[0].ok, false);
   assert.equal(health[0].kind, "blocked");
@@ -722,4 +723,31 @@ test("通しの巡回: 一覧から消えた物件の確かめ（ほとんど 40
   assert.equal(dropped.filter((u) => String(after[u]).startsWith("GONE|")).length, 35);
   assert.notEqual(r.health[0].kind, "mass-gone");
   for (const u of list) assert.ok(r.calls.includes(u));                   // 一覧の物件もいつもどおり取る
+});
+
+test("通しの巡回: 保留中の社は様子見の1件だけ取り、取れなければ maintenance（一覧も作り直さない）", () => {
+  const { ids, files } = mkpFiles(20);
+  // 一覧を古くしておいても、保留中は作り直さない
+  files["data/mkp-ids.txt.fetched"] = new Date(Date.now() - 30 * 864e5).toISOString();
+  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "20", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
+    routes: { "*robots": { status: 200, body: "" }, "*": { status: 403 } } });
+  const pages = r.calls.filter((u) => !u.endsWith("/robots.txt"));
+  assert.equal(pages.length, 1);                                     // 様子見の1件だけ（以前は8件以上送っていた）
+  assert.ok(pages[0].startsWith("https://mkp.jp/search/detail/"));
+  assert.equal(r.health[0].ok, false);
+  assert.equal(r.health[0].kind, "maintenance");
+  assert.equal(r.health[0].hold, "2026-11-24");
+  assert.match(r.health[0].reason, /^保留中（2026-11-24まで）: .*一時停止.*様子見の1件も取れなかった/);
+  assert.ok(ids.length === 20);
+});
+
+test("通しの巡回: 保留中でも様子見の1件が取れたら、そのまま続けて取る（自動で再開）", () => {
+  const { files } = mkpFiles(5);
+  const body = '<html><head><script type="application/ld+json">{"@type":"ParkingFacility","name":"名鉄協商テスト","address":"愛知県名古屋市","geo":{"latitude":35.1,"longitude":136.9}}</script></head>'
+    + '<body><div class="box_price"><table class="tbl_basic"><tr><th>最大料金</th><th>通常料金</th></tr><tr><td><p>24時間 600円</p></td><td><p>30分 200円</p></td></tr></table></div></body></html>';
+  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "5", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
+    routes: { "*robots": { status: 200, body: "" }, "*": { status: 200, body } } });
+  assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 5);
+  assert.equal(r.health[0].ok, true);
+  assert.notEqual(r.health[0].kind, "maintenance");
 });

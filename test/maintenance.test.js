@@ -118,3 +118,49 @@ test("最後に取れた時刻を前の回から引き継ぐ（op と label の�
   assert.equal(rows[3].lastOkAt, undefined);
   assert.deepEqual(withLastOk([{ op: "a", label: "A", ok: true }], null, at), [{ op: "a", label: "A", ok: true, lastOkAt: at }]);
 });
+
+// ---- 2026-10-27: 本文での見分けと、robots.txt が 403 の社の入口を1回だけ見る ----
+test("本文の「ただいまメンテナンス中です」で見分ける（題名がいつもどおりのパークネット）", async () => {
+  const { maintenanceBody, maintenanceOf } = await import("../src/maintenance.js");
+  const pn = '<html><head><title>パークネット | 新明和工業株式会社</title><style>.a{}</style></head>'
+    + '<body><p>ただいまメンテナンス中です</p><p>現在、ウェブサイトの改修作業に伴い、サービスを停止しております。</p></body></html>';
+  assert.equal(maintenanceOf(pn), "ただいまメンテナンス中です");
+  assert.equal(maintenanceBody("<body>セキュリティ対策のため、Webサイトを一時停止いたします。</body>"), "Webサイトを一時停止いたします");
+  assert.equal(maintenanceBody("<body>This site is temporarily unavailable due to system maintenance.</body>"), "temporarily unavailable due to system maintenance");
+  // ふだんのページの予告・お知らせは見分けない
+  assert.equal(maintenanceOf(page("名鉄協商パーキング", "<a>システムメンテナンスのお知らせ（10/30）</a><p>メンテナンス予定日 11/1</p>")), null);
+  assert.equal(maintenanceOf(page("403 Forbidden", "You don't have permission")), null);
+  // スクリプトの中の文字は見ない
+  assert.equal(maintenanceOf('<title>x</title><script>var m="ただいまメンテナンス中です"</script>'), null);
+  // 0件（parse）の社の入口が本文でメンテナンスなら書き換える
+  const rows = [{ op: "parknet", label: "パークネット", ok: false, n: 0, kind: "parse", reason: "0件" }];
+  await markMaintenance(rows, async () => ({ ok: true, status: 200, html: pn }));
+  assert.equal(rows[0].kind, "maintenance");
+  assert.match(rows[0].reason, /ただいまメンテナンス中です/);
+});
+
+test("robots.txt が 403 の社だけ、入口を1回だけ直接見る（paused・届かない社は見ない）", async () => {
+  const rows = [
+    { op: "kintetsu", label: "近鉄不動産", ok: false, n: 0, kind: "blocked", reason: "robots.txt が HTTP 403（断られている）" },
+    { op: "mkp", label: "名鉄協商", ok: false, n: 0, kind: "blocked", reason: "robots.txt が HTTP 401" },
+    { op: "anabuki", label: "あなぶき", ok: false, n: 0, kind: "blocked", reason: "x" },
+  ];
+  const direct = [];
+  const fetchTop = async (url) => url.startsWith(ORIGINS.anabuki)
+    ? { ok: false, blocked: true, status: 403 }
+    : { ok: false, blocked: true, status: url.startsWith(ORIGINS.mkp) ? 401 : 403 };
+  const fetchTopDirect = async (url) => {
+    direct.push(url);
+    if (url.startsWith(ORIGINS.kintetsu)) return { ok: true, status: 200, html: page("緊急メンテナンスのお知らせ｜近鉄不動産株式会社") };
+    return { ok: false, status: 403, html: page("403 Forbidden") };
+  };
+  await markMaintenance(rows, fetchTop, fetchTopDirect);
+  assert.equal(rows[0].kind, "maintenance");
+  assert.equal(rows[1].kind, "blocked");                     // 直接見ても素の 403 なら元のまま
+  assert.equal(rows[2].kind, "blocked");
+  assert.deepEqual(direct, [`${ORIGINS.kintetsu}/`, `${ORIGINS.mkp}/`, `${ORIGINS.anabuki}/`]);   // 1社1回ずつ
+  // 直接見る手段を渡さなければ、今までどおり見に行かない
+  const r2 = [{ op: "kintetsu", label: "近鉄不動産", ok: false, n: 0, kind: "blocked", reason: "x" }];
+  await markMaintenance(r2, fetchTop);
+  assert.equal(r2[0].kind, "blocked");
+});
