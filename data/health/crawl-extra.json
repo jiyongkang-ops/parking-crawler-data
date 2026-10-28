@@ -1,5 +1,5 @@
 {
- "at": "2026-10-28T03:04:12.959Z",
+ "at": "2026-10-28T15:04:30.367Z",
  "workflow": "crawl-extra",
  "only": "kyotech,leparc,gspark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 675
    },
-   "lastOkAt": "2026-10-28T03:04:12.959Z"
+   "lastOkAt": "2026-10-28T15:04:30.367Z"
   },
   {
    "op": "leparc",
@@ -27,7 +27,7 @@
    "statusCounts": {
     "200": 40
    },
-   "lastOkAt": "2026-10-28T03:04:12.959Z"
+   "lastOkAt": "2026-10-28T15:04:30.367Z"
   },
   {
    "op": "gspark",
@@ -38,7 +38,7 @@
    "statusCounts": {
     "200": 118
    },
-   "lastOkAt": "2026-10-28T03:04:12.959Z"
+   "lastOkAt": "2026-10-28T15:04:30.367Z"
   }
  ]
 }
