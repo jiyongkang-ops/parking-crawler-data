@@ -1,5 +1,5 @@
 {
- "at": "2026-10-29T09:07:18.977Z",
+ "at": "2026-10-29T21:31:21.085Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-10-29T09:07:18.977Z"
+   "lastOkAt": "2026-10-29T21:31:21.085Z"
   },
   {
    "op": "anabuki",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-10-29T09:07:18.977Z"
+   "lastOkAt": "2026-10-29T21:31:21.085Z"
   },
   {
    "op": "kintetsu",
@@ -60,16 +60,20 @@
    "statusCounts": {
     "200": 109
    },
-   "lastOkAt": "2026-10-29T09:07:18.977Z"
+   "lastOkAt": "2026-10-29T21:31:21.085Z"
   },
   {
    "op": "seiwapark",
    "label": "セイワパーク",
-   "ok": false,
-   "n": 0,
-   "reason": "相手先のサイトがメンテナンス中（「メンテナンス中」）。この回は見送り（巡回の記録: 一覧: セイワパーク一覧の解析結果が0件（ページ構造変更の可能性））",
-   "kind": "maintenance",
-   "lastOkAt": "2026-10-27T21:30:41.701Z"
+   "ok": true,
+   "n": 343,
+   "reason": null,
+   "tried": 343,
+   "noName": 0,
+   "statusCounts": {
+    "200": 343
+   },
+   "lastOkAt": "2026-10-29T21:31:21.085Z"
   },
   {
    "op": "systempark",
@@ -82,7 +86,7 @@
    "statusCounts": {
     "200": 289
    },
-   "lastOkAt": "2026-10-29T09:07:18.977Z"
+   "lastOkAt": "2026-10-29T21:31:21.085Z"
   },
   {
    "op": "comnet",
@@ -95,7 +99,7 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-10-29T09:07:18.977Z"
+   "lastOkAt": "2026-10-29T21:31:21.085Z"
   },
   {
    "op": "keio",
@@ -108,7 +112,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-10-29T09:07:18.977Z"
+   "lastOkAt": "2026-10-29T21:31:21.085Z"
   },
   {
    "op": "odakyu",
