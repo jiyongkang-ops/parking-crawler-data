@@ -1,5 +1,5 @@
 {
- "at": "2026-10-28T21:07:31.706Z",
+ "at": "2026-10-29T09:07:18.977Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-10-28T21:07:31.706Z"
+   "lastOkAt": "2026-10-29T09:07:18.977Z"
   },
   {
    "op": "anabuki",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-10-28T21:07:31.706Z"
+   "lastOkAt": "2026-10-29T09:07:18.977Z"
   },
   {
    "op": "kintetsu",
@@ -60,7 +60,7 @@
    "statusCounts": {
     "200": 109
    },
-   "lastOkAt": "2026-10-28T21:07:31.706Z"
+   "lastOkAt": "2026-10-29T09:07:18.977Z"
   },
   {
    "op": "seiwapark",
@@ -82,7 +82,7 @@
    "statusCounts": {
     "200": 289
    },
-   "lastOkAt": "2026-10-28T21:07:31.706Z"
+   "lastOkAt": "2026-10-29T09:07:18.977Z"
   },
   {
    "op": "comnet",
@@ -95,7 +95,7 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-10-28T21:07:31.706Z"
+   "lastOkAt": "2026-10-29T09:07:18.977Z"
   },
   {
    "op": "keio",
@@ -108,7 +108,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-10-28T21:07:31.706Z"
+   "lastOkAt": "2026-10-29T09:07:18.977Z"
   },
   {
    "op": "odakyu",
