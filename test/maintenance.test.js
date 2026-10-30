@@ -3,7 +3,7 @@
 // 「多すぎる（429）」と記録されたが、4社とも相手先のサイトがメンテナンス中だった。題名はその日に返ってきたもの
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { maintenanceTitle, markMaintenance, ORIGINS } from "../src/maintenance.js";
+import { maintenanceTitle, markMaintenance, ORIGINS, entryOf } from "../src/maintenance.js";
 import { kindOfFetch, kindOfText, withLastOk } from "../src/health-kind.js";
 import { politeFetch, _resetRobotsCache } from "../src/polite-fetch.js";
 
@@ -71,6 +71,21 @@ test("パークネットの入口は robots.txt で許されている検索の�
     assert.match(rows[0].reason, /ただいまメンテナンス中です/);
     assert.deepEqual(asked, ["/robots.txt", "/parknet/search/"]);   // トップ（/）には行かない
   } finally { globalThis.fetch = real; _resetRobotsCache(); }
+});
+
+test("あなぶきは駐車場の一覧のページで見分ける（会社のトップは戻っていて、一覧だけ告知の 429。2026-10-30）", async () => {
+  const asked = [];
+  const rows = [{ op: "anabuki", label: "あなぶきパーク", ok: false, n: 0, kind: "rate", reason: "一覧: anabuki 一覧 HTTP 429" }];
+  await markMaintenance(rows, async (url) => {
+    asked.push(url);
+    return url.endsWith("/park/hourly/")
+      ? { ok: false, status: 429, html: page("メンテナンス中 | Under maintenance", "<p>ただいまメンテナンス中です</p>") }
+      : { ok: true, status: 200, html: page("あなぶきハウジングサービス") };
+  });
+  assert.deepEqual(asked, [`${ORIGINS.anabuki}/park/hourly/`]);
+  assert.equal(rows[0].kind, "maintenance");
+  assert.match(rows[0].reason, /メンテナンス中/);
+  assert.match(rows[0].reason, /HTTP 429/);   // もとの記録も残す
 });
 
 test("入口を見られなかったときは元の行のまま", async () => {
@@ -177,7 +192,7 @@ test("robots.txt が 403 の社だけ、入口を1回だけ直接見る（paused
   assert.equal(rows[0].kind, "maintenance");
   assert.equal(rows[1].kind, "blocked");                     // 直接見ても素の 403 なら元のまま
   assert.equal(rows[2].kind, "blocked");
-  assert.deepEqual(direct, [`${ORIGINS.kintetsu}/`, `${ORIGINS.mkp}/`, `${ORIGINS.anabuki}/`]);   // 1社1回ずつ
+  assert.deepEqual(direct, [`${ORIGINS.kintetsu}/`, `${ORIGINS.mkp}/`, entryOf("anabuki")]);   // 1社1回ずつ（あなぶきは駐車場の一覧）
   // 直接見る手段を渡さなければ、今までどおり見に行かない
   const r2 = [{ op: "kintetsu", label: "近鉄不動産", ok: false, n: 0, kind: "blocked", reason: "x" }];
   await markMaintenance(r2, fetchTop);

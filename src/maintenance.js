@@ -54,8 +54,10 @@ export const ORIGINS = {
 
 /** 入口がトップページ（/）でない社。パークネットのトップは「サイトインデックス」だけの小さなページで、
  *  メンテナンスの告知は巡回で取る検索のページ（/parknet/search/ → /parknet/index.html）に出ていた（2026-10-27 確認）。
- *  巡回で取っているページなので、見に行っても新しい所にはアクセスしない */
-export const ENTRY_PATHS = { parknet: "/parknet/search/" };
+ *  あなぶきは会社のトップ（住まいの会社のサイト）が 10/27 に戻ったが、駐車場の一覧（/park/hourly/）は
+ *  メンテナンスの告知（429）のまま。トップで見ると「回数の制限」と取り違える（2026-10-30 確認）。
+ *  どちらも巡回で取っているページなので、見に行っても新しい所にはアクセスしない */
+export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/" };
 
 /** 事業者の入口の URL（メンテナンスを確かめるときに見るページ）。載っていなければ null */
 export const entryOf = (op) => (ORIGINS[op] ? `${ORIGINS[op]}${ENTRY_PATHS[op] ?? "/"}` : null);
