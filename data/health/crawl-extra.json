@@ -1,5 +1,5 @@
 {
- "at": "2026-10-31T03:04:13.585Z",
+ "at": "2026-10-31T15:04:25.495Z",
  "workflow": "crawl-extra",
  "only": "kyotech,leparc,gspark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 675
    },
-   "lastOkAt": "2026-10-31T03:04:13.585Z"
+   "lastOkAt": "2026-10-31T15:04:25.495Z"
   },
   {
    "op": "leparc",
@@ -27,19 +27,18 @@
    "statusCounts": {
     "200": 40
    },
-   "lastOkAt": "2026-10-31T03:04:13.585Z"
+   "lastOkAt": "2026-10-31T15:04:25.495Z"
   },
   {
    "op": "gspark",
    "label": "GSパーク全国",
    "ok": true,
-   "n": 839,
+   "n": 900,
    "reason": null,
    "statusCounts": {
-    "200": 111,
-    "network": 1
+    "200": 118
    },
-   "lastOkAt": "2026-10-31T03:04:13.585Z"
+   "lastOkAt": "2026-10-31T15:04:25.495Z"
   }
  ]
 }
