@@ -1,5 +1,5 @@
 {
- "at": "2026-10-31T04:38:33.572Z",
+ "at": "2026-10-31T10:38:36.194Z",
  "workflow": "crawl-times",
  "only": "times",
  "targets": [
@@ -9,14 +9,13 @@
    "ok": true,
    "n": 895,
    "reason": null,
-   "tried": 899,
+   "tried": 898,
    "noName": 0,
    "statusCounts": {
     "200": 895,
-    "404": 3,
-    "network": 1
+    "404": 3
    },
-   "lastOkAt": "2026-10-31T04:38:33.572Z"
+   "lastOkAt": "2026-10-31T10:38:36.194Z"
   }
  ]
 }
