@@ -1,5 +1,5 @@
 {
- "at": "2026-10-31T21:30:12.098Z",
+ "at": "2026-11-01T09:29:53.362Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-10-31T21:30:12.098Z"
+   "lastOkAt": "2026-11-01T09:29:53.362Z"
   },
   {
    "op": "anabuki",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-10-31T21:30:12.098Z"
+   "lastOkAt": "2026-11-01T09:29:53.362Z"
   },
   {
    "op": "kintetsu",
@@ -60,7 +60,7 @@
    "statusCounts": {
     "200": 109
    },
-   "lastOkAt": "2026-10-31T21:30:12.098Z"
+   "lastOkAt": "2026-11-01T09:29:53.362Z"
   },
   {
    "op": "seiwapark",
@@ -73,7 +73,7 @@
    "statusCounts": {
     "200": 343
    },
-   "lastOkAt": "2026-10-31T21:30:12.098Z"
+   "lastOkAt": "2026-11-01T09:29:53.362Z"
   },
   {
    "op": "systempark",
@@ -86,7 +86,7 @@
    "statusCounts": {
     "200": 290
    },
-   "lastOkAt": "2026-10-31T21:30:12.098Z"
+   "lastOkAt": "2026-11-01T09:29:53.362Z"
   },
   {
    "op": "comnet",
@@ -99,21 +99,20 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-10-31T21:30:12.098Z"
+   "lastOkAt": "2026-11-01T09:29:53.362Z"
   },
   {
    "op": "keio",
    "label": "京王コインパーク",
    "ok": true,
-   "n": 68,
+   "n": 69,
    "reason": null,
    "tried": 69,
    "noName": 0,
    "statusCounts": {
-    "200": 68,
-    "network": 1
+    "200": 69
    },
-   "lastOkAt": "2026-10-31T21:30:12.098Z"
+   "lastOkAt": "2026-11-01T09:29:53.362Z"
   },
   {
    "op": "odakyu",
