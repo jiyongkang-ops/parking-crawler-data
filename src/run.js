@@ -60,6 +60,10 @@ import { detailUrl as comnetUrl, parseComnetDetail } from "./comnet.js";
 import { getAllComnetIds } from "./comnet-enumerate.js";
 import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
 import { getAllKeioIds } from "./keio-enumerate.js";
+import { detailUrl as showaparkUrl, parseShowaparkDetail } from "./showapark.js";
+import { getAllShowaparkIds } from "./showapark-enumerate.js";
+import { detailUrl as yparkUrl, parseYparkDetail } from "./ypark.js";
+import { getAllYparkIds } from "./ypark-enumerate.js";
 import { detailUrl as odakyuUrl, parseOdakyuDetail } from "./odakyu.js";
 import { getAllOdakyuIds } from "./odakyu-enumerate.js";
 // 2026-11 追加分（三菱地所パークス＝一覧型・SANパーク＝詳細ページ型）
@@ -167,6 +171,11 @@ const ROLLING_SITES = [
     idsCache: "data/comnet-ids.txt", stateFile: "data/comnet-crawl-state.json", defaultPerRun: 200 },
   { op: "keio", label: "京王コインパーク", enumerate: getAllKeioIds, detailUrl: keioUrl, parse: parseKeioDetail,
     idsCache: "data/keio-ids.txt", stateFile: "data/keio-crawl-state.json", defaultPerRun: 100 },
+  // 2026-11-02 追加（crawl-extra.yml）。ユアー・パーキングは料金を JSON（setparkinfo）で読むので、parse には JSON の文字列が届く
+  { op: "showapark", label: "ショウワパーク", enumerate: getAllShowaparkIds, detailUrl: showaparkUrl, parse: parseShowaparkDetail,
+    idsCache: "data/showapark-ids.txt", stateFile: "data/showapark-crawl-state.json", defaultPerRun: 300 },
+  { op: "ypark", label: "ユアー・パーキング", enumerate: getAllYparkIds, detailUrl: yparkUrl, parse: parseYparkDetail,
+    idsCache: "data/ypark-ids.txt", stateFile: "data/ypark-crawl-state.json", defaultPerRun: 320 },
   { op: "odakyu", label: "小田急パーキング", enumerate: getAllOdakyuIds, detailUrl: odakyuUrl, parse: parseOdakyuDetail,
     idsCache: "data/odakyu-ids.txt", stateFile: "data/odakyu-crawl-state.json", defaultPerRun: 100 },
   // SANパーク（2026-11-02）。物件ページが月極だけ・1日単位の料金だけ・近日オープンのときは、parse が { skip } を返す（記録しない）
@@ -783,6 +792,17 @@ async function main() {
         // 閉鎖（404）と同じく寝かせて30〜60日後に見直す（毎日取り直さない）。前に料金を記録した物件なら、Advisor の相場からも外れる
         // （studio-index.mjs が GONE の物件を外す。日付だけ進めると、古い料金の行が「最近確かめた」物件として残る）。
         // ページの作りが変わって全部が skip になったときは、一斉の閉鎖の歯止めで印を戻して打ち切る
+        if (rec?.skip) {
+          answered(true);
+          if (++skipped <= 20) console.log(`  [skip] ${id}: ${rec.skip}`);
+          mark({ status: 404 });
+          if (tripIfMassGone()) { out = true; break; }
+          continue;
+        }
+        // 記録しない物件（parse が { skip: 理由 } を返す。月極だけ・開業前・駐輪場など。2026-11-02 ショウワパーク・ユアー・パーキングから）。
+        // 料金の無い行を書くと、Advisor が同じ場所にある Parkopedia の料金のある物件を重複として落とすので書かない。
+        // 閉鎖（404）と同じく寝かせて30〜60日後に見直す（毎日取り直さない）。前に料金を記録した物件なら、Advisor の相場からも外れる
+        // （studio-index.mjs が GONE の物件を外す）。ページの作りが変わって全部が skip になったときは、一斉の閉鎖の歯止めで印を戻して打ち切る
         if (rec?.skip) {
           answered(true);
           if (++skipped <= 20) console.log(`  [skip] ${id}: ${rec.skip}`);

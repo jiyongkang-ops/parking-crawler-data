@@ -147,6 +147,7 @@ export const ORIGINS = {
   tamapark: "https://www.tamapark.co.jp", thepark: "https://www.dkparking.com", times: "https://times-info.net",
   tokyulifia: "https://www.tokyulifia.co.jp",
   mecparks: "https://parkingnavi.jp", sanpark: "https://sanpark.jp",
+  showapark: "https://www.shouwapark.co.jp", ypark: "https://www.waxds.com",
   // 止めている社（space24・odakyu）は載せない。許可が出るまでトップにも行かない
 };
 
@@ -156,7 +157,10 @@ export const ORIGINS = {
  *  メンテナンスの告知（429）のまま。トップで見ると「回数の制限」と取り違える（2026-10-30 確認）。
  *  どちらも巡回で取っているページなので、見に行っても新しい所にはアクセスしない。
  *  三菱地所パークス（Parking NAVI）も巡回で取っている一覧（北海道。6件の小さいページ）で見る（2026-11-02） */
-export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/", mecparks: "/search_result.php?type=1&area=1" };
+export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/", mecparks: "/search_result.php?type=1&area=1",
+  // ショウワパークは巡回で一覧を作るときに取る駐車場検索のページ。ユアー・パーキングの waxds.com はホームページ更新サービスで、
+  // トップ（/）はサービスの会社のページになる。同社の地図の画面（物件の JSON を読んでいるページ）を見る（2026-11-02）
+  showapark: "/parking/", ypark: "/ypark/map.php" };
 
 /** 事業者の入口の URL（メンテナンスを確かめるときに見るページ）。載っていなければ null */
 export const entryOf = (op) => (ORIGINS[op] ? `${ORIGINS[op]}${ENTRY_PATHS[op] ?? "/"}` : null);
