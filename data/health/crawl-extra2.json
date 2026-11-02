@@ -1,5 +1,5 @@
 {
- "at": "2026-11-02T06:07:39.405Z",
+ "at": "2026-11-02T17:58:59.033Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -17,12 +17,12 @@
    "ok": true,
    "n": 400,
    "reason": null,
-   "tried": 401,
-   "noName": 1,
+   "tried": 400,
+   "noName": 0,
    "statusCounts": {
-    "200": 401
+    "200": 400
    },
-   "lastOkAt": "2026-11-02T06:07:39.405Z"
+   "lastOkAt": "2026-11-02T17:58:59.033Z"
   },
   {
    "op": "parknet",
@@ -37,10 +37,10 @@
    "op": "mecparks",
    "label": "三菱地所パークス",
    "ok": true,
-   "n": 552,
+   "n": 553,
    "reason": null,
    "pages": 98,
-   "rows": 608,
+   "rows": 609,
    "skipped": {
     "月極": 2,
     "料金なし": 18,
@@ -50,21 +50,22 @@
    "statusCounts": {
     "200": 98
    },
-   "lastOkAt": "2026-11-02T06:07:39.405Z"
+   "lastOkAt": "2026-11-02T17:58:59.033Z"
   },
   {
    "op": "sanpark",
    "label": "SANパーク",
    "ok": true,
-   "n": 217,
-   "reason": "一覧づくりで市区10件が取れなかった。その分は前の一覧の番号0件を残した",
+   "n": 173,
+   "reason": null,
    "tried": 250,
    "noName": 0,
-   "skipped": 33,
+   "skipped": 56,
    "statusCounts": {
-    "200": 250
+    "200": 229,
+    "network": 21
    },
-   "lastOkAt": "2026-11-02T06:07:39.405Z"
+   "lastOkAt": "2026-11-02T17:58:59.033Z"
   }
  ]
 }
