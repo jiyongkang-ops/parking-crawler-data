@@ -177,6 +177,7 @@ async function fetchOnce(url) {
 //   http → https のようにホストが同じ転送は入れない。robots.txt は origin ごとに確かめる）
 // 戻り値: { ok, status, html, skippedReason, location, url, movedTo }。本ページを送らなかったときは skippedReason が入り、
 //   robots.txt で断られた（401・403）なら blocked: true、robots.txt に届かない（通信の失敗・5xx）なら transient: true
+//   （別の origin への転送先の robots.txt で見送ったときは、どちらも付けず redirectBlocked: true。そのページ1件の見送り）
 //   url は最後に取ったページの URL（転送をたどったときは転送先）
 export async function politeFetch(url, opts = {}) {
   const start = new URL(url);
@@ -204,7 +205,16 @@ export async function politeFetch(url, opts = {}) {
     const g = await robotsGate(next);
     if (g) {
       console.warn(`[redirect] ${cur.href} → ${next.href}: 転送先の${g.skippedReason}。転送先は取りに行かない`);
-      return { ...g, skippedReason: `転送先（${next.host}）の ${g.skippedReason}`, location, url: cur.href, ...moved };
+      const skippedReason = `転送先（${next.host}）の ${g.skippedReason}`;
+      // 別の origin の robots.txt で断られた・届かないのは、その転送先だけの話。blocked・transient・maintenance を付けたまま返すと、
+      // run.js は「この社のサイトに断られた・届かない」としてその社の回をまるごと打ち切り、物件の時刻も進めないので、
+      // 1件の物件が別のホストへ転送されるだけで毎回そこで止まり続ける（2026-11-02 点検の訂正）。
+      // その物件1件の見送り（redirectBlocked。status は転送の 3xx）として返す。同じ origin なら robots.txt は同じなので今のまま
+      if (originOf(next) !== originOf(start)) {
+        return { ok: false, status: res.status, redirectBlocked: true, skippedReason,
+          ...(g.robotsError ? { robotsError: g.robotsError } : {}), location, url: cur.href, ...moved };
+      }
+      return { ...g, skippedReason, location, url: cur.href, ...moved };
     }
     await pace(minDelay);
     cur = next;

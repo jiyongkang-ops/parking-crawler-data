@@ -95,7 +95,11 @@ test("転送: 別のホストへの転送は、そのホストの robots.txt を
   assert.equal(a.html, "新しいページ");
   assert.equal(a.movedTo, "https://new.example/p/1");
   const b = await politeFetch("https://old.example/p/2");
-  assert.equal(b.blocked, true);
+  // 別のホストの robots.txt で断られたのは、その転送先だけの話。この社に断られた（blocked）としない（2026-11-02 点検の訂正）
+  assert.equal(b.ok, false);
+  assert.equal(b.blocked, undefined);
+  assert.equal(b.redirectBlocked, true);
+  assert.equal(b.status, 301);
   assert.match(b.skippedReason, /^転送先（deny\.example）の robots\.txt が HTTP 403/);
   assert.equal(b.movedTo, "https://deny.example/p/2");
   const c = await politeFetch("https://old.example/p/3");
@@ -106,6 +110,26 @@ test("転送: 別のホストへの転送は、そのホストの robots.txt を
     "https://old.example/p/2", "https://deny.example/robots.txt",
     "https://old.example/p/3", "https://dis.example/robots.txt",
   ]);
+});
+
+test("転送: 別のホストの robots.txt に届かない（503・通信の失敗）・メンテナンスでも、その転送先1件の見送り（transient にしない）", async () => {
+  _resetRobotsCache();
+  stubFetch({
+    "https://a.example/lot/1": { status: 302, location: "https://c.example/lot/1" }, "https://c.example/robots.txt": { status: 503 },
+    "https://a.example/lot/2": { status: 302, location: "https://m.example/lot/2" },
+    "https://m.example/robots.txt": { status: 503, body: "<title>メンテナンス中</title>" },
+    "https://a.example/lot/3": { status: 302, location: "https://a.example/lot/3/" }, "https://a.example/lot/3/": "同じホスト",
+  });
+  const c = await politeFetch("https://a.example/lot/1");
+  assert.equal(c.transient, undefined);
+  assert.equal(c.redirectBlocked, true);
+  assert.match(c.skippedReason, /^転送先（c\.example）の robots\.txt に届かない/);
+  assert.equal(c.robotsError, "HTTP 503");
+  const m = await politeFetch("https://a.example/lot/2");
+  assert.equal(m.transient, undefined);
+  assert.equal(m.maintenance, undefined);
+  assert.equal(m.redirectBlocked, true);
+  assert.equal((await politeFetch("https://a.example/lot/3")).html, "同じホスト");
 });
 
 test("転送: http → https のようにホストが同じ転送は「移った」としない（robots.txt は https の側でも確かめる）", async () => {
@@ -222,6 +246,27 @@ test("見張り: 同じ中身（0バイトのページ・番号を名前にす�
   assert.match(trip.why, /5件続けて同じ中身（0バイト）/);
 });
 
+test("見張り: 同じ名前・同じ中身で止めるとき、告知の言葉も無く中身も短くなければ parse（作りの変更の見込み。待てばよいと読ませない）", () => {
+  const body = (extra = "") => `<html><head><title>駐車場</title></head><body>${"<div class=\"app\"></div>".repeat(20)}${extra}</body></html>`;
+  const g = makeNoticeGuard();
+  let trip = null;
+  for (let i = 0; i < 5 && !trip; i++) trip = g.page({ id: `${i}`, html: body(), name: "駐車場", fee: false });
+  assert.equal(trip.kind, "parse");
+  assert.match(trip.why, /5件続けて同じ名前（「駐車場」）で、料金が読めない。告知かページの作りの変更の見込み/);
+  // 本文に止まっている最中の言い回しがあれば maintenance
+  const h = makeNoticeGuard();
+  trip = null;
+  for (let i = 0; i < 5 && !trip; i++) trip = h.page({ id: `${i}`, html: body("<p>ただいまメンテナンス中です</p>"), name: "駐車場", fee: false });
+  assert.equal(trip.kind, "maintenance");
+  assert.match(trip.why, /告知のページの見込み$/);
+  // 同じ中身（名前は番号で毎回違う）でも同じ
+  const k = makeNoticeGuard();
+  trip = null;
+  for (let i = 0; i < 5 && !trip; i++) trip = k.page({ id: `${i}`, html: body(), name: `${i}`, fee: false });
+  assert.equal(trip.kind, "parse");
+  assert.match(trip.why, /5件続けて同じ中身/);
+});
+
 test("見張り: 料金の読めた割合がふだん（97%）の半分を下回ったら止める。告知の言葉を見ていれば maintenance、無ければ parse", () => {
   const run = (notice) => {
     const g = makeNoticeGuard({ normalFeeRate: 0.97 });
@@ -270,6 +315,19 @@ test("一覧の縮み: 作り直した一覧が前の9割未満かつ10件以上
   assert.match(got.staleReason, /^一覧を作り直せていない: 一覧が100件 → 20件に減った（90%未満は作り直しの失敗とみなす）/);
   assert.equal(fs.readFileSync(file, "utf8"), prev.join("\n") + "\n");
   assert.equal(fs.readFileSync(`${file}.fetched`, "utf8"), "2026-10-01T00:00:00.000Z");   // 取得日も戻す＝次の回にまた作り直す
+});
+
+test("一覧の縮み: 前の一覧に戻すときも、一覧づくりが付けた補足（listNote・listInfo）は残す", () => {
+  const { file, prev } = listDir(100);
+  const snap = snapshotList(file);
+  const list = rebuild(file, prev.slice(0, 30));
+  list.listNote = "一部の市区が取れなかった";
+  list.listInfo = { pages: 3 };
+  const got = guardShrunkList({ op: "navipark", label: "ナビパーク", file, snap, prev, list, env: {} });
+  assert.equal(got.length, 100);
+  assert.equal(got.listNote, "一部の市区が取れなかった");
+  assert.deepEqual(got.listInfo, { pages: 3 });
+  assert.match(got.staleReason, /100件 → 30件/);
 });
 
 test("一覧の縮み: あなぶきの形（sitemap と和集合で66%残る）も9割の基準で気づく", () => {
@@ -427,11 +485,73 @@ test("通しの巡回: 告知の言葉が無くても、違う物件のページ
     routes: { "*robots": { status: 200, body: "" }, "*": { status: 200, body: page } } });
   assert.equal(r.detail.length, 5);
   assert.equal(r.rows.length, 0);
-  assert.deepEqual(readJson(r.dir, "data/seiwapark-crawl-state.json"), state);   // 時刻も進めない（次の回の先頭で取り直す）
+  const after = readJson(r.dir, "data/seiwapark-crawl-state.json");
+  for (const id of ids.slice(0, 5)) assert.equal(after[id], `${state[id]}|0|r`);   // 時刻は進めず、取り直しの印を付ける
+  for (const id of ids.slice(5)) assert.equal(after[id], state[id]);
   assert.equal(r.health[0].ok, false);
-  assert.equal(r.health[0].kind, "maintenance");
-  assert.match(r.health[0].reason, /違う物件のページが5件続けて同じ名前（「お知らせ」）で、料金が読めない。.*料金の読めなかった5件は記録を書かずに次の回に取り直す/);
-  assert.ok(ids.length === 30);
+  assert.equal(r.health[0].kind, "maintenance");                 // 短いページなので告知の見込み
+  assert.match(r.health[0].reason, /違う物件のページが5件続けて同じ名前（「お知らせ」）で、料金が読めない。告知のページの見込み。.*料金の読めなかった5件は行を書かずに次の回に取り直す/);
+  // 次の回: 印の付いた5件は見張りに数えず、印の無い5件でまた止まる（本当の告知なら毎回止まる）。印の付いた5件は時刻だけ進める
+  const r2 = runCrawl({ env: { CRAWL_ONLY: "seiwapark", ROLLING_PER_RUN: "30" }, dir: r.dir,
+    routes: { "*robots": { status: 200, body: "" }, "*": { status: 200, body: page } } });
+  assert.deepEqual(r2.detail, ids.slice(0, 10).map(SW));
+  assert.equal(r2.rows.length, 0);
+  const after2 = readJson(r.dir, "data/seiwapark-crawl-state.json");
+  for (const id of ids.slice(0, 5)) assert.ok(after2[id] > state[ids.at(-1)] && !after2[id].endsWith("|r"), after2[id]);
+  for (const id of ids.slice(5, 10)) assert.equal(after2[id], `${state[id]}|0|r`);
+  assert.equal(r2.health[0].kind, "maintenance");
+  assert.match(r2.health[0].reason, /料金の読めなかった10件は行を書かずに次の回に取り直す（2回目の5件は時刻だけ進める）/);
+});
+
+test("通しの巡回: 閉じた物件が同じ雛形（名前は会社名・料金なし）を5件続けて返す社は、1回目は止めても2回目で書いて時刻を進め、3回目は先へ進む", () => {
+  const { ids, state, files } = seiwaFiles(30);
+  // 閉じた物件の雛形（10/30 の写しでも、名前が「セイワパーク株式会社」で料金の無い物件が11件あった）。告知の言葉は無く、中身も短くない
+  const closed = `<html><head><title>セイワパーク株式会社</title></head><body>${"<div class=\"c-nav\"><a href=\"/\">駐車場を探す</a></div>".repeat(8)}</body></html>`;
+  const lot = (n) => `<html><head><title>${n} | セイワパーク</title></head><body><h1 class="p-parking-detail__heading">${n}</h1><table>` +
+    `<tr><th>住所</th><td>東京都千代田区1-1</td></tr><tr><th>料金形態</th><td>全日 8:00～22:00 30分 200円</td></tr></table></body></html>`;
+  const routes = { "*robots": { status: 200, body: "" }, "*": { status: 404 } };
+  ids.forEach((id, i) => { routes[SW(id)] = { status: 200, body: i < 5 ? closed : lot(`セイワパーク${id}`) }; });
+  const env = { CRAWL_ONLY: "seiwapark", ROLLING_PER_RUN: "10" };
+  const lots = (r) => r.detail.filter((u) => u.includes("/search/"));
+  // 1回目: 先頭の5件が同じ雛形なので止める（kind は parse。告知の言葉が無いので「作りの変更の見込み」も添える）
+  const r1 = runCrawl({ env, files, routes });
+  assert.deepEqual(lots(r1), ids.slice(0, 5).map(SW));
+  assert.equal(r1.rows.length, 0);
+  assert.equal(r1.health[0].kind, "parse");
+  assert.match(r1.health[0].reason, /5件続けて同じ名前（「セイワパーク株式会社」）で、料金が読めない。告知かページの作りの変更の見込み/);
+  for (const id of ids.slice(0, 5)) assert.equal(readJson(r1.dir, "data/seiwapark-crawl-state.json")[id], `${state[id]}|0|r`);
+  // 2回目: 印の付いた5件は数えないので止まらない。料金のある5件と一緒に書き、時刻を進める
+  const r2 = runCrawl({ env, dir: r1.dir, routes });
+  assert.deepEqual(lots(r2), ids.slice(0, 10).map(SW));
+  assert.equal(r2.rows.length, 10);
+  assert.equal(r2.health[0].ok, true);
+  const s2 = readJson(r1.dir, "data/seiwapark-crawl-state.json");
+  for (const id of ids.slice(0, 10)) assert.ok(s2[id] > state[ids.at(-1)] && !s2[id].endsWith("|r"), s2[id]);
+  // 3回目: 先へ進む（以前の作りでは毎回先頭の5件で止まり続けた）
+  const r3 = runCrawl({ env, dir: r1.dir, routes });
+  assert.deepEqual(lots(r3), ids.slice(10, 20).map(SW));
+  assert.equal(r3.health[0].ok, true);
+  assert.equal(r3.rows.length, 20);                              // 前の回の10行＋今回の10行
+});
+
+test("通しの巡回: 1件の物件だけが別のホスト（robots.txt が 403・503）へ転送されても、その物件の見送りにして残りは取る（回を打ち切らない）", () => {
+  const { ids, state, files } = seiwaFiles(10);
+  const lot = (n) => `<html><head><title>${n} | セイワパーク</title></head><body><h1 class="p-parking-detail__heading">${n}</h1><table>` +
+    `<tr><th>住所</th><td>東京都千代田区1-1</td></tr><tr><th>料金形態</th><td>全日 8:00～22:00 30分 200円</td></tr></table></body></html>`;
+  const routes = { "*robots": { status: 200, body: "" }, "*": { status: 404 },
+    "https://deny.example/robots.txt": { status: 403 }, "https://down.example/robots.txt": { status: 503 } };
+  ids.forEach((id) => { routes[SW(id)] = { status: 200, body: lot(`セイワパーク${id}`) }; });
+  routes[SW(ids[1])] = { status: 301, location: "https://deny.example/p/1" };
+  routes[SW(ids[3])] = { status: 302, location: "https://down.example/p/3" };
+  const r = runCrawl({ env: { CRAWL_ONLY: "seiwapark", ROLLING_PER_RUN: "10" }, files, routes });
+  assert.deepEqual(r.detail, ids.map(SW));                       // 転送先には送らず、残りの物件はみな取る
+  assert.equal(r.rows.length, 8);
+  const h = r.health[0];
+  assert.equal(h.ok, true);
+  assert.notEqual(h.kind, "blocked");
+  assert.deepEqual(h.movedTo, { "deny.example": 1, "down.example": 1 });
+  const after = readJson(r.dir, "data/seiwapark-crawl-state.json");
+  for (const id of ids) assert.ok(after[id] > state[ids.at(-1)] && !after[id].endsWith("|r"), `${id} ${after[id]}`);   // 転送の物件も時刻は進む（先頭に居座らない）
 });
 
 test("通しの巡回: 番号を名前にする社（タマパーク）の 0バイトのページも、同じ中身が5件続いたら止める", () => {
@@ -443,7 +563,9 @@ test("通しの巡回: 番号を名前にする社（タマパーク）の 0バ�
     routes: { "*robots": { status: 200, body: "" }, "*": { status: 200, body: "" } } });
   assert.equal(r.detail.length, 5);
   assert.equal(r.rows.length, 0);                                // 番号だけの名前の行を書かない
-  assert.deepEqual(readJson(r.dir, "data/tamapark-crawl-state.json"), state);
+  const after = readJson(r.dir, "data/tamapark-crawl-state.json");
+  for (const id of ids.slice(0, 5)) assert.equal(after[id], `${state[id]}|0|r`);   // 次の回に取り直す印
+  for (const id of ids.slice(5)) assert.equal(after[id], state[id]);
   assert.equal(r.health[0].kind, "maintenance");
   assert.match(r.health[0].reason, /5件続けて同じ中身（0バイト）/);
 });
@@ -496,7 +618,7 @@ test("通しの巡回: 料金の読めた割合がふだん（前の記録で100
   const after = readJson(r.dir, "data/times-crawl-state.json");
   for (const [i, u] of list.slice(0, 20).entries()) {
     if (i % 5 === 0) assert.notEqual(after[u], state[u]);        // 書いた物件は時刻が進む
-    else assert.equal(after[u], state[u]);                        // 書かなかった物件は次の回に取り直す
+    else assert.equal(after[u], `${state[u]}|r`);                 // 書かなかった物件は次の回に取り直す（印だけ）
   }
   assert.equal(r.health[0].ok, false);
   assert.equal(r.health[0].kind, "parse");

@@ -89,27 +89,41 @@ export function feeRateOf(lastRecords, op, minN = 50) {
   return n >= minN ? f / n : null;
 }
 
+/** 中身がとても短いページ（空白を除いて200文字未満。0バイトの答えなど）。物件ページとしては短すぎるので、続けば告知や不調とみなす */
+const TINY_PAGE = 200;
+
 /** 巡回の1回ぶんの見張り。料金が読めない答え（名前が読めない・読めなかったページも含む）を page() に渡すと、
  *  告知とみなして止めるべきなら { why, kind } を返す（止めなくてよければ null）。料金が読めた答えも page() に渡す
  *  （続けて同じ、の数え直しと、料金の読めた割合に使う）。
  *    same      … 違う物件のページが続けて同じ名前・同じ中身なら止める数（既定5）
  *    normalFeeRate … その社のふだんの料金の読めた割合（feeRateOf）。0.8 以上の社だけ、minSample 件取った時点で
  *                 その rateDrop 倍（既定は半分）を下回ったら止める。告知の言葉を見ていれば maintenance、無ければ parse（ページの作りの変更）
- *  page({ id, html, name, fee, notice }) … notice は lotNotice の答え（告知の言葉を見たか） */
+ *    同じ名前・同じ中身で止めるときも、告知の言葉を見ていた（notice・maintenanceOf）か中身がとても短いときだけ maintenance、ほかは parse
+ *  page({ id, html, name, fee, notice }) … notice は lotNotice の答え（告知の言葉を見たか。渡さなければ本文から見る）。
+ *  取り直しの印が付いている物件（2回目）で料金が読めないものは、呼ぶ側が page() に渡さない（run.js。止めたあとの取り直しで
+ *  また同じ物件が並んで止まり続けないため） */
 export function makeNoticeGuard({ same = 5, normalFeeRate = null, minSample = 20, rateDrop = 0.5 } = {}) {
   const byName = makeSameStreak(same), byBody = makeSameStreak(same);
   let n = 0, f = 0, sawNotice = false;
   return {
     page({ id, html, name, fee, notice = null }) {
       n++;
-      if (notice) sawNotice = true;
       if (fee) { f++; byName.reset(); byBody.reset(); return null; }
+      // 告知の言葉を見たか。run.js は題名の告知（lotNotice）を先に別の道で扱うので、ここへ来るのは本文だけに言葉がある告知など。
+      // 料金の読めないページだけを見る（料金の読めた普段のページの予告の帯では数えない）
+      if (notice ?? maintenanceOf(html)) sawNotice = true;
+      // 同じ名前・同じ中身で止めるとき、告知の言葉を見ていたか本文がとても短い（0バイトなど）ときだけ maintenance。
+      // それ以外は parse（全部の物件の URL が同じ画面を返すように作りが変わった、クライアント側で描くようになった、など。
+      // 「相手先のメンテナンス」と出すと待てばよいと読まれてしまう。2026-11-02 点検の訂正）
+      const tiny = String(html ?? "").replace(/\s+/g, "").length < TINY_PAGE;
+      const kindOf = () => (sawNotice || tiny ? "maintenance" : "parse");
+      const guess = () => (sawNotice || tiny ? "告知のページの見込み" : "告知かページの作りの変更の見込み");
       if (byName.push(id, name ? String(name) : null)) {
-        return { kind: "maintenance", why: `違う物件のページが${same}件続けて同じ名前（「${String(name).slice(0, 40)}」）で、料金が読めない。告知のページの見込み` };
+        return { kind: kindOf(), why: `違う物件のページが${same}件続けて同じ名前（「${String(name).slice(0, 40)}」）で、料金が読めない。${guess()}` };
       }
       if (byBody.push(id, pageSig(html))) {
         const len = String(html ?? "").length;
-        return { kind: "maintenance", why: `違う物件のページが${same}件続けて同じ中身（${len}バイト）で、料金が読めない。告知のページの見込み` };
+        return { kind: kindOf(), why: `違う物件のページが${same}件続けて同じ中身（${len}バイト）で、料金が読めない。${guess()}` };
       }
       if (normalFeeRate != null && normalFeeRate >= 0.8 && n >= minSample && f / n < normalFeeRate * rateDrop) {
         return { kind: sawNotice ? "maintenance" : "parse",

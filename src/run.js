@@ -17,7 +17,7 @@ import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
-  isTransient, recordTransient, makeBreaker, makeMassGone, pickDropped, readCachedParkIds, pickOptsOf,
+  isTransient, recordTransient, isRetryMarked, makeBreaker, makeMassGone, pickDropped, readCachedParkIds, pickOptsOf,
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -600,11 +600,15 @@ async function main() {
       let massRestored = 0;
       // 告知のページの見張り（maintenance.js makeNoticeGuard。2026-11-02 点検 maint-02）。料金が読めない答え（名前が読めない・
       // 読めなかったページも）は、各回の終わりまで記録も時刻も書かずに取っておく（held）。違う物件のページが続けて同じ名前・同じ中身、
-      // または料金の読めた割合がふだんより急に下がったら、告知とみなしてこの回を止め、取っておいた分は捨てる（行を書かず、時刻も
-      // 進めない＝次の回の先頭で取り直す）。止めなければ各回の終わりにまとめて書く。前はセイワパークの告知を物件として342件書いていた
+      // または料金の読めた割合がふだんより急に下がったら、告知とみなしてこの回を止め、取っておいた分は行を書かずに、
+      // 相手先の不調と同じ取り直しの印（recordTransient）を付ける。1回目は時刻を進めず次の回の先頭で取り直し、
+      // 2回目（もう印が付いている物件）は時刻だけ進める。止めなければ各回の終わりにまとめて書く。
+      // 取り直しの印が付いている物件で料金が読めないものは、見張りに数えない（打ち切りの数と同じ考え。数えると、決まって起きる
+      // 見分け違い＝閉じた物件が同じ「掲載終了」の雛形を返す・名前が読めず会社名になる物件が並ぶ、で毎回同じ所で止まり続ける。
+      // 本当の告知なら、印の無い物件でまた止まる。2026-11-02 点検の訂正）。前はセイワパークの告知を物件として342件書いていた
       const notice = makeNoticeGuard({ normalFeeRate: feeRateOf(last.values(), rolling.op) });
       let held = [], noticeStop = false;
-      const flushHeld = () => { if (!noticeStop) for (const f of held) f(); held = []; };
+      const flushHeld = () => { if (!noticeStop) for (const h of held) h.write(); held = []; };
       // 転送で別のホストへ移った答えの数（ホストごと。polite-fetch.js の movedTo）。相手先のドメインの引っ越しに気づくため
       const movedHosts = makeCounter();
       for (let pass = 0; pass < passes && !out; pass++) {
@@ -628,7 +632,8 @@ async function main() {
         // robots.txt で断られた（401・403）・robots.txt に届かない（通信の失敗・5xx）。どちらも本ページは送っていない。
         // 同じ origin の物件はみな同じ答えになるので、この社のこの回はここで打ち切る。物件の状態は書かない
         // （確かめていない日を「取りに行った日」にしない。届かないときは次の回で robots.txt から取り直す）。
-        // 2026-10-17 のエコロは robots.txt も取れなかったのに、45分間で257回取りに行き、257件に日付だけが入った
+        // 2026-10-17 のエコロは robots.txt も取れなかったのに、45分間で257回取りに行き、257件に日付だけが入った。
+        // 別の origin への転送先の robots.txt で見送った物件（redirectBlocked）はここに来ない。下の「取れなかった1件」として時刻を進める
         if (res?.blocked || res?.transient) {
           broke = res.blocked ? `${res.skippedReason}。この回は打ち切り` : `${res.skippedReason}のでこの回は見送り（${res.robotsError ?? "原因不明"}）`;
           brokeKind = kindOfFetch(res);   // blocked。届かないときは network（robots.txt が 429 なら rate）
@@ -679,13 +684,20 @@ async function main() {
           if (transientFail(err ?? `HTTP ${res.status}`, kindOfFetch(res))) { out = true; break; }
           continue;
         }
-        // 告知のページで止める（見張りの答え trip）。この物件と取っておいた分は書かない
+        // 告知のページで止める（見張りの答え trip）。この物件と取っておいた分は行を書かず、取り直しの印を付ける
         const stopForNotice = (trip) => {
           noticeStop = true; failKinds.add(trip.kind);
-          broke = `${trip.why}。この回は止め、料金の読めなかった${held.length + 1}件は記録を書かずに次の回に取り直す`;
+          const all = held.concat({ id, at });
+          held = [];
+          let again = 0;
+          for (const h of all) if (recordTransient(state, h.id, h.at, { hours: !!rolling.hours })) again++;
+          broke = `${trip.why}。この回は止め、料金の読めなかった${all.length}件は行を書かずに次の回に取り直す` +
+            `${all.length - again ? `（2回目の${all.length - again}件は時刻だけ進める）` : ""}`;
           brokeKind = trip.kind;
           console.warn(`  [notice] ${rolling.label}: ${broke}。${done}件取れたところで止める`);
         };
+        // 見張りに渡す。取り直しの印が付いている物件（2回目）で料金が読めないものは数えない
+        const watchNotice = (name, fee) => (!fee && isRetryMarked(prevState) ? null : notice.page({ id, html: res.html, name, fee }));
         // 先方が答えた（不調ではない）。打ち切りの数え直しと、一斉の閉鎖の「答えた数」に入れる。
         // 混み合いのページ（HTTP 200 で中身が無い）は答えたことにしないので、読んで確かめてから呼ぶ
         // isClosed … 閉鎖の答え（404・410・掲載終了の転送）か。閉鎖でない答えなら、一斉の閉鎖の連続の数を0に戻す
@@ -725,9 +737,9 @@ async function main() {
           if (mt) { if (transientFail(`メンテナンスの告知（「${mt}」）`, "maintenance")) { out = true; break; } continue; }
           answered(); failKinds.add("parse");
           console.error(`  [parse error] ${id}: ${e.message}`);
-          const trip = notice.page({ id, html: res.html, name: null, fee: false });
+          const trip = watchNotice(null, false);
           if (trip) { stopForNotice(trip); out = true; break; }
-          held.push(() => mark(res, false)); continue;
+          held.push({ id, at, write: () => mark(res, false) }); continue;
         }
         // 料金が読めないページが告知（題名が「メンテナンス中」など。名前が読めないときは本文も見る）なら、物件として書かずに
         // 相手先の不調として次の回に取り直す。続けば打ち切る（いつもは8件・保留中は1件。2026-11-02）
@@ -741,13 +753,13 @@ async function main() {
         if (!rec || !rec.name) {
           failKinds.add("parse");
           if (++noName <= 20) console.warn(`  [no name] ${id}: 名前が読めない（HTTP ${res.status}・${(res.html ?? "").length}バイト）`);
-          const trip = notice.page({ id, html: res.html, name: null, fee: false });
+          const trip = watchNotice(null, false);
           if (trip) { stopForNotice(trip); out = true; break; }
-          held.push(() => mark(res, false)); continue;
+          held.push({ id, at, write: () => mark(res, false) }); continue;
         }
         rec._requestUrl = url;
         const fee = hasFee(rec);
-        const trip = notice.page({ id, html: res.html, name: rec.name, fee });
+        const trip = watchNotice(rec.name, fee);
         if (trip) { stopForNotice(trip); out = true; break; }
         const keep = () => {
           handleRecord(rec, at);
@@ -757,7 +769,7 @@ async function main() {
           mark(res, rolling.hours ? !!rec.fullEmptyStatus : undefined);
           if (++done % 50 === 0) saveCrawlState(rolling.stateFile, state);
         };
-        if (fee) keep(); else held.push(keep);
+        if (fee) keep(); else held.push({ id, at, write: keep });
       }
         flushHeld();   // 料金の読めなかった分を書く（告知とみなして止めたときは捨てる）
         saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）

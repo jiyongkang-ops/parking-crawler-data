@@ -51,7 +51,8 @@ export function guardShrunkList({ op, label, file, snap, prev, list, minRatio = 
   }
   try { restoreList(file, snap); } catch (e) { console.error(`[${label}] 前の一覧に戻せませんでした: ${e.message}`); }
   console.warn(`::warning::[${label}] ${why}。前の一覧（${prev.length}件）を使い、次の回に作り直す`);
-  const old = [...prev];
+  // 一覧づくりが付けた補足（listNote・listInfo など。配列の番号でない欄）は、新しい一覧のものを写す（戻すと消えるので。2026-11-02）
+  const old = Object.assign([...prev], Object.fromEntries(Object.entries(list).filter(([k]) => !/^\d+$/.test(k))));
   old.staleReason = `一覧を作り直せていない: ${why}。前の一覧で回している`;
   return old;
 }

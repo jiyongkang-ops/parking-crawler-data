@@ -51,6 +51,8 @@ jobs:
         # ふだんの所要は約270.5分（27分 × 10回の待ち＋11リクエスト。2026-10 の直近100回で同じ）
         timeout-minutes: 320
         env:
+          # 一覧の守り（src/list-guard.js）を外す社。相手先が本当に物件を減らしたと確かめたときだけ、リポジトリの変数に入れて1回回し、回ったら消す
+          LIST_SHRINK_OK: ${{ vars.LIST_SHRINK_OK }}
           CRAWL_ONLY: "npc"
           NPC_REPEAT: "11"
           NPC_INTERVAL_MIN: "27"
