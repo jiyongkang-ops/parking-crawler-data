@@ -271,7 +271,10 @@ test("通しの巡回の health: 403 が続いて打ち切ったら blocked、42
 });
 
 test("通しの巡回の health: 取れたが1件も読めなければ parse。取れた回は kind なしで statusCounts だけ", () => {
-  const p = timesHealth({ status: 200, body: "<html><body>作りが変わった</body></html>" });
+  // ページの作りが変わった（物件ごとに中身は違う）。全部同じ中身のときは告知のページとみなして5件で止める（下の告知のテスト）
+  const { list: pl, files: pf } = timesFiles(12);
+  const p = runCrawl({ env: { CRAWL_ONLY: "times" }, files: pf,
+    routes: { "*robots": ROBOTS_OK, ...Object.fromEntries(pl.map((u, i) => [u, { status: 200, body: `<html><body>作りが変わった${i}</body></html>` }])) } });
   assert.deepEqual([p.health[0].ok, p.health[0].tried, p.health[0].noName, p.health[0].kind, p.health[0].statusCounts],
     [false, 12, 12, "parse", { 200: 12 }]);
   const { list, files } = timesFiles(12);

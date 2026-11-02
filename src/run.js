@@ -17,7 +17,7 @@ import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
 import {
   getAllParkIds, loadCrawlState, saveCrawlState, pickRolling, recordVisit, countLive, unparkGone, matchPriority,
-  isTransient, recordTransient, makeBreaker, makeMassGone, pickDropped, readCachedParkIds, pickOptsOf,
+  isTransient, recordTransient, isRetryMarked, makeBreaker, makeMassGone, pickDropped, readCachedParkIds, pickOptsOf,
 } from "./repark-enumerate.js";
 import { parseTimesDetail, bukCode } from "./times.js";
 import { getAllParkUrls } from "./times-enumerate.js";
@@ -33,6 +33,10 @@ import { getAllKyotechIds } from "./kyotech-enumerate.js";
 import { detailUrl as leparcDetailUrl, parseLeparcDetail } from "./leparc.js";
 import { getAllLeparcIds } from "./leparc-enumerate.js";
 import { areaListUrl, parseGsparkList, parseAreaCodes } from "./gspark.js";
+// 一覧型の社の物件ごとの記録（src/list-state.js）・NPC の一括取得の上限の見張り・毎時の回の予算（src/run-budget.js）（2026-11-02）
+import { recordListState, noteListState } from "./list-state.js";
+import { npcCapOf, NPC_LIMIT } from "./npc.js";
+import { deadlineOf, budgetUntil } from "./run-budget.js";
 // 2026-08 追加分（詳細ページ型6社・一覧直載型2社）
 import { detailUrl as space24Url, parseSpace24Detail } from "./space24.js";
 import { getAllSpace24Ids } from "./space24-enumerate.js";
@@ -56,14 +60,27 @@ import { detailUrl as comnetUrl, parseComnetDetail } from "./comnet.js";
 import { getAllComnetIds } from "./comnet-enumerate.js";
 import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
 import { getAllKeioIds } from "./keio-enumerate.js";
+import { detailUrl as showaparkUrl, parseShowaparkDetail } from "./showapark.js";
+import { getAllShowaparkIds } from "./showapark-enumerate.js";
+import { detailUrl as yparkUrl, parseYparkDetail } from "./ypark.js";
+import { getAllYparkIds } from "./ypark-enumerate.js";
 import { detailUrl as odakyuUrl, parseOdakyuDetail } from "./odakyu.js";
 import { getAllOdakyuIds } from "./odakyu-enumerate.js";
-import { flushCrawlStates } from "./repark-enumerate.js";
+// 2026-11 追加分（三菱地所パークス＝一覧型・SANパーク＝詳細ページ型）
+import { crawlMecparks, mecparksHealth } from "./mecparks-enumerate.js";
+import { detailUrl as sanparkUrl, parseSanparkDetail } from "./sanpark.js";
+import { getAllSanparkIds } from "./sanpark-enumerate.js";
+// 2026-11-02 追加分（東洋カーマックス＝詳細ページ型・MAYパーク＝1ページの一覧型）
+import { detailUrl as carmaxUrl, parseCarmaxDetail } from "./carmax.js";
+import { getAllCarmaxIds } from "./carmax-enumerate.js";
+import { listUrl as mayparkListUrl, parseMayList, ENCODING as MAYPARK_ENCODING } from "./maypark.js";
+import { flushCrawlStates, confirmsDropped } from "./repark-enumerate.js";
 import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
 import { gapFilled } from "./record-gap.js";
 import { kindOfFetch, kindOfText, dominantKind, makeCounter, countStatus, withLastOk } from "./health-kind.js";
-import { markMaintenance } from "./maintenance.js";
+import { markMaintenance, maintenanceOf, lotNotice, hasFee, makeNoticeGuard, feeRateOf, makeSameStreak, pageSig } from "./maintenance.js";
+import { snapshotList, guardShrunkList } from "./list-guard.js";
 import { holdOf, holdReason } from "./hold.js";
 
 const STATE = {
@@ -92,7 +109,8 @@ const STATE = {
 //   minDelay: 既定より長く空ける社（タイムズは先方が商用botを名指しで断っているため）
 //   hours   : 満空が取れる社。巡回のたび「その時刻を見た」を記録して時間帯を均す
 //   priorityKey: 一覧の1件 → 優先物件の番号。一覧の書き方と Advisor の番号が違う社だけ付ける（2026-10-17）
-//   confirmDropped: 一覧から消えた物件を、一覧を作り直したあと1回だけ取りに行き、閉鎖（404）を確かめる（2026-10-18）
+//   confirmDropped: 一覧から消えた物件を、一覧を作り直したあと1回だけ取りに行き、閉鎖（404）を確かめる（2026-10-18）。
+//             2026-11-02 から全社で既定にした（confirmsDropped の説明）。確かめない社だけ false を付ける
 //   readList: 一覧のキャッシュ（idsCache）の中身 → 番号の配列。1行1件でない社だけ付ける
 //   readPrev: 前の回の一覧を読む関数（idsCache のパス → 番号の配列）。一覧が2つのファイルに分かれている社だけ付ける
 //             （リパークは sitemap の XML ＋ 地図の一覧 repark-map-ids.txt。2026-10-18）
@@ -134,8 +152,9 @@ const ROLLING_SITES = [
     goneOnRedirect: isEcoloClosedRedirect, recheckDropped: true },
   { op: "kyotech", label: "キョウテク", enumerate: getAllKyotechIds, detailUrl: kyotechDetailUrl, parse: parseKyotechDetail,
     idsCache: STATE.kyotechIdsCache, stateFile: STATE.kyotechCrawlState, defaultPerRun: 800 },
+  // 一覧の上位40件だけを対象にすると決めてあるので、そこから外れた物件の詳細ページは取りに行かない（本人の判断待ち。2026-11-02）
   { op: "leparc", label: "ルパルク", enumerate: getAllLeparcIds, detailUrl: leparcDetailUrl, parse: parseLeparcDetail,
-    idsCache: STATE.leparcIdsCache, stateFile: STATE.leparcCrawlState, defaultPerRun: 500 },
+    idsCache: STATE.leparcIdsCache, stateFile: STATE.leparcCrawlState, defaultPerRun: 240 },
   { op: "space24", label: "スペース二十四", enumerate: getAllSpace24Ids, detailUrl: space24Url, parse: parseSpace24Detail,
     idsCache: "data/space24-ids.txt", stateFile: "data/space24-crawl-state.json", defaultPerRun: 500 },
   { op: "jqparks", label: "JQパークス", enumerate: getAllJqparksIds, detailUrl: jqparksUrl, parse: parseJqparksDetail,
@@ -156,8 +175,20 @@ const ROLLING_SITES = [
     idsCache: "data/comnet-ids.txt", stateFile: "data/comnet-crawl-state.json", defaultPerRun: 200 },
   { op: "keio", label: "京王コインパーク", enumerate: getAllKeioIds, detailUrl: keioUrl, parse: parseKeioDetail,
     idsCache: "data/keio-ids.txt", stateFile: "data/keio-crawl-state.json", defaultPerRun: 100 },
+  // 2026-11-02 追加（crawl-extra.yml）。ユアー・パーキングは料金を JSON（setparkinfo）で読むので、parse には JSON の文字列が届く
+  { op: "showapark", label: "ショウワパーク", enumerate: getAllShowaparkIds, detailUrl: showaparkUrl, parse: parseShowaparkDetail,
+    idsCache: "data/showapark-ids.txt", stateFile: "data/showapark-crawl-state.json", defaultPerRun: 300 },
+  { op: "ypark", label: "ユアー・パーキング", enumerate: getAllYparkIds, detailUrl: yparkUrl, parse: parseYparkDetail,
+    idsCache: "data/ypark-ids.txt", stateFile: "data/ypark-crawl-state.json", defaultPerRun: 320 },
   { op: "odakyu", label: "小田急パーキング", enumerate: getAllOdakyuIds, detailUrl: odakyuUrl, parse: parseOdakyuDetail,
     idsCache: "data/odakyu-ids.txt", stateFile: "data/odakyu-crawl-state.json", defaultPerRun: 100 },
+  // SANパーク（2026-11-02）。物件ページが月極だけ・1日単位の料金だけ・近日オープンのときは、parse が { skip } を返す（記録しない）
+  { op: "sanpark", label: "SANパーク", enumerate: getAllSanparkIds, detailUrl: sanparkUrl, parse: parseSanparkDetail,
+    idsCache: "data/sanpark-ids.txt", stateFile: "data/sanpark-crawl-state.json", defaultPerRun: 250 },
+  // 東洋カーマックス（2026-11-02）。一覧（約60ページ）から駐輪場を除いた約1,130件。詳細ページが料金に「月極」だけ・料金の文が
+  // 無い物件は記録しない（parseCarmaxDetail が excluded を返す。下の巡回の説明）
+  { op: "carmax", label: "東洋カーマックス", enumerate: getAllCarmaxIds, detailUrl: carmaxUrl, parse: parseCarmaxDetail,
+    idsCache: "data/carmax-ids.txt", stateFile: "data/carmax-crawl-state.json", defaultPerRun: 400 },
 ];
 
 /** 一覧を作り直す前のファイルから、前の一覧を読む（unparkGone で「新しく載った番号」を見分けるため）。無ければ null */
@@ -239,7 +270,8 @@ function writeHealth() {
 }
 /** 巡回の最後: 失敗した事業者の入口を1回ずつ見てメンテナンスを見分けてから、health を書く */
 async function finishHealth() {
-  try { await markMaintenance(health, (u) => politeFetch(u), (u) => fetchOnceIgnoringRobots(u)); }
+  // 入口が UTF-8 でない社（MAYパーク）は文字コードの指定 o が付いてくる（maintenance.js の ENTRY_ENCODINGS）
+  try { await markMaintenance(health, (u, o) => politeFetch(u, o), (u, o) => fetchOnceIgnoringRobots(u, o)); }
   catch (e) { console.warn(`[health] メンテナンスの確認ができませんでした: ${e?.message ?? e}`); }
   writeHealth();
 }
@@ -323,6 +355,12 @@ async function main() {
   } catch { /* 初回 */ }
   // 料金は書かずに満空だけ残す回（crawl-npc.yml）。料金の時系列を2本にしない
   const vacancyOnly = process.env.VACANCY_ONLY === "1";
+  // 一覧型の社の物件ごとの記録（src/list-state.js。2026-11-02 点検 C5・fresh-8）。一覧を全部取れた回だけ進め、
+  // 書くのを止めたとき（一覧が前の回より減りすぎ）は、いま足した health の行に出す。書くのは料金を書く回だけ
+  // （NPC は crawl.yml と crawl-npc.yml の両方が取るので、料金を書かない crawl-npc.yml は書かない。同じファイルを取り合わない）
+  const listState = (op, ids, complete) => noteListState(health.at(-1), recordListState(op, ids, { complete, writer: !vacancyOnly }));
+  // 取得を終える時刻（ROLLING_END_BY_MIN。src/run-budget.js。毎時の回だけ crawl.yml で渡す）。無ければ予算は ROLLING_BUDGET_MIN のまま
+  const runDeadline = deadlineOf(Date.now(), process.env.ROLLING_END_BY_MIN);
 
   // CRAWL_ONLY=times / npc,repark などで対象事業者を絞れる（ワークフロー分割用）。
   const only = (process.env.CRAWL_ONLY || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -433,7 +471,7 @@ async function main() {
 
     // ---- NPC 全国（bbox 一括） ----
     if (t.operator === "npc" && t.mode === "nationwide") {
-      const url = locationUrl(JAPAN_BBOX, { limit: 2000 });
+      const url = locationUrl(JAPAN_BBOX, { limit: NPC_LIMIT });
       if (cachedRecently(url)) { console.log(`[cache] NPC全国 スキップ`); continue; }
       // NPCは1リクエストで全国1,700件ぶんの満空が返る。
       // GitHub の定時実行は混むと3〜5時間ずれるので、実行時刻だけに頼ると時間帯が埋まらない
@@ -445,8 +483,13 @@ async function main() {
         ? Number(process.env.NPC_INTERVAL_MIN) : 27;
       if (!Number.isFinite(gapMin) || gapMin < 0) throw new Error(`NPC_INTERVAL_MIN が数値ではありません: ${process.env.NPC_INTERVAL_MIN}`);
       const gapMs = gapMin * 60_000;
+      // crawl-npc.yml の1回目は、同じ07分に起動される毎時の回（crawl.yml）の NPC の取得と同じ分になり、中身がまったく同じ重複だった
+      // （10/29 は 4・10・16・22時の08分に2回ずつ・各約1,590行。2026-11-02 点検 pipeline-09）。NPC_SKIP_FIRST=1 なら1回目は取らず、
+      // 間をあけてから2回目を取る（1回の実行の長さは変わらず、送るのが1回減る）
+      const skipFirst = process.env.NPC_SKIP_FIRST === "1" && repeat > 1;
       let records = [];
       for (let i = 0; i < repeat; i++) {
+        if (i === 0 && skipFirst) { console.log(`[NPC全国] 1/${repeat} 回目は毎時の回の取得と重なるので取らない（NPC_SKIP_FIRST）`); continue; }
         if (i > 0) {
           console.log(`[NPC全国] ${gapMs / 60000}分待ってから ${i + 1}/${repeat} 回目`);
           await sleep(gapMs);
@@ -460,17 +503,20 @@ async function main() {
           console.error(`[error] NPC全国: ${res.skippedReason ?? "HTTP " + res.status}`);
           hp("npc", "NPC全国", false, 0, res.skippedReason ?? "HTTP " + res.status, { kind: kindOfFetch(res), ...statusOf(res) }); continue;
         }
-        let total = null;
-        try { total = JSON.parse(res.html).total; } catch { /* */ }
-        records = parseNpcSearch(res.html, { label: "NPC全国" });
-        if (total != null && total > records.length) {
-          console.warn(`[warn] NPC全国: total=${total} だが ${records.length}件のみ取得。limit引上げ/ページングが必要`);
-        }
+        let json = null;
+        try { json = JSON.parse(res.html); } catch { /* 読めなければ0件 */ }
+        records = parseNpcSearch(json ?? res.html, { label: "NPC全国" });
+        // 一括取得の上限（2,000件）に当たった・近い（npc.js の npcCapOf。2026-11-02 点検 C4）。以前は console.warn だけで health は成功のままだった。
+        // 当たった回は一覧が欠けているので失敗（stale-list）にし、近いだけなら成功のまま reason と cap を残す
+        const cap = npcCapOf(json, records.length);
+        if (cap.reason) console.warn(`::warning::[NPC全国] ${cap.reason}`);
         // 2回目以降は「今の時刻の満空」を採るのが目的。取った時刻をそのまま付ける
         const at = new Date().toISOString();
         records.forEach((r) => { r._requestUrl = url; handleRecord(r, at); });
         console.log(`[ok] NPC全国 ${i + 1}/${repeat} | ${records.length}物件`);
-        hp("npc", `NPC全国 ${i + 1}/${repeat}`, records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
+        hp("npc", `NPC全国 ${i + 1}/${repeat}`, records.length > 0 && !cap.over, records.length, records.length ? cap.reason : "0件",
+          { kind: records.length ? "stale-list" : "parse", ...(cap.reason ? { cap: { limit: cap.limit, total: cap.total } } : {}), ...statusOf(res) });
+        listState("npc", records.map((r) => r.parkId), records.length > 0 && !cap.over);
       }
       continue;
     }
@@ -499,6 +545,9 @@ async function main() {
       if (hold) console.log(`[保留] ${rolling.label}: ${hold.until}まで（${hold.reason}）。様子見の1件だけ取る`);
       let ids;
       const prevIds = readPrevList(rolling);   // 作り直す前の一覧（作り直すと上書きされるので先に読む）
+      // 作り直す前の一覧のファイルの控え。作り直した一覧が極端に少なければ前の一覧に戻す（list-guard.js。2026-11-02）。
+      // リパークは一覧が2つのファイル（sitemap と地図）に分かれていて、自前の守り（keepPrevIfShrunk）があるので外す
+      const listSnap = rolling.readPrev ? null : snapshotList(rolling.idsCache);
       const listStartedAt = Date.now();
       try {
         ids = await rolling.enumerate({ cacheFile: rolling.idsCache, cacheMs: hold ? 3650 * 864e5 : 7 * 864e5 });
@@ -506,6 +555,7 @@ async function main() {
         const m = fetchErrorText(e); console.error(`[error] ${rolling.op} enumerate: ${m}`);
         hp(rolling.op, rolling.label, false, 0, hold ? holdReason(hold, `一覧: ${m}`) : `一覧: ${m}`, { kind: hold ? "maintenance" : listKind(m) }); continue;
       }
+      ids = guardShrunkList({ op: rolling.op, label: rolling.label, file: rolling.idsCache, snap: listSnap, prev: prevIds, list: ids });
       const state = loadCrawlState(rolling.stateFile);
       // 一覧に新しく載った物件のうち、404で寝かせていたものを起こす（復活している見込みがあるため）。
       // 一覧が変わっても、前から載っている寝かせた物件は起こさない（寝かせる期限は物件ごとに30〜60日。goneMsOf）
@@ -547,17 +597,20 @@ async function main() {
       // 優先物件を取り直す間隔。毎時回るリパークは3時間おき。1日3回のタイムズで3時間にすると毎回621件を
       // 取り直して全国の1巡が約25日に延びるので、事業者ごとに config で変えられるようにする（2026-10-17）
       const prioMinAgeH = Number(config[`${rolling.op}PriorityMinAgeHours`]) || 3;
-      // 一覧から消えた物件のうち、今の一覧を作ってから確かめていないもの（confirmDropped の社だけ。1回目の回の先頭で取りに行く）。
+      // 一覧から消えた物件のうち、今の一覧を作ってから確かめていないもの（confirmsDropped の社。2026-11-02 から既定で全社。1回目の回の先頭で取りに行く）。
       // 404 なら GONE が付いて相場から外れる。載っていれば料金・満空をそのまま残す（pickDropped の説明）。
       // 上の recheckDropped（エコロ）は外れた物件を巡回の候補に足し続ける。こちらは一覧を作り直すたびに1回だけ確かめる
-      const confirm = rolling.confirmDropped
+      const confirm = confirmsDropped(rolling, { hold })
         ? pickDropped(ids, state, Date.now() - cacheAgeMs(rolling.idsCache), Number(process.env.DROPPED_MAX) || 100, rolling.priorityKey) : [];
       const confirmSet = new Set(confirm);
       let confirmGone = 0;
       // 時間の予算。GitHub の上限で途中で殺されると、状態も満空も何も残らず次回も同じ物件を叩く。
       // 予算内で切り上げ、状態は50件ごとに書いておく。
       // 分割の待ち時間（pausedMs）は予算から除く。除かないと待った分だけ取得が削られる
-      const budgetMin = Number(process.env.ROLLING_BUDGET_MIN) || 45;
+      // 取得を終える時刻（runDeadline）があれば、それまでに終わるよう縮める（src/run-budget.js。2026-11-02 点検 pipeline-01）
+      const baseBudgetMin = Number(process.env.ROLLING_BUDGET_MIN) || 45;
+      const budgetMin = budgetUntil(baseBudgetMin, { startMs: rolling.budgetIncludesList ? listStartedAt : Date.now(), deadlineMs: runDeadline });
+      if (budgetMin < baseBudgetMin) console.log(`[${rolling.label}] 次の回までに終えるため、予算を${baseBudgetMin}分から${budgetMin}分に縮める（ROLLING_END_BY_MIN=${process.env.ROLLING_END_BY_MIN}）`);
       const budgetMs = budgetMin * 60_000;
       // 1巡の目安は「予算内で取れる件数」で割る。perRun だけで割ると、タイムズは45分（約450件）で
       // 切り上げているのに「1巡目安: 約8回」と出て、実際の約16日（約50回）とかけ離れていた（2026-10-17）
@@ -577,7 +630,7 @@ async function main() {
       const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
         ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
         : undefined;
-      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0;
+      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0, skipped = 0, excluded = 0;
       let out = false;
       // 相手先の不調（5xx・429・403・タイムアウト・混み合いのページ）が続いたら、この回は打ち切る（makeBreaker の説明）
       const breakerN = hold ? 1 : Number(process.env.ROLLING_BREAKER) || 8;
@@ -593,6 +646,19 @@ async function main() {
       const massGone = makeMassGone({ min: Number(process.env.MASS_GONE_MIN) || 30, ratio: Number(process.env.MASS_GONE_RATIO) || 0.5,
         streak: Number(process.env.MASS_GONE_STREAK) || 20 });
       let massRestored = 0;
+      // 告知のページの見張り（maintenance.js makeNoticeGuard。2026-11-02 点検 maint-02）。料金が読めない答え（名前が読めない・
+      // 読めなかったページも）は、各回の終わりまで記録も時刻も書かずに取っておく（held）。違う物件のページが続けて同じ名前・同じ中身、
+      // または料金の読めた割合がふだんより急に下がったら、告知とみなしてこの回を止め、取っておいた分は行を書かずに、
+      // 相手先の不調と同じ取り直しの印（recordTransient）を付ける。1回目は時刻を進めず次の回の先頭で取り直し、
+      // 2回目（もう印が付いている物件）は時刻だけ進める。止めなければ各回の終わりにまとめて書く。
+      // 取り直しの印が付いている物件で料金が読めないものは、見張りに数えない（打ち切りの数と同じ考え。数えると、決まって起きる
+      // 見分け違い＝閉じた物件が同じ「掲載終了」の雛形を返す・名前が読めず会社名になる物件が並ぶ、で毎回同じ所で止まり続ける。
+      // 本当の告知なら、印の無い物件でまた止まる。2026-11-02 点検の訂正）。前はセイワパークの告知を物件として342件書いていた
+      const notice = makeNoticeGuard({ normalFeeRate: feeRateOf(last.values(), rolling.op) });
+      let held = [], noticeStop = false;
+      const flushHeld = () => { if (!noticeStop) for (const h of held) h.write(); held = []; };
+      // 転送で別のホストへ移った答えの数（ホストごと。polite-fetch.js の movedTo）。相手先のドメインの引っ越しに気づくため
+      const movedHosts = makeCounter();
       for (let pass = 0; pass < passes && !out; pass++) {
         if (pass > 0) {
           console.log(`[${rolling.label}] ${gapMin}分あけて ${pass + 1}/${passes} 回目`);
@@ -614,7 +680,8 @@ async function main() {
         // robots.txt で断られた（401・403）・robots.txt に届かない（通信の失敗・5xx）。どちらも本ページは送っていない。
         // 同じ origin の物件はみな同じ答えになるので、この社のこの回はここで打ち切る。物件の状態は書かない
         // （確かめていない日を「取りに行った日」にしない。届かないときは次の回で robots.txt から取り直す）。
-        // 2026-10-17 のエコロは robots.txt も取れなかったのに、45分間で257回取りに行き、257件に日付だけが入った
+        // 2026-10-17 のエコロは robots.txt も取れなかったのに、45分間で257回取りに行き、257件に日付だけが入った。
+        // 別の origin への転送先の robots.txt で見送った物件（redirectBlocked）はここに来ない。下の「取れなかった1件」として時刻を進める
         if (res?.blocked || res?.transient) {
           broke = res.blocked ? `${res.skippedReason}。この回は打ち切り` : `${res.skippedReason}のでこの回は見送り（${res.robotsError ?? "原因不明"}）`;
           brokeKind = kindOfFetch(res);   // blocked。届かないときは network（robots.txt が 429 なら rate）
@@ -623,6 +690,7 @@ async function main() {
         }
         tried++;
         countStatus(statusCounts, res);
+        if (res?.movedTo) movedHosts.add(new URL(res.movedTo).host);
         // 一斉の閉鎖の歯止めに数える物件か。前は生きていた物件（今の一覧に載っていて、取った記録があり、寝かせていない）だけ。
         // 一覧から消えた物件の確かめ（confirm）・一覧から外れた物件（dropped）・寝かせた物件の起き抜け・初めての物件は、
         // 閉鎖が多くて当たり前なので数えない（止めたときに印を戻すのは、数えない分も含めて全部）。prevState は印を付ける前の値
@@ -664,6 +732,20 @@ async function main() {
           if (transientFail(err ?? `HTTP ${res.status}`, kindOfFetch(res))) { out = true; break; }
           continue;
         }
+        // 告知のページで止める（見張りの答え trip）。この物件と取っておいた分は行を書かず、取り直しの印を付ける
+        const stopForNotice = (trip) => {
+          noticeStop = true; failKinds.add(trip.kind);
+          const all = held.concat({ id, at });
+          held = [];
+          let again = 0;
+          for (const h of all) if (recordTransient(state, h.id, h.at, { hours: !!rolling.hours })) again++;
+          broke = `${trip.why}。この回は止め、料金の読めなかった${all.length}件は行を書かずに次の回に取り直す` +
+            `${all.length - again ? `（2回目の${all.length - again}件は時刻だけ進める）` : ""}`;
+          brokeKind = trip.kind;
+          console.warn(`  [notice] ${rolling.label}: ${broke}。${done}件取れたところで止める`);
+        };
+        // 見張りに渡す。取り直しの印が付いている物件（2回目）で料金が読めないものは数えない
+        const watchNotice = (name, fee) => (!fee && isRetryMarked(prevState) ? null : notice.page({ id, html: res.html, name, fee }));
         // 先方が答えた（不調ではない）。打ち切りの数え直しと、一斉の閉鎖の「答えた数」に入れる。
         // 混み合いのページ（HTTP 200 で中身が無い）は答えたことにしないので、読んで確かめてから呼ぶ
         // isClosed … 閉鎖の答え（404・410・掲載終了の転送）か。閉鎖でない答えなら、一斉の閉鎖の連続の数を0に戻す
@@ -687,7 +769,8 @@ async function main() {
         }
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
-        try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id }); }
+        // 一覧で読んだ物件ごとの値（listMeta。JQパークスの座標・時間貸の印。jqparks-enumerate.js）があれば、パーサに渡す（2026-11-02）
+        try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id, ...(ids.listMeta ? { listMeta: ids.listMeta.get(id) ?? null } : {}) }); }
         catch (e) {
           // 相手先が混み合っているページ（タイムズの「ただいま大変混み合っております」。times.js が e.transient を付ける）。
           // HTTP 200 でも 503 と同じ不調なので、取りに行った扱いにせず次の回に取り直し、打ち切りの数にも入れる。
@@ -698,31 +781,74 @@ async function main() {
             if (transientFail(`混み合いのページ（${e.message}）`, "network")) { out = true; break; }
             continue;
           }
+          // 読めなかったページが告知（題名・本文が「メンテナンス中」など）なら、相手先の不調として次の回に取り直す。続けば打ち切る
+          const mt = lotNotice(res.html, null);
+          if (mt) { if (transientFail(`メンテナンスの告知（「${mt}」）`, "maintenance")) { out = true; break; } continue; }
           answered(); failKinds.add("parse");
-          console.error(`  [parse error] ${id}: ${e.message}`); mark(res, false); continue;
+          console.error(`  [parse error] ${id}: ${e.message}`);
+          const trip = watchNotice(null, false);
+          if (trip) { stopForNotice(trip); out = true; break; }
+          held.push({ id, at, write: () => mark(res, false) }); continue;
+        }
+        // 料金が読めないページが告知（題名が「メンテナンス中」など。名前が読めないときは本文も見る）なら、物件として書かずに
+        // 相手先の不調として次の回に取り直す。続けば打ち切る（いつもは8件・保留中は1件。2026-11-02）
+        if (!hasFee(rec)) {
+          const mt = lotNotice(res.html, rec);
+          if (mt) { if (transientFail(`メンテナンスの告知（「${mt}」）`, "maintenance")) { out = true; break; } continue; }
+        }
+        // 記録しない物件（parse が { skip: 理由 } を返す。SANパークの月極だけ・1日単位の料金だけ・近日オープン、ショウワパーク・ユアー・パーキングの駐輪場・開業前など。2026-11-02）。
+        // 料金の無い行を書くと、Advisor が同じ場所にある Parkopedia の料金のある物件を重複として落とすので書かない。
+        // 閉鎖（404）と同じく寝かせて30〜60日後に見直す（毎日取り直さない）。前に料金を記録した物件なら、Advisor の相場からも外れる
+        // （studio-index.mjs が GONE の物件を外す。日付だけ進めると、古い料金の行が「最近確かめた」物件として残る）。
+        // ページの作りが変わって全部が skip になったときは、一斉の閉鎖の歯止めで印を戻して打ち切る
+        if (rec?.skip) {
+          answered(true);
+          if (++skipped <= 20) console.log(`  [skip] ${id}: ${rec.skip}`);
+          mark({ status: 404 });
+          if (tripIfMassGone()) { out = true; break; }
+          continue;
         }
         answered();
+        // 記録しない物件（駐輪場・月極だけ・時間貸しの料金の文が無い・近日オープン。parse が excluded に理由を入れる。2026-11-02 東洋カーマックス）。
+        // 料金の記録は書かない。料金の無い物件を記録すると、Advisor が100m以内の同じ名前の料金つきの Parkopedia の物件を落とし、
+        // 料金のある物件が料金なしに替わる（2026-11-01 見直し）。取りに行った日は進める（毎回同じ物件を取りに行かない）。
+        // health には件数（excluded）を残し、取った物件がすべてこれでも失敗にしない
+        if (rec?.excluded) {
+          if (++excluded <= 20) console.log(`  [skip] ${id} ${rec.name ?? ""}: ${rec.excluded}（記録しない）`);
+          mark(res, false); continue;
+        }
         // 取れたのに名前が読めない（ページの作りが違う・掲載終了の雛形など）。以前は何も出さずに飛ばしていたので、
         // 名鉄協商の552件が毎回むだに取られていることに3か月気づけなかった。番号を出し（1回20件まで）、health に件数を残す
         if (!rec || !rec.name) {
           failKinds.add("parse");
           if (++noName <= 20) console.warn(`  [no name] ${id}: 名前が読めない（HTTP ${res.status}・${(res.html ?? "").length}バイト）`);
-          mark(res, false); continue;
+          const trip = watchNotice(null, false);
+          if (trip) { stopForNotice(trip); out = true; break; }
+          held.push({ id, at, write: () => mark(res, false) }); continue;
         }
         rec._requestUrl = url;
-        handleRecord(rec, at);
-        got++;
-        // 満空が取れる社では「その時刻を見た」と記録するのは満空が読めたときだけ。
-        // ページの作りが変わって読めなくなっても時間帯が埋まると、止まったことに気づけない
-        mark(res, rolling.hours ? !!rec.fullEmptyStatus : undefined);
-        if (++done % 50 === 0) saveCrawlState(rolling.stateFile, state);
+        const fee = hasFee(rec);
+        const trip = watchNotice(rec.name, fee);
+        if (trip) { stopForNotice(trip); out = true; break; }
+        const keep = () => {
+          handleRecord(rec, at);
+          got++;
+          // 満空が取れる社では「その時刻を見た」と記録するのは満空が読めたときだけ。
+          // ページの作りが変わって読めなくなっても時間帯が埋まると、止まったことに気づけない
+          mark(res, rolling.hours ? !!rec.fullEmptyStatus : undefined);
+          if (++done % 50 === 0) saveCrawlState(rolling.stateFile, state);
+        };
+        if (fee) keep(); else held.push({ id, at, write: keep });
       }
+        flushHeld();   // 料金の読めなかった分を書く（告知とみなして止めたときは捨てる）
         saveCrawlState(rolling.stateFile, state);   // 各回の終わりに残す（次の回で落ちても無駄にしない）
       }
       saveCrawlState(rolling.stateFile, state);
       if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた${massRestored ? "（一斉の閉鎖とみなしたので、この回の印は戻した）" : ""}`);
       if (massRestored) console.warn(`[${rolling.label}] 一斉の閉鎖とみなして、この回に付けた閉鎖の印 ${massRestored}件を前の値に戻した`);
+      if (skipped) console.log(`[${rolling.label}] 時間貸しの料金が無い・駐輪場などで記録しなかった物件 ${skipped}件を寝かせた${skipped > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
       if (noName) console.warn(`[${rolling.label}] 取れたのに名前が読めなかった物件 ${noName}件${noName > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
+      if (excluded) console.log(`[${rolling.label}] 記録しない物件（駐輪場・月極だけ・料金の文が無いなど）${excluded}件`);
       if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す${busy ? `（うち混み合いのページ${busy}件）` : ""}`);
       if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた${massRestored ? "（一斉の閉鎖とみなしたので、印は戻した）" : ""}`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
@@ -733,16 +859,19 @@ async function main() {
       // 7日止まっても health は成功のままだった）
       // kind（失敗の種類。src/health-kind.js）は reason と同じ順で決める: 打ち切った理由 → 一覧の問題 → この回の失敗でいちばん多い種類
       const listProblem = !!ids.staleReason || ids.length === 0;
-      const okRun = !broke && !listProblem && (tried === 0 || got > 0);
+      // 取った物件がすべて「記録しない物件」（skip・excluded）だった回は、読めているので成功（一覧から消えた物件を確かめるだけの小さい回など。2026-11-02）
+      const allSkipped = skipped + excluded > 0 && skipped + excluded === tried;
+      const okRun = !broke && !listProblem && (tried === 0 || got > 0 || allSkipped);
       const why = broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
-        ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null) ?? ids.listNote ?? null;
+        ?? (tried > 0 && got === 0 && !allSkipped ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}${skipped ? `（記録しない物件${skipped}件）` : ""}` : null) ?? ids.listNote ?? null;
       // 保留中で取れなかった回は「メンテナンス」。取れた回はいつもどおり（保留は期限まで残るが、取れているあいだは効かない）
       const heldFail = !!hold && !okRun;
       hp(rolling.op, rolling.label, okRun, got, heldFail ? holdReason(hold, why) : why,
-        { tried, noName, ...(busy ? { busy } : {}), statusCounts: statusCounts.toJSON(),
+        { tried, noName, ...(busy ? { busy } : {}), ...(skipped ? { skipped } : {}), ...(excluded ? { excluded } : {}), statusCounts: statusCounts.toJSON(),
           kind: heldFail ? "maintenance" : brokeKind ?? (listProblem ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse",
           ...(hold ? { hold: hold.until } : {}),
           ...(massRestored ? { restored: massRestored } : {}),
+          ...(movedHosts.size ? { movedTo: movedHosts.toJSON() } : {}),
           ...(ids.listInfo ? { list: ids.listInfo } : {}) });
       continue;
     }
@@ -754,55 +883,96 @@ async function main() {
       try {
         if (cacheFresh(STATE.gsparkAreasCache, 7 * 864e5)) codes = fs.readFileSync(STATE.gsparkAreasCache, "utf8").split("\n").filter(Boolean);
         else {
+          const snap = snapshotList(STATE.gsparkAreasCache);   // 一覧が極端に縮んだら前の一覧に戻す（list-guard.js。2026-11-02）
           const top = await politeFetch("https://www.gs-park.com/time_parking/");
           if (!top.ok || top.skippedReason) throw new Error(top.skippedReason ?? `HTTP ${top.status}`);
           codes = parseAreaCodes(top.html);
-          if (!codes.length) throw new Error("エリアが0件（ページ構造変更の可能性）");
+          if (!codes.length) { const mt = maintenanceOf(top.html); throw new Error(mt ? `相手先のサイトがメンテナンス中（「${mt}」）` : "エリアが0件（ページ構造変更の可能性）"); }
           fs.writeFileSync(STATE.gsparkAreasCache, codes.join("\n") + "\n"); markFetched(STATE.gsparkAreasCache);
+          codes = guardShrunkList({ op: "gspark", label: "GSパーク", file: STATE.gsparkAreasCache, snap,
+            prev: snap?.text.split("\n").filter(Boolean), list: codes });
         }
       } catch (e) { console.error(`[error] gspark enumerate: ${e.message}`); hp("gspark", t.label, false, 0, `一覧: ${e.message}`, { kind: listKind(e.message) }); continue; }
       let count = 0, stop = null, stopKind = null;
+      // gsIds … 載っていた物件の番号（物件ごとの記録用）。gsPartial … 途中のページが取れなかった・30ページで止めたエリアがあった
+      const gsIds = [];
+      let gsPartial = false;
       const statusCounts = makeCounter(), failKinds = makeCounter();
+      // 0件のエリアのページが告知なら、その回は打ち切る。違うエリアが続けて5件、同じ中身で0件のときも同じ（告知の言葉に頼らない見分け。2026-11-02）
+      const sameEmpty = makeSameStreak(5);
       for (const code of codes) {
         if (stop) break;
         for (let page = 1; page <= 30; page++) {
           const url = areaListUrl(code, page);
           let res;
-          try { res = await politeFetch(url); } catch (e) { countStatus(statusCounts, null); failKinds.add("network"); console.error(`  [error] ${code} p${page}: ${fetchErrorText(e)}`); break; }
+          try { res = await politeFetch(url); } catch (e) { countStatus(statusCounts, null); failKinds.add("network"); gsPartial = true; console.error(`  [error] ${code} p${page}: ${fetchErrorText(e)}`); break; }
           // robots.txt で断られた・届かないときは、残りのページも同じ答えなので止める（本ページは送っていない）
           if (res.blocked || res.transient) { stop = res.skippedReason; stopKind = kindOfFetch(res); console.warn(`  [abort] GSパーク: ${stop}`); break; }
           countStatus(statusCounts, res);
-          if (!res.ok || res.skippedReason) { failKinds.add(kindOfFetch(res)); break; }
+          if (!res.ok || res.skippedReason) { failKinds.add(kindOfFetch(res)); gsPartial = true; break; }
           const { records, hasNext } = parseGsparkList(res.html);
-          for (const rec of records) { rec._requestUrl = url; handleRecord(rec); count++; }
+          if (!records.length && page === 1) {
+            const mt = maintenanceOf(res.html);
+            if (mt || sameEmpty.push(code, pageSig(res.html))) {
+              stop = mt ? `メンテナンスの告知（「${mt}」）。この回は打ち切り` : `違うエリアのページが${sameEmpty.count}件続けて同じ中身で0件。告知のページの見込みなので打ち切り`;
+              stopKind = "maintenance"; console.warn(`  [abort] GSパーク: ${stop}`); break;
+            }
+          } else if (records.length) sameEmpty.reset();
+          for (const rec of records) { rec._requestUrl = url; handleRecord(rec); count++; gsIds.push(rec.parkId); }
           if (!hasNext || !records.length) break;
+          if (page === 30) gsPartial = true;   // まだ次があるのに上限のページ数に当たった
         }
       }
       console.log(`[ok] GSパーク全国 | ${count}物件（エリア${codes.length}）`);
       // 途中で止めた回は失敗（一覧型は「直近の実行が成功していれば全件をその日に確かめた」とみなされるため）
-      hp("gspark", t.label, count > 0 && !stop, count, stop ?? (count ? null : "0件"),
-        { statusCounts: statusCounts.toJSON(), kind: stopKind ?? dominantKind(failKinds.counts) ?? "parse" });
+      hp("gspark", t.label, count > 0 && !stop && !codes.staleReason, count, stop ?? codes.staleReason ?? (count ? null : "0件"),
+        { statusCounts: statusCounts.toJSON(), kind: stopKind ?? (codes.staleReason ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse" });
+      listState("gspark", gsIds, count > 0 && !stop && !gsPartial);
       continue;
     }
 
     // ---- パークネット 全国（市区一覧に料金直載・毎回全巡回） ----
     if (t.operator === "parknet" && t.mode === "nationwide") {
       let cities;
+      const citiesSnap = snapshotList(STATE.parknetCitiesCache);   // 一覧が極端に縮んだら前の一覧に戻す（list-guard.js。2026-11-02）
       try {
         cities = await getAllParknetCities({ cacheFile: STATE.parknetCitiesCache, cacheMs: 7 * 864e5 });
       } catch (e) { console.error(`[error] parknet enumerate: ${e.message}`); hp("parknet", "パークネット", false, 0, `一覧: ${e.message}`, { kind: listKind(e.message) }); continue; }
+      cities = guardShrunkList({ op: "parknet", label: "パークネット", file: STATE.parknetCitiesCache, snap: citiesSnap,
+        prev: citiesSnap?.text.split("\n").filter(Boolean), list: cities });
       console.log(`[パークネット] 市区${cities.length}件を巡回`);
       // 市区ごとに最後のページまで取る（10件ずつのページ送り）。中身は parknet-enumerate.js の crawlParknetCities・parknetHealth。
       // 途中のページが取れなかった市区は、そこまでの分を記録して次の市区へ進む（何も消さない）。市区ごとの印は health の補足に残す。
       // 状態コードはページごとの答え（onFetch。例外は null＝network）で数え、失敗の種類は取れなかったページの答え（failures[].res）と
       // 打ち切ったときの答え（stopRes）から決める（health-kind.js）
       const statusCounts = makeCounter(), failKinds = makeCounter();
-      const sum = await crawlParknetCities(cities, { onRecord: (rec) => handleRecord(rec), onFetch: (res) => countStatus(statusCounts, res) });
+      const pnIds = [];
+      const sum = await crawlParknetCities(cities, { onRecord: (rec) => { handleRecord(rec); pnIds.push(rec.parkId); }, onFetch: (res) => countStatus(statusCounts, res) });
       for (const f of sum.failures) failKinds.add(kindOfFetch(f.res));
       console.log(`[ok] パークネット | ${sum.count}物件（${sum.pages}ページ）`);
       const ph = parknetHealth(sum);
-      hp("parknet", "パークネット", ph.ok, ph.n, ph.reason,
+      // 一覧を作り直せず前の一覧で回した回（cities.staleReason。list-guard.js）は、ほかの社と同じく ok:false・stale-list で知らせる。
+      // 欠けた一覧のまま「成功」にすると、取っていない市区の物件まで「今日確かめた」ことになっていた（2026-11-02 点検 maint-09）
+      hp("parknet", "パークネット", ph.ok && !cities.staleReason, ph.n, sum.stop ? ph.reason : cities.staleReason ?? ph.reason,
         { ...ph.extra, statusCounts: statusCounts.toJSON(),
+          kind: (sum.stopRes ? kindOfFetch(sum.stopRes) : null) ?? (cities.staleReason ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse" });
+      // 取れなかった・途中まで・上限で止めた・ページ送りが効かなかった・総件数より少なかった市区が1つでもあれば、全部は取れていない
+      listState("parknet", pnIds, ph.ok && !["failedCities", "partialCities", "cappedCities", "dupCities", "shortCities"].some((k) => sum[k].length));
+      continue;
+    }
+
+    // ---- 三菱地所パークス 全国（Parking NAVI の一覧に料金直載・毎回全巡回。2026-11-02） ----
+    // 都道府県の一覧（100件で頭打ちの所だけ市区・町丁）を取る。中身は mecparks-enumerate.js の crawlMecparks・mecparksHealth。
+    // 状態コードはページごとの答え（onFetch）で数え、失敗の種類は打ち切った答え → 取れなかったページ → 読めなかったページの順に決める
+    if (t.operator === "mecparks" && t.mode === "nationwide") {
+      const statusCounts = makeCounter(), failKinds = makeCounter();
+      const sum = await crawlMecparks({ label: t.label ?? null, onRecord: (rec, at) => handleRecord(rec, at), onFetch: (res) => countStatus(statusCounts, res) });
+      for (const f of sum.failures) failKinds.add(kindOfFetch(f.res));
+      if (sum.broken.length) failKinds.add("parse");
+      console.log(`[ok] 三菱地所パークス | ${sum.count}物件（${sum.pages}ページ・一覧${sum.rows}件のうち記録しなかった物件 ${Object.entries(sum.skipped).map(([k, n]) => `${k}${n}`).join("・") || "なし"}）`);
+      const mh = mecparksHealth(sum);
+      hp("mecparks", "三菱地所パークス", mh.ok, mh.n, mh.reason,
+        { ...mh.extra, statusCounts: statusCounts.toJSON(),
           kind: (sum.stopRes ? kindOfFetch(sum.stopRes) : null) ?? dominantKind(failKinds.counts) ?? "parse" });
       continue;
     }
@@ -817,6 +987,22 @@ async function main() {
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
       console.log(`[ok] エムデン・テクノパーキング | ${records.length}物件`);
       hp("mden", "エムデン", records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
+      listState("mden", records.map((r) => r.parkId), records.length > 0);
+      continue;
+    }
+
+    // ---- MAYパーク（日本メカトロニクス。1ページに全物件・Shift_JIS。2026-11-02）----
+    // 駐輪場・バイク・月極専用・料金の文が無い区画は parseMayList が外す（excluded。件数は health に残す）。座標は無い（住所から引く）
+    if (t.operator === "maypark" && t.mode === "nationwide") {
+      const url = mayparkListUrl();
+      let res;
+      try { res = await politeFetch(url, { encoding: MAYPARK_ENCODING }); } catch (e) { const m = fetchErrorText(e); console.error(`[error] maypark: ${m}`); hp("maypark", "MAYパーク", false, 0, m, { kind: "network", statusCounts: { network: 1 } }); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] maypark: ${res.skippedReason ?? "HTTP " + res.status}`); hp("maypark", "MAYパーク", false, 0, res.skippedReason ?? `HTTP ${res.status}`, { kind: kindOfFetch(res), ...statusOf(res) }); continue; }
+      const { records, excluded, boxes } = parseMayList(res.html);
+      records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
+      console.log(`[ok] MAYパーク | ${records.length}物件（区画${boxes}のうち、駐輪場・月極専用・料金の文が無いなどで記録しない${excluded.length}）`);
+      hp("maypark", "MAYパーク", records.length > 0, records.length, records.length ? null : "0件",
+        { kind: "parse", ...statusOf(res), ...(excluded.length ? { excluded: excluded.length } : {}) });
       continue;
     }
 
@@ -831,6 +1017,7 @@ async function main() {
       records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
       console.log(`[ok] ザ・パーク全国 | ${records.length}物件`);
       hp("thepark", "ザ・パーク", records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
+      listState("thepark", records.map((r) => r.parkId), records.length > 0);
       continue;
     }
 

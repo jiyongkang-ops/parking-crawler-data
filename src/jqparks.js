@@ -5,6 +5,10 @@
 //   平日 8時～19時：30分200円／最大料金なし
 //   土日祝 19時～8時：60分100円／最大400円
 // 月極専用の物件は時間貸料金の行が無い（unitCharges/maxFees は空で返す）。
+// 座標と「時間貸OK」の印は詳細ページに無いので、駅の一覧で読んだ分（jqparks-enumerate.js の listMeta）を run.js から受け取る（2026-11-02）。
+//   lat/lng … 一覧の地図のピン（makePin。世界測地系）。以前は読まず、住所から引いていたので32件（6%）が座標なしで相場から抜けていた
+//   hourlyOk … 一覧の「時間貸OK」の印。true＝時間貸あり、false＝月極だけ、null＝一覧で読めていない。
+//     月極だけの物件も記録には残す（相場や件数に入れるかは別に決める）
 
 export function detailUrl(id) {
   return `https://www.parking-kyushu.jp/number/${id}`;
@@ -29,7 +33,14 @@ function fieldValue(html, label) {
   return null;
 }
 
-export function parseJqparksDetail(html, { id } = {}) {
+/** 一覧で読んだ座標・時間貸の印（{ lat, lng, hourlyOk }。無ければ null）を記録の形にする */
+function fromList(meta) {
+  const ok = (v) => v != null && Number.isFinite(Number(v)) && Number(v) !== 0;
+  const geo = meta && ok(meta.lat) && ok(meta.lng) ? { lat: Number(meta.lat), lng: Number(meta.lng) } : { lat: null, lng: null };
+  return { ...geo, hourlyOk: typeof meta?.hourlyOk === "boolean" ? meta.hourlyOk : null };
+}
+
+export function parseJqparksDetail(html, { id, listMeta = null } = {}) {
   const name = (fieldValue(html, "駐車場名") ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || null;
   const address = (fieldValue(html, "所在地") ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || null;
   const capRaw = (fieldValue(html, "収容台数") ?? "").replace(/<[^>]+>/g, " ").trim();
@@ -51,7 +62,8 @@ export function parseJqparksDetail(html, { id } = {}) {
     const mx = line.match(/最大\s*([\d,]+)\s*円/);
     if (mx) maxFees.push({ scope, condition: `時間内最大 ${timeRange}`, amountYen: Number(mx[1].replace(/,/g, "")) });
   }
+  const { lat, lng, hourlyOk } = fromList(listMeta);
   return { operator: "jqparks", parkId: String(id), label: null, name, address,
-    lat: null, lng: null, capacity, openingHours: null,
-    unitCharges, maxFees, sourceUrl: detailUrl(id) };
+    lat, lng, capacity, openingHours: null,
+    unitCharges, maxFees, hourlyOk, sourceUrl: detailUrl(id) };
 }

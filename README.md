@@ -16,6 +16,19 @@
 - 物件一覧（sitemap / ids）の鮮度は、となりに置く **`<file>.fetched`（取得日時）** だけで測る（`src/cache-age.js`）。
   mtime は checkout が毎回「今」にし、git の最終コミット時刻も**浅いクローン（fetch-depth:1）では常に「今」**を返すため、
   どちらでも一度も更新されず、7月の一覧のまま2か月止まっていた。作り直しは1回の実行で2件まで（`LIST_REFRESH_MAX`）。
+- 作り直した一覧が前の一覧の9割未満かつ10件以上減ったら、作り直しの失敗とみなして前の一覧で回す（`src/list-guard.js`。リパーク以外の
+  全社とパークネット・GSパーク）。ファイルと取得日も前に戻すので次の回にまた作り直し、health は ok:false・`stale-list` で知らせる。
+  相手先が本当に物件を減らしたと確かめたら、`LIST_SHRINK_OK=<op>`（カンマ区切り）を付けて1回回すと新しい一覧を使う。
+  GitHub Actions では、リポジトリの変数（Settings → Secrets and variables → Actions → Variables）に `LIST_SHRINK_OK` を入れる
+  （巡回の各ワークフローが env に渡す）。入れているあいだはその社の守りが効かないので、その社の巡回が1回回ったら変数を消す。
+- 相手先の告知のページ（HTTP 200 でも）は巡回の途中で見分けて、その社のその回を止める（行を書かず、相手先の不調と同じ取り直しの印を付ける。
+  1回目は時刻を進めず次の回に取り直し、2回目は時刻だけ進める）。題名の「メンテナンス中」などのほか、違う物件のページが5件続けて
+  同じ名前・同じ中身、料金の読めた割合がふだんの半分未満でも止める（`src/maintenance.js` の `makeNoticeGuard`。取り直しの印が付いた物件は数えない）。
+  health の kind は、告知の言葉を見たか中身がとても短いときは `maintenance`、そうでなければ `parse`（ページの作りの変更の見込みもある）。
+  料金の読めない物件の行は、止めなかったときだけ各回の終わりにまとめて書く。
+- 転送は1回ずつたどり、そのたびに転送先の robots.txt（ホストとパス）を確かめ、いつもの間隔をあける（`src/polite-fetch.js`）。
+  別の origin の転送先の robots.txt で断られた・届かないときは、その物件1件の見送りにする（その社の回は止めない）。
+  別のホストへ移った物件は health の `movedTo` にホストごとの件数が出る。
 - 三井のリパークの一覧は sitemap ＋ 公式の地図検索のマーカー（`src/repark-map.js`・`data/repark-map-ids.txt`）。sitemap は
   lastmod が 2025-06-18 で止まっていて、それより後に開いた物件が載っていないため。地図は全国を約100の長方形に分けて週1回だけ聞く
   （`REPARK_MAP_MAX_REQUESTS`。0 で使わない）。sitemap の lastmod の最新が90日より古いと health の reason に残し、
@@ -24,6 +37,7 @@
   sitemap ＋ この一覧で作る（`analyzer/lib/repark-list.mjs`）。sitemap だけで作ると、地図で見つけた物件が「閉鎖」に一斉に出る。
 - `dashboard.html` と統一CSVは `publish.yml` で1日1回作る（毎時コミットすると派生物だけで月75MB太る）。
 - ローリング巡回は `ROLLING_BUDGET_MIN`（既定45分。毎時の `crawl.yml` は50分、タイムズの `crawl-times.yml` は90分）で切り上げ、状態を50件ごとに保存する。
+  毎時の `crawl.yml` は `ROLLING_END_BY_MIN=2` で、取得を次の時の02分までに終える（遅く始まった回だけ予算が縮む。`src/run-budget.js`）。
   途中で殺されても、そこまでの観測と巡回状態は `if: always()` のコミットで残る。
 - 料金は**原文のまま保存**（正規化しない）。変更履歴は**追記型**で全件保持。
 - 節度ある収集5原則: 公開ページのみ / 低頻度 / 直列・待機つき / robots尊重 / 目的限定。
@@ -39,6 +53,7 @@
 | `data/carshare-times.jsonl` | タイムズの駐車場にタイムズカー（カーシェア）があるか（`on`）とステーション番号（`scd`）。料金のために取っているページから読むので追加の取得なし。台数は無い。1行＝1物件の状態で、変わったときだけ追記 |
 | `data/carshare-mitsui.jsonl` | 三井のカーシェアーズのステーション（名前・住所・座標・台数・車種クラス別の台数）。`crawl-carshares.yml` で週1回1巡。変わったときだけ追記、見なくなったら `gone:1`。予約・空き状況は取らない。サイトポリシーが私的利用の範囲のため、社内の分析にとどめ転載しない |
 | `data/*-crawl-state.json` ほか | ローリング巡回の内部状態（分析には不要） |
+| `data/<一覧型の社>-crawl-state.json`・`-ids.txt` | NPC・ザ・パーク・GSパーク・パークネット・エムデンの物件ごとの「一覧を全部取れた回に最後に載っていた日」（`{番号: "YYYY-MM-DD"}`・UTC の日付）と今の一覧（1行1件）。一覧から消えた物件は前の日付のまま残る。分析リポジトリが「最後に確かめた日」に使う（`src/list-state.js`） |
 
 ### レコードスキーマ（JSONL 1行）
 
@@ -130,9 +145,9 @@ Cloud Scheduler（poc-aimo / asia-northeast1 の `crawl-parking-vacancy-hourly`�
 | `crawl-others.yml`（名鉄協商・ザ・パーク） | crawl.yml から | 10・16・22時 | 3 | `0 1,7,13` |
 | `crawl-npc.yml`（NPC の満空を27分おきに11回） | crawl.yml から | 4・10・16・22時 | 4 | `13 1,7,13,19` |
 | `crawl-navipark.yml` | crawl.yml から | 11・17・23時 | 3 | `0 2,8,14` |
-| `crawl-extra.yml`（キョウテク・ル・パルク・GSパーク） | crawl.yml から | 11・23時 | 2 | `30 2,14` |
+| `crawl-extra.yml`（キョウテク・ル・パルク・GSパーク・ショウワパーク・ユアー・パーキング） | crawl.yml から | 11・23時 | 2 | `30 2,14` |
 | `crawl-ecolo.yml` | crawl.yml から | 1・13・19時 | 3 | `0 4,10,16` |
-| `crawl-extra2.yml`（スペース二十四・JQパークス・パークネット） | crawl.yml から | 2・14時 | 2 | `30 5,17` |
+| `crawl-extra2.yml`（スペース二十四・JQパークス・パークネット・三菱地所パークス・SANパーク） | crawl.yml から | 2・14時 | 2 | `30 5,17` |
 | `crawl-extra3.yml`（タマパーク他） | crawl.yml から | 5・17時 | 2 | `30 8,20` |
 | `crawl-carshares.yml` | crawl.yml から | 3時（1巡が終わって7日たつまでは何もせず終わる） | 1 | `0 18` |
 | `publish.yml`（dashboard.html・統一CSV） | crawl.yml から | 6時（studio-data の7:30より前） | 1 | `40 21` |

@@ -1,4 +1,6 @@
 # 2026-08 追加分の定期実行（スペース二十四・JQパークス・パークネット）
+# 2026-11-02 から三菱地所パークス（一覧型・約100リクエスト/回・約7分）と SANパーク（1回250件・約17分。一覧の作り直しは7日ごとに約9分）も相乗り。
+# 2026-11-01 の回は約35分で終わっていて、足しても1回1時間ほど（巡回の手順の枠340分に十分収まる）。
 # 出力は別ファイル(prices-extra2.jsonl)にして push 競合を回避。
 name: crawl-extra2
 
@@ -32,7 +34,9 @@ jobs:
         # ジョブごと時間切れにすると、コミットの手順の時間が残らず、その回の観測を失うおそれがある（2026-10-18）
         timeout-minutes: 340
         env:
-          CRAWL_ONLY: "space24,jqparks,parknet"
+          # 一覧の守り（src/list-guard.js）を外す社。相手先が本当に物件を減らしたと確かめたときだけ、リポジトリの変数に入れて1回回し、回ったら消す
+          LIST_SHRINK_OK: ${{ vars.LIST_SHRINK_OK }}
+          CRAWL_ONLY: "space24,jqparks,parknet,mecparks,sanpark"
           OUT_FILE: "data/prices-extra2.jsonl"
       - name: commit data if changed
         if: always()   # 途中で殺されても、そこまでの観測は残す
