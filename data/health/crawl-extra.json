@@ -1,44 +1,67 @@
 {
- "at": "2026-11-01T15:04:18.688Z",
+ "at": "2026-11-02T03:31:12.073Z",
  "workflow": "crawl-extra",
- "only": "kyotech,leparc,gspark",
+ "only": "kyotech,leparc,gspark,showapark,ypark",
  "targets": [
   {
    "op": "kyotech",
    "label": "キョウテク",
    "ok": true,
-   "n": 675,
+   "n": 674,
    "reason": null,
    "tried": 675,
    "noName": 0,
    "statusCounts": {
-    "200": 675
+    "200": 674,
+    "404": 1
    },
-   "lastOkAt": "2026-11-01T15:04:18.688Z"
+   "lastOkAt": "2026-11-02T03:31:12.073Z"
   },
   {
    "op": "leparc",
    "label": "ルパルク",
    "ok": true,
-   "n": 40,
+   "n": 44,
    "reason": null,
-   "tried": 40,
+   "tried": 44,
    "noName": 0,
    "statusCounts": {
-    "200": 40
+    "200": 44
    },
-   "lastOkAt": "2026-11-01T15:04:18.688Z"
+   "lastOkAt": "2026-11-02T03:31:12.073Z"
   },
   {
    "op": "gspark",
    "label": "GSパーク全国",
    "ok": true,
-   "n": 900,
+   "n": 901,
    "reason": null,
    "statusCounts": {
     "200": 118
    },
-   "lastOkAt": "2026-11-01T15:04:18.688Z"
+   "lastOkAt": "2026-11-02T03:31:12.073Z"
+  },
+  {
+   "op": "showapark",
+   "label": "ショウワパーク",
+   "ok": true,
+   "n": 298,
+   "reason": null,
+   "tried": 300,
+   "noName": 0,
+   "skipped": 2,
+   "statusCounts": {
+    "200": 300
+   },
+   "lastOkAt": "2026-11-02T03:31:12.073Z"
+  },
+  {
+   "op": "ypark",
+   "label": "ユアー・パーキング",
+   "ok": false,
+   "n": 0,
+   "reason": "一覧: ユアー・パーキング一覧: robots.txt が HTTP 403（断られている）",
+   "kind": "blocked"
   }
  ]
 }
