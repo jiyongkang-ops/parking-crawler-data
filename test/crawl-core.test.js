@@ -112,14 +112,17 @@ test("止めている社（スペース二十四・小田急）には一覧も�
   for (const t of health) assert.match(t.reason, /^停止中: 2026-10 先方が403で拒否/);
 });
 
-test("ルパルクの一覧は2ページ（start=0・20）で止め、403 と分かっている3ページ目（start=40）は取りに行かない", async () => {
+// 2026-11-02: ?start= はページ番号だった（全24ページ・471件）。40ページ目の 403 は、最後のページを超えたときのサイトのエラー画面。
+// 最後のページ（1ページ目の pageState の endPage）まで取り、その先は取りに行かない（詳しくは test/lists.test.js）
+test("ルパルクの一覧は ?start をページ番号として最後のページまで取り、その先（40ページ目の 403 など）は取りに行かない", async () => {
   const L = "https://sasp.mapion.co.jp/b/leperc/attr/";
-  const page = (from) => Array.from({ length: 20 }, (_, i) => `<a href="/b/leperc/info/NRP${String(from + i).padStart(5, "0")}/">x</a>`).join("");
-  const calls = stubFetch({ [L]: page(1), [`${L}?start=20`]: page(21), [`${L}?start=40`]: page(41), [`${L}?start=60`]: page(61) });
+  const page = (n, from, count) => `<script>window.pageState = {pageType: 'attr', nowPage: ${n}, endPage: 2};</script><span class="num">30</span>件の店舗を表示` +
+    Array.from({ length: count }, (_, i) => `<a href="/b/leperc/info/NRP${String(from + i).padStart(5, "0")}/">x</a>`).join("");
+  const calls = stubFetch({ [L]: page(1, 1, 20), [`${L}?start=2`]: page(2, 21, 10), [`${L}?start=20`]: page(20, 41, 20), [`${L}?start=40`]: { status: 403 } });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "leparc-"));
   const ids = await getAllLeparcIds({ cacheFile: path.join(dir, "leparc-ids.txt") });
-  assert.equal(ids.length, 40);
-  assert.deepEqual(calls.filter((u) => !u.endsWith("/robots.txt")), [L, `${L}?start=20`]);
+  assert.equal(ids.length, 30);
+  assert.deepEqual(calls.filter((u) => !u.endsWith("/robots.txt")), [L, `${L}?start=2`]);
 });
 
 // ---- 2. robots.txt の扱い ----

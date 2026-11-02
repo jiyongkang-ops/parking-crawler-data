@@ -126,9 +126,13 @@ export const config = {
   ecoloRollingPerRun: 2500,
   // 追加3社（crawl-extra.yml）。いずれも毎回全件相当（~1,300リクエスト×6秒 ≒ 2.2時間/回）
   kyotechRollingPerRun: 800,
-  leparcRollingPerRun: 500,
+  // ル・パルクは一覧を全24ページ・約471件たどるようにした（2026-11-02。以前は40件）。500のままだと1回約31分・1日約940回になるので、
+  // 1日2回 × 240件 ≒ 各物件をおおむね1日1回（1回 約16分）にする
+  leparcRollingPerRun: 240,
   // 2026-08 追加分（crawl-extra2.yml・1日1回で全件を目安）
   space24RollingPerRun: 500,
+  // JQパークスは大分・長崎の駅と駅の2ページ目以降を足して約746件（2026-11-02。以前は541件）。400件のままで、
+  // 1日2回 × 400件 ≒ 約0.9日で1巡（1回 約27分）。一覧の作り直し（週1回・約500リクエスト・約35分）はこの外
   jqparksRollingPerRun: 400,
   tamaparkRollingPerRun: 200,
   anabukiRollingPerRun: 400,
