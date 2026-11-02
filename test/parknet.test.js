@@ -399,3 +399,19 @@ test("通しの巡回（run.js の担当と合わせた形）: health に送っ�
   const unr = runCrawl({ routes: { [ROBOTS]: { status: 503 } }, files });
   assert.equal(unr.health.find((t) => t.op === "parknet").kind, "network");
 });
+
+test("通しの巡回: 全部の市区を最後のページまで取れた回だけ、物件ごとの記録（parknet-crawl-state.json・parknet-ids.txt）を書く（2026-11-02 点検 C5）", () => {
+  const files = { "data/parknet-cities.txt": "27\t大阪市北区\n13\t台東区\n", "data/parknet-cities.txt.fetched": new Date().toISOString() };
+  const ok = asRoutes({ ...cityRoutes("27", "大阪市北区", 12), ...cityRoutes("13", "台東区", 23, { ids: Array.from({ length: 23 }, (_, i) => `jb${i}`) }) });
+  const first = runCrawl({ routes: ok, files });
+  const ids = fs.readFileSync(path.join(first.dir, "data/parknet-ids.txt"), "utf8").split("\n").filter(Boolean);
+  assert.deepEqual(ids, [...new Set(first.rows.map((r) => r.parkId))].sort());
+  assert.equal(ids.length, 35);
+  const before = fs.readFileSync(path.join(first.dir, "data/parknet-crawl-state.json"), "utf8");
+  assert.equal(Object.keys(JSON.parse(before)).length, 35);
+  // 次の回は台東区の3ページ目が取れない（途中まで）→ 記録は進めない
+  const partial = runCrawl({ routes: { ...ok, [cityListUrl("13", "台東区", 20)]: { status: 500, body: "error" } }, files: {}, dir: first.dir });
+  assert.equal(partial.health.find((t) => t.op === "parknet").ok, true);   // health は今までどおり成功
+  assert.equal(fs.readFileSync(path.join(first.dir, "data/parknet-crawl-state.json"), "utf8"), before);
+  assert.match(partial.log, /一覧を全部は取れなかったので、物件ごとの記録（parknet-crawl-state\.json）は進めない/);
+});
