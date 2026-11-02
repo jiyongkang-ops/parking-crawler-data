@@ -9,6 +9,7 @@ import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
 import path from "node:path";
 import { politeFetch } from "./polite-fetch.js";
+import { maintenanceOf } from "./maintenance.js";
 
 const LIST = "https://www.anabuki-housing.co.jp/park/hourly/";
 const SITEMAP = "https://www.anabuki-housing.co.jp/sitemap.xml";
@@ -38,6 +39,10 @@ export async function getAllAnabukiIds({ cacheFile, cacheMs = 7 * 864e5 } = {}) 
   // 2) 一覧ページ送り。1ページ目のページャから総ページ数を得て 2..N を巡回。
   const first = await politeFetch(LIST);
   if (first.skippedReason) throw new Error(`anabuki 一覧: ${first.skippedReason}`);
+  // 一覧が告知なら、例外の文に「メンテナンス中」を入れる（10/22〜 告知を 429 で返している。health の kind が rate ではなく
+  // maintenance になり、巡回の最後に同じ一覧を取り直さずに済む。2026-11-02）。物件が載っている普段の一覧は、予告の帯があっても見ない
+  const mt = first.html && (!first.ok || !first.html.match(ID_RE)) ? maintenanceOf(first.html) : null;
+  if (mt) throw new Error(`anabuki 一覧: 相手先のサイトがメンテナンス中（「${mt}」・HTTP ${first.status}）`);
   if (!first.ok) throw new Error(`anabuki 一覧 HTTP ${first.status}`);
   for (const m of first.html.matchAll(ID_RE)) ids.add(m[1]);
 

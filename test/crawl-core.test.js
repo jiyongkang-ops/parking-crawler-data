@@ -112,14 +112,17 @@ test("止めている社（スペース二十四・小田急）には一覧も�
   for (const t of health) assert.match(t.reason, /^停止中: 2026-10 先方が403で拒否/);
 });
 
-test("ルパルクの一覧は2ページ（start=0・20）で止め、403 と分かっている3ページ目（start=40）は取りに行かない", async () => {
+// 2026-11-02: ?start= はページ番号だった（全24ページ・471件）。40ページ目の 403 は、最後のページを超えたときのサイトのエラー画面。
+// 最後のページ（1ページ目の pageState の endPage）まで取り、その先は取りに行かない（詳しくは test/lists.test.js）
+test("ルパルクの一覧は ?start をページ番号として最後のページまで取り、その先（40ページ目の 403 など）は取りに行かない", async () => {
   const L = "https://sasp.mapion.co.jp/b/leperc/attr/";
-  const page = (from) => Array.from({ length: 20 }, (_, i) => `<a href="/b/leperc/info/NRP${String(from + i).padStart(5, "0")}/">x</a>`).join("");
-  const calls = stubFetch({ [L]: page(1), [`${L}?start=20`]: page(21), [`${L}?start=40`]: page(41), [`${L}?start=60`]: page(61) });
+  const page = (n, from, count) => `<script>window.pageState = {pageType: 'attr', nowPage: ${n}, endPage: 2};</script><span class="num">30</span>件の店舗を表示` +
+    Array.from({ length: count }, (_, i) => `<a href="/b/leperc/info/NRP${String(from + i).padStart(5, "0")}/">x</a>`).join("");
+  const calls = stubFetch({ [L]: page(1, 1, 20), [`${L}?start=2`]: page(2, 21, 10), [`${L}?start=20`]: page(20, 41, 20), [`${L}?start=40`]: { status: 403 } });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "leparc-"));
   const ids = await getAllLeparcIds({ cacheFile: path.join(dir, "leparc-ids.txt") });
-  assert.equal(ids.length, 40);
-  assert.deepEqual(calls.filter((u) => !u.endsWith("/robots.txt")), [L, `${L}?start=20`]);
+  assert.equal(ids.length, 30);
+  assert.deepEqual(calls.filter((u) => !u.endsWith("/robots.txt")), [L, `${L}?start=2`]);
 });
 
 // ---- 2. robots.txt の扱い ----
@@ -742,11 +745,12 @@ test("通しの巡回: 保留中の社は様子見の1件だけ取り、取れ�
 });
 
 test("通しの巡回: 保留中でも様子見の1件が取れたら、そのまま続けて取る（自動で再開）", () => {
-  const { files } = mkpFiles(5);
-  const body = '<html><head><script type="application/ld+json">{"@type":"ParkingFacility","name":"名鉄協商テスト","address":"愛知県名古屋市","geo":{"latitude":35.1,"longitude":136.9}}</script></head>'
+  const { ids, files } = mkpFiles(5);
+  // 物件ごとに名前の違うページ（5件とも同じ名前で料金も無いと、告知のページとみなして止める。maintenance.js makeNoticeGuard）
+  const body = (id) => `<html><head><script type="application/ld+json">{"@type":"ParkingFacility","name":"名鉄協商テスト${id}","address":"愛知県名古屋市","geo":{"latitude":35.1,"longitude":136.9}}</script></head>`
     + '<body><div class="box_price"><table class="tbl_basic"><tr><th>最大料金</th><th>通常料金</th></tr><tr><td><p>24時間 600円</p></td><td><p>30分 200円</p></td></tr></table></div></body></html>';
   const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "5", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
-    routes: { "*robots": { status: 200, body: "" }, "*": { status: 200, body } } });
+    routes: { "*robots": { status: 200, body: "" }, ...Object.fromEntries(ids.map((id) => [MK(id), { status: 200, body: body(id) }])) } });
   assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 5);
   assert.equal(r.health[0].ok, true);
   assert.notEqual(r.health[0].kind, "maintenance");

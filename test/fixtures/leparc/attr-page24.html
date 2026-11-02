@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="ja" dir="ltr">
+<head>
+
+<meta charset="utf-8">
+
+  <!-- 各ページ共通のhead情報 -->
+  
+
+  <!-- toast -->
+  
+
+  <!-- history -->
+  
+
+  <!-- slick -->
+  
+
+
+  
+
+  
+
+  
+
+
+
+
+
+
+
+<!-- title, discription -->  
+
+    <title>コインパーキング一覧 | コインパーキング検索|NTTル・パルク</title>
+    <meta name="description" content="コインパーキング一覧です。NTTル・パルクが管理・運営する駐車場及びカーシェアステーション検索のサービスページのご紹介です。コインパーキング、月極駐車場及びカーシェアをお探しなら、是非ご活用ください。お得にご利用いただけるキャンペーン情報もお知らせしています！また、当社ではコインパーキング・駐車場経営のコンサル業務も行っております。" />
+
+<!-- /title, discription -->
+
+
+
+
+
+
+
+
+
+
+  <!-- 各ページ共通のhead情報 -->
+  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="robots" content="ALL">
+    
+    <script charset="utf-8" src="/f/js_libs/jquery/3.6.0/jquery-3.6.0.min.js"></script>
+    <script src="https://lbs.mapion.co.jp/jslibs/JSPack.2.1.0.js" charset="utf-8"></script>
+    <script charset="utf-8" src="/f/js_libs/support_tool/js/proj4.js"></script>
+    <script charset="utf-8" src="/f/js_libs/ss5_5/v1.0/js/closest.js"></script>
+
+    <script>
+      window.retJson = {"start":"24", "layer":"leperc", "method":"attr"};
+      window.mapConfig = {'type':'leaflet', 'poiCrowd':'1', 'commonConveniIconFlag':'undefined', 'isStg':'false', 'conveniIconWidth':'undefined', 'mapDivID':'map', 'limitZoomLv':'9', 'mapApiDomain':'//bizapis.mapion.co.jp', 'infoMapHightPC':'500', 'iconCrowdHeight':'44', 'conveniSchema':'', 'keywordPm':'20', 'mapIcon':'kind', 'searchStrCount':'srt=citycode,poi_name_yomi&kind=1', 'minWidthPC':'640', 'chooseTop':'mapTop', 'conveniIconHeight':'undefined', 'commonConveniIcon':'undefined', 'infoMapHightSP':'270', 'schema':'leperc', 'iconCrowdWidth':'44', 'iconInfoHeight':'47', 'lat':'35.6810666', 'route_line_color':'#0065ff', 'searchStrAttr':'srt=citycode,poi_name_yomi&kind=1', 'storeGenre':'%e3%82%b3%e3%82%a4%e3%83%b3%e3%83%91%e3%83%bc%e3%82%ad%e3%83%b3%e3%82%b0', 'dtm':'wgs', 'pmWithin':'100', 'mainColor':'#96641a', 'leaflet_api_key':'demobank', 'imgExtension':'png', 'pm':'20', 'searchStrWithin':'srt=distance,citycode,poi_name_yomi&kind=1', 'google_api_key':'AIzaSyAOMa2romwdGGPSzQcbcSUAi6kqlAQrHWE', 'iconInfoWidth':'41', 'subColor':'#D5A24B', 'conveniFlag':'0', 'initZoomLv':'8000', 'mapDomain':'//bm01.mapion.co.jp', 'lon':'139.767289', 'autoZoom':'1', 'layer':'leperc'};  
+    </script>
+    <script charset="utf-8" src="/f/js_libs/ss5_5/v1.1/js/basic_feature.js"></script>
+    <script charset="utf-8" src="/f/leperc/dist/js/base.js"></script>
+    <link href="/f/leperc/img/favicon.ico" rel="icon" type="image/x-icon">
+    <link href="/f/leperc/src/assets/img/home_iphone_114.png" rel="apple-touch-icon-precomposed" type="image/png">
+    <link href="/f/leperc/src/assets/img/home_android_72.png" rel="apple-touch-icon-precomposed" type="image/png">
+
+    <link rel="stylesheet" href="/f/leperc/dist/css/common.css">
+
+  
+  
+
+  <!-- toast -->
+  
+
+  <!-- history -->
+  
+
+  <!-- slick -->
+  
+
+
+  
+
+  
+
+  
+
+
+
+
+<link rel="stylesheet" href="/f/leperc/dist/css/page_list.css">
+<script charset="utf-8" src="/f/leperc/conf/cond_config.js"></script>
+
+<script src="/f/common-ss/common-ss2.0/js/client_js/SpotSearch.js" charset="utf-8"></script>
+<script>
+window.pageState = {pageType: 'attr', nowPage: 24, endPage: 24};
+window.jsConfig = {'m_history_enabled':'true', 'm_search_str_count':'srt=citycode,poi_name_yomi&kind=1', 'm_search_str_attr':'srt=citycode,poi_name_yomi&kind=1', 'm_history_max_length':'5', 'm_history_period':'7'};
+var ErrorMessage={'nodata_con':'%e8%a9%b2%e5%bd%93%e3%81%ae%e6%9d%a1%e4%bb%b6%e3%81%ae%e6%a4%9c%e7%b4%a2%e7%b5%90%e6%9e%9c%e3%81%af%e3%81%82%e3%82%8a%e3%81%be%e3%81%9b%e3%82%93%e3%80%82%e6%a4%9c%e7%b4%a2%e6%9d%a1%e4%bb%b6%e3%82%92%e5%a4%89%e6%9b%b4%e3%81%97%e3%81%a6%e6%a4%9c%e7%b4%a2%e3%82%92%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'nodata':'%e8%a9%b2%e5%bd%93%e3%81%ae%e3%83%af%e3%83%bc%e3%83%89%e3%81%ae%e6%a4%9c%e7%b4%a2%e7%b5%90%e6%9e%9c%e3%81%af%e3%81%82%e3%82%8a%e3%81%be%e3%81%9b%e3%82%93%e3%80%82%e6%a4%9c%e7%b4%a2%e3%83%af%e3%83%bc%e3%83%89%e3%82%92%e5%a4%89%e6%9b%b4%e3%81%97%e3%81%a6%e6%a4%9c%e7%b4%a2%e3%82%92%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'json_error':'%e3%83%89%e3%82%ad%e3%83%a5%e3%83%a1%e3%83%b3%e3%83%88%e3%81%8cJSON%e5%bd%a2%e5%bc%8f%e3%81%a7%e3%81%af%e3%81%82%e3%82%8a%e3%81%be%e3%81%9b%e3%82%93%e3%81%a7%e3%81%97%e3%81%9f%e3%80%82%e7%8f%be%e5%9c%a8%e8%a8%ad%e5%ae%9a%e3%81%97%e3%81%a6%e3%81%84%e3%82%8b%e3%83%91%e3%83%a9%e3%83%a1%e3%83%bc%e3%82%bf%e3%81%ab%e8%aa%a4%e3%82%8a%e3%81%8c%e3%81%aa%e3%81%84%e3%81%8b%e7%a2%ba%e8%aa%8d%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'search_disable_scl':'%e3%81%93%e3%81%ae%e7%b8%ae%e5%b0%ba%e3%81%a7%e3%81%af%e6%a4%9c%e7%b4%a2%e3%81%a7%e3%81%8d%e3%81%be%e3%81%9b%e3%82%93%e3%80%82%e7%b8%ae%e5%b0%ba%e3%82%92%e5%a4%89%e6%9b%b4%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'overpage':'%e6%a4%9c%e7%b4%a2%e4%bb%b6%e6%95%b0%e3%81%8c%ef%bc%91%ef%bc%90%ef%bc%90%e4%bb%b6%e3%82%92%e8%b6%85%e3%81%88%e3%81%be%e3%81%97%e3%81%9f%e3%80%82%e6%8a%bd%e5%87%ba%e6%9d%a1%e4%bb%b6%e3%82%92%e5%a4%89%e6%9b%b4%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'form_value_empty':'%e6%a4%9c%e7%b4%a2%e3%83%af%e3%83%bc%e3%83%89%e3%82%92%e5%85%a5%e5%8a%9b%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'not_geocode':'%e5%a0%b4%e6%89%80%e3%82%92%e7%89%b9%e5%ae%9a%e3%81%a7%e3%81%8d%e3%81%be%e3%81%9b%e3%82%93%e3%81%a7%e3%81%97%e3%81%9f%e3%80%82%e6%a4%9c%e7%b4%a2%e3%82%ad%e3%83%bc%e3%83%af%e3%83%bc%e3%83%89%e3%82%92%e5%a4%89%e6%9b%b4%e3%81%97%e3%81%a6%e6%a4%9c%e7%b4%a2%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'station_not_found':'%e3%81%93%e3%81%ae%e4%bb%98%e8%bf%91%e3%81%ab%e8%a1%a8%e7%a4%ba%e3%81%a7%e3%81%8d%e3%82%8b%e6%9c%80%e5%af%84%e3%82%8a%e9%a7%85%e3%81%8c%e3%81%82%e3%82%8a%e3%81%be%e3%81%9b%e3%82%93%e3%80%82', 'invalid_form_data':'%e4%bb%a5%e4%b8%8b%e3%81%ae%e8%a8%98%e5%8f%b7%e3%82%92%e5%85%a5%e5%8a%9b%e3%81%99%e3%82%8b%e3%81%a8%e6%a4%9c%e7%b4%a2%e3%81%8c%e3%81%a7%e3%81%8d%e3%81%be%e3%81%9b%e3%82%93%e3%80%82%0d%0a%e5%88%a5%e3%81%ae%e3%83%af%e3%83%bc%e3%83%89%e3%81%a7%e5%86%8d%e5%85%a5%e5%8a%9b%e3%82%92%e3%81%8a%e9%a1%98%e3%81%84%e3%81%97%e3%81%be%e3%81%99%e3%80%82%0d%0a%e3%80%8c+()?*%7b%7d%5b%5d/%60;~%7c=%22$:%3c%3e%5e%5c&!%e3%80%8d', 'nodata_circle':'%e3%81%93%e3%81%ae%e4%bb%98%e8%bf%91%e3%81%ab%e6%83%85%e5%a0%b1%e3%81%af%e3%81%82%e3%82%8a%e3%81%be%e3%81%9b%e3%82%93%e3%80%82%e6%8c%87%e5%ae%9a%e3%81%99%e3%82%8b%e5%a0%b4%e6%89%80%e3%82%92%e5%a4%89%e6%9b%b4%e3%81%97%e3%81%a6%e6%a4%9c%e7%b4%a2%e3%82%92%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'route_not_found':'%e3%83%ab%e3%83%bc%e3%83%88%e3%81%ae%e8%a1%a8%e7%a4%ba%e3%81%8c%e3%81%a7%e3%81%8d%e3%81%be%e3%81%9b%e3%82%93%e3%80%82', 'block_auth':'%e8%aa%8d%e8%a8%bc%e3%81%8c%e8%a8%b1%e5%8f%af%e3%81%95%e3%82%8c%e3%81%a6%e3%81%84%e3%81%be%e3%81%9b%e3%82%93%e3%81%a7%e3%81%97%e3%81%9f%e3%80%82%e7%8f%be%e5%9c%a8%e4%bd%bf%e7%94%a8%e3%81%97%e3%81%a6%e3%81%84%e3%82%8b%e3%83%a6%e3%83%bc%e3%82%b9%e3%82%b1%e3%83%bc%e3%82%b9%e3%81%ab%e3%81%a6%e8%aa%8d%e8%a8%bc%e3%82%92%e8%a8%b1%e5%8f%af%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'mail_domain_validation':'%e9%80%81%e4%bf%a1%e5%85%88%e3%82%92%e9%81%b8%e6%8a%9e%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'nodata_within':'%e7%8f%be%e5%9c%a8%e3%81%ae%e8%a1%a8%e7%a4%ba%e7%af%84%e5%9b%b2%e3%81%ab%e6%83%85%e5%a0%b1%e3%81%af%e3%81%82%e3%82%8a%e3%81%be%e3%81%9b%e3%82%93%e3%80%82%e7%b8%ae%e5%b0%ba%e3%82%84%e5%a0%b4%e6%89%80%e3%82%92%e5%a4%89%e6%9b%b4%e3%81%97%e3%81%a6%e4%b8%8b%e3%81%95%e3%81%84%e3%80%82', 'mail_account_validation':'%e3%83%a1%e3%83%bc%e3%83%ab%e3%82%a2%e3%83%89%e3%83%ac%e3%82%b9%e3%82%92%e5%85%a5%e5%8a%9b%e3%81%97%e3%81%a6%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'searchaddresslist_error':'%e4%bd%8f%e6%89%80%e3%81%ae%e5%8f%96%e5%be%97%e3%81%ab%e5%a4%b1%e6%95%97%e3%81%97%e3%81%be%e3%81%97%e3%81%9f%e3%80%82', 'defaultMessage':'%e6%a4%9c%e7%b4%a2%e3%83%af%e3%83%bc%e3%83%89%e3%81%8c%e3%81%aa%e3%81%84%e3%81%9f%e3%82%81%e6%a4%9c%e7%b4%a2%e3%81%8c%e3%81%a7%e3%81%8d%e3%81%aa%e3%81%84%e3%80%81%e3%81%be%e3%81%9f%e3%81%af%e3%82%b7%e3%82%b9%e3%83%86%e3%83%a0%e3%82%a8%e3%83%a9%e3%83%bc%e3%81%ae%e3%81%9f%e3%82%81%e6%a4%9c%e7%b4%a2%e3%81%8c%e3%81%a7%e3%81%8d%e3%81%be%e3%81%9b%e3%82%93%e3%81%a7%e3%81%97%e3%81%9f%e3%80%82%3cBR%20/%3e%e5%86%8d%e5%ba%a6%e6%a4%9c%e7%b4%a2%e3%82%92%e3%81%97%e3%81%a6%e3%81%84%e3%81%9f%e3%81%a0%e3%81%8f%e3%81%8b%e3%80%81%e6%99%82%e9%96%93%e3%82%92%e3%81%8a%e3%81%84%e3%81%a6%e3%81%8b%e3%82%89%e6%a4%9c%e7%b4%a2%e3%82%92%e3%81%8a%e8%a9%a6%e3%81%97%e3%81%8f%e3%81%a0%e3%81%95%e3%81%84%e3%80%82', 'mail_error':'%e3%83%a1%e3%83%bc%e3%83%ab%e3%82%a2%e3%83%89%e3%83%ac%e3%82%b9%e3%81%8c%e4%b8%8d%e6%ad%a3%e3%81%a7%e3%81%99%e3%80%82'};
+$(function(){
+    //空のパラメータを送信しない
+    basicFeature.cleanParam();
+});
+</script>
+
+			
+
+			
+
+			
+
+			
+				<script type="text/javascript" id="analytics_cellar">
+				if (typeof(ca) != 'function') {
+					(function(u, c){
+
+					var a, s;
+
+					window['CellarAnalyticsObject'] = c;
+					window[c] = window[c] || function() {
+					(window[c].q = window[c].q || []).push(arguments)
+					},
+					window[c].u = u,
+					window[c].l = 1 * new Date();
+
+					a = document.createElement('script'),
+					s = document.getElementsByTagName('script')[0];
+					a.async = 1;
+					a.src = u;
+					s.parentNode.insertBefore(a, s);
+
+					})('//cellar-analytics.mapion.co.jp/analytics.js', 'ca');
+				}
+				ca('set', 'pid', 'mapion');
+				ca('set', 'aid', 'spotsearch');
+				
+				ca('set', 'key', 'leperc');
+				ca('set', 'referer', !0, {'level': 'noparam'});
+				
+				ca('count', '%2Fanalytics%2Fleperc%2Fblock%2Fattr%2F', {});
+
+				(function() {
+					var analytics_hash = document.location.hash;
+					if (analytics_hash) {
+
+						var analytics_t = '';
+						var analytics_q_wc = '';
+
+						if (analytics_hash.match(/#_ca\.t=([a-z_]+),/) && analytics_hash.match(/,_ca\.q=(.+)$/)) {
+							analytics_t = '/analytics/leperc/search/' + analytics_hash.match(/#_ca\.t=([a-z_]+),/)[1] + '/';
+							analytics_q_wc = analytics_hash.match(/,_ca\.q=(.+)$/)[1];
+
+							ca('count', encodeURIComponent(analytics_t), {
+								'nopv':!0,
+								'q' : analytics_q_wc
+							});
+						}
+					}
+				})();
+
+				</script>
+			
+
+		
+</head>
+<body>
+  
+  <!-- 各ページ共通のhead情報 -->
+  
+
+  <!-- toast -->
+  
+
+  <!-- history -->
+  
+
+  <!-- slick -->
+  
+
+
+  
+
+  
+
+  
+
+
+
+
+  
+        <header style="opacity: 1;">
+            <div class="header"><a href="https://www.le-perc.co.jp/" class="logo" target="_blank">
+                <img src="/f/leperc/src/assets/img/logo.png?20260625" alt="株式会社NTTル・パルク"></a></div>
+        </header>
+      
+  
+
+
+
+  <!-- パンくず、SEO用リード -->
+  <div class="bread-crumb__pc">
+    <ul itemscope="" itemtype="http://schema.org/BreadcrumbList" class="inner-contents">
+      <li itemprop="itemListElement" itemscope itemtype="http://schema.org/ListItem"><a itemprop="item" href="https://www.le-perc.co.jp/"><span itemprop="name">NTT ル・パルク</span></a> <meta itemprop="position" content="1" /></li>
+      <li itemprop="itemListElement" itemscope itemtype="http://schema.org/ListItem"><a itemprop="item" href="/b/leperc/?type=coin"><span itemprop="name">コインパーキング検索サービス</span></a><meta itemprop="position" content="2" /></li>
+      
+        
+          <li itemprop="itemListElement" itemscope="" itemtype="https://schema.org/ListItem">
+            <span itemprop="name">検索結果一覧</span>
+            <meta itemprop="position" content="3">
+        </li>
+        
+        
+        
+
+      
+
+    </ul>
+  </div>
+
+
+
+
+
+
+
+
+
+  <main id="search-wrapper">
+    <div class="list-page-inner">
+      
+
+
+
+
+
+  
+    <div class="ttl-main-wrap">
+    <h1>
+    <span class="ttl-main-list"> NTT ル・パルク コインパーキング検索サービスの検索結果</span></h1>
+  </div>
+  
+        <p class="ttl-main-smaller">471件のNTT ル・パルクコインパーキングがございます。リストからお近くのコインパーキングをお選びください。</p>
+  
+<!-- /パンくず、SEO用リード -->
+
+
+
+
+
+
+
+      <!-- キーワード検索 -->
+      
+	<section class="section-inner search-section">
+		<h2 class="menu-ttl"><span>キーワードで探す</span></h2>
+	<form action="/s/leperc/" name="poi" method="get" class="js-clean-param" onsubmit="return SpotSearch.util.formValidate(this);">
+		<div class="all-search-box">
+			<input type="text" name="q" placeholder="検索ワードを入力" id="input_all" class="is-current">
+			<div class="is-active word-reset"><svg>
+				<use xlink:href="/f/leperc/src/assets/img/icon_svg.svg#close"></use>
+			  </svg></div>
+		  </div>
+    <div class="btn-wrap"><input type="submit" value="検索" class="btn-all">
+		<input value="coin" type="hidden" name="type">
+	</div></form>
+	</section>
+
+
+
+
+      <!--店舗一覧-->
+      <div class="list-content">
+        <section class="section-list-content">
+          
+          <div class="result-search-wrap">
+            <div class="result-search-content">
+              <div class="ttl">エリア</div>
+              <div class="select-condition"> </div>
+            </div>
+            <a href="javascript:void(0)" class="list-side-menu-open refine-area btn btn-list">変更</a>
+          </div>
+          
+          <div class="result-search-wrap">
+            <div class="result-search-content">
+              <div class="ttl">絞り込み</div>
+              <div class="select-condition" id="selected-condition"></div>
+            </div>
+            <a href="javascript:void(0)" class="list-side-menu-open refine-cond btn btn-list">変更</a>
+          </div>
+          
+
+          <div class="list-sec-wrap">
+              <div class="result-search-message"><span class="num">471</span>件の店舗を表示</div>
+              <span class="link-map list-to-map">地図から探す<svg class="icon-arrow-c-accent">
+                  <use xlink:href="/f/leperc/src/assets/img/icon_svg.svg#arrow"></use>
+                </svg>
+              </span>
+          </div>
+          <!-- コンビニATMチェックボックス -->
+          
+          
+          
+
+
+
+
+
+
+
+  <!-- 店舗リスト -->
+
+        
+            <ul class="result-list resutl-list-fig">
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00407/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00407/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク西中島第1駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>大阪府大阪市淀川区西中島4丁目4-6</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 7台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv02.png" alt="フェリカ対応" title="フェリカ対応">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv08.png" alt="自動販売機" title="自動販売機">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00383/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00383/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク鳳南第3駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>大阪府堺市西区鳳南町2丁52</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 14台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv02.png" alt="フェリカ対応" title="フェリカ対応">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv08.png" alt="自動販売機" title="自動販売機">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00269/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00269/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク長田四番町第1駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>兵庫県神戸市長田区四番町6-1</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 7台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv14.png" alt="PARK＆GO（自動精算アプリ対応）" title="PARK＆GO（自動精算アプリ対応）">
+                          </span>
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv15.png" alt="SmartParking（AIカメラ認証）" title="SmartParking（AIカメラ認証）">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv02.png" alt="フェリカ対応" title="フェリカ対応">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00474/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00474/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク神戸熊内町第1駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>兵庫県神戸市中央区熊内町2丁目1-31</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 9台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv02.png" alt="フェリカ対応" title="フェリカ対応">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00449/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00449/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク尼崎金楽寺第1駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>兵庫県尼崎市金楽寺町1丁目5</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 10台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv02.png" alt="フェリカ対応" title="フェリカ対応">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00896/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00896/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク鳥取今町第1駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>〒680-0822  鳥取県鳥取市今町1-235</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 3台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv16.png" alt="SmartTicketParking（前払い式）" title="SmartTicketParking（前払い式）">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00333/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00333/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク香川丸亀第１駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>香川県丸亀市福島町１５０</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 12台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv08.png" alt="自動販売機" title="自動販売機">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00887/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00887/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク松山大手町第１駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>愛媛県松山市大手町１丁目９−９</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 7台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00913/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00913/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>ＮＴＴル・パルク藤崎1丁目第1駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>福岡県福岡市早良区藤崎1-19-11</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 5台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv16.png" alt="SmartTicketParking（前払い式）" title="SmartTicketParking（前払い式）">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00501/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00501/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク長崎万才町第1駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>長崎県長崎市万才町2丁目12</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 33台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv02.png" alt="フェリカ対応" title="フェリカ対応">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv08.png" alt="自動販売機" title="自動販売機">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+                <li>
+                    <div class="result-list-content">
+                      <h3 class="result-ttl">
+                        
+                        <!-- a href="/b/leperc/info/NRP00502/?type=coin" -->
+                        <a href="/b/leperc/info/NRP00502/?type=coin" target="">
+                          
+                          <img src="/f/leperc/src/assets/img/icon/ico_car.png">
+                          
+                          <span>NTTル・パルク長崎万才町第2駐車場</span></a></h3>
+                      <ul>
+                      <li class="result-address"><span class="label-address">住所：</span>長崎県長崎市万才町2丁目12</li>
+                      
+                      
+                      <li class="result-parking-count">
+                        <div>
+                          駐車台数: 
+                        </div>
+                        <div class="parking-count-box">
+                          自動車 10台
+                        </div>
+                      </li>
+                      
+                      
+                      
+                      </ul>
+                      <div class="result-icon-conditions">
+                        
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+
+                          <span class="icon-condition">
+                            <img src="/f/leperc/src/assets/img/icon/is_coin_serv02.png" alt="フェリカ対応" title="フェリカ対応">
+                          </span>
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                        
+                      
+                      </div>
+                    </div>
+                  </li>
+            
+        <!--/.result-list--></ul>
+        
+
+        
+    <!--/.list-body-->
+
+<!-- 店舗リスト -->
+
+
+
+
+
+          <div id="more-holder"></div>
+          
+            <div class="btn-wrap btn-wrap-list more-list-btn-wrap">
+              <a href="#" class="btn-other btn-all more-list-btn"><span>もっと見る</span></a>
+            </div>
+            <div class="more-loading">
+              <img src="/f/leperc/src/assets/img/loading.png">
+            </div>
+
+          
+
+        <!-- <span m:inject="m:insert" m:path="./../pager/block_pager_number.html" m:replace="true"/> -->
+
+        </section>
+        <!--クレジット-->
+        
+  <!-- 各ページ共通のhead情報 -->
+  
+
+  <!-- toast -->
+  
+
+  <!-- history -->
+  
+
+  <!-- slick -->
+  
+
+
+  
+    <div class="credit">
+      <span>Powered by</span>
+      <a href="https://www.mapion.co.jp/sales/service/asp/" target="_blank"><img src="/f/js_libs/ss5_5/v1.0/img/mapionbiz.png" alt="mapionbiz"></a>
+    </div>
+  
+
+  
+
+  
+
+
+
+
+        <!--クレジット-->
+      </div>
+      <!-- list-content -->
+    </div>
+    <!-- list-page-inner -->
+  </main>
+  
+		<footer class="footer">
+			<div class="footer-content">
+				<small>Copyright&copy;NTTル・パルク株式会社</small>
+			</div>
+	</footer>
+    <script src="/f/js_libs/ss5_5/v1.0/js/svg4everybody.min.js"></script>
+    <script src="/f/leperc/js/script.js"></script>
+	
+
+</body>
+
+</html>

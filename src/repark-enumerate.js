@@ -222,6 +222,8 @@ export const isTransient = (res) => !res || !!res.transient
 
 /** 状態の値の末尾の「1回見送った」印 */
 const RETRY_MARK = "|r";
+/** 状態の値に「1回見送った」印が付いているか（次に取れなければ時刻を進める2回目の物件か） */
+export const isRetryMarked = (v) => v != null && String(v).endsWith(RETRY_MARK);
 /** 相手先の不調で取れなかった物件を状態へ書き戻す。戻り値は「次の回に取り直すか」。
  *  1回目は時刻を進めず印だけ付ける（古い順の先頭に残り、次の回に取り直す）。
  *  以前は失敗でも時刻を進めていたので、タイムズで 2026-10-02 21:08〜21:40（日本時間）に先方が 502・503・
@@ -312,6 +314,18 @@ export function pickDropped(allIds, state, listAtMs, max = 100, keyOf = null) {
   }
   return out.sort((a, b) => a[1] - b[1]).slice(0, max).map((x) => x[0]);
 }
+
+/** run.js の巡回の表（ROLLING_SITES）の1行と、その回の保留（hold）→ 一覧から消えた物件を確かめるか（pickDropped）。
+ *  既定で確かめる（2026-11-02）。それまではタイムズだけで、ナビパーク・キョウテク・システムパーク・コムパーク・JQパークスなどでは
+ *  一覧から消えた物件が二度と取りに行かれず、閉鎖（404）の印も付かないまま相場に残っていた（10/30 の控えで24件。
+ *  ナビパークの田奈町第１・第２は 404 のまま 9/20 から残っていた。2026-11-02 点検 C3・fresh-7）。
+ *  確かめないのは次のとき:
+ *    ・confirmDropped: false の社 … ル・パルク（一覧の上位40件だけを対象にすると決めてあるので、そこから外れた物件の詳細ページを
+ *      取りに行くと決まりより範囲が広がる。本人の判断待ち）
+ *    ・recheckDropped の社 … エコロ（一覧から外れた物件を毎回の巡回の候補に足している。両方にすると同じ物件を1回の実行で2回取る）
+ *    ・保留中（hold）の回 … 様子見の1件だけにするため（一覧から消えた物件が様子見の1件にならないように）
+ *  リパークは地図に出なくなった物件を180日は一覧に残す（repark-map.js の MAP_KEEP_UNSEEN_DAYS）ので、ふつうは確かめる物件が無い */
+export const confirmsDropped = (site, { hold = null } = {}) => site?.confirmDropped !== false && !site?.recheckDropped && !hold;
 
 /** 一覧の中身の指紋。作り直して中身が変わったかを見るのに使う */
 export function listHash(ids) {
