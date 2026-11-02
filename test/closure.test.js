@@ -257,12 +257,13 @@ test("通しの巡回（キョウテク）: 一覧から消えた物件を1回�
   assert.equal(r2.calls.filter((u) => u === KT("gone-park") || u === KT("alive-park")).length, 0);
 });
 
-test("通しの巡回（ル・パルク）: 一覧（上位40件）から外れた物件の詳細ページは取りに行かない", () => {
+// ル・パルクは一覧を全ページたどるようになった（2026-11-02 lists）ので、一覧から外れた物件もほかの社と同じく1回だけ確かめに行く
+test("通しの巡回（ル・パルク）: 全件の一覧から外れた物件も、ほかの社と同じく詳細ページを1回確かめに行く", () => {
   const old = new Date(Date.now() - 40 * 864e5).toISOString();
   const files = { "data/leparc-ids.txt": "NRP00001\n", "data/leparc-ids.txt.fetched": new Date(Date.now() - 864e5).toISOString(),
     "data/leparc-crawl-state.json": JSON.stringify({ NRP00001: `${old}|0`, NRP00185: `${old}|0` }) };
   const r = runCrawl({ env: { CRAWL_ONLY: "leparc" }, files, routes: { "*": { status: 200, body: "<html></html>" } } });
-  assert.ok(!r.calls.some((u) => u.includes("NRP00185")), r.calls.join("\n"));
+  assert.ok(r.calls.some((u) => u.includes("NRP00185")), r.calls.join("\n"));
   assert.ok(r.calls.some((u) => u.includes("NRP00001")));
 });
 
