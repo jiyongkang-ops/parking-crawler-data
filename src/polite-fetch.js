@@ -82,10 +82,15 @@ async function getRobots(origin) {
   let entry;
   try {
     await pace(config.minDelayMs);
-    const res = await fetch(`${origin}/robots.txt`, {
-      headers: { "User-Agent": config.userAgent },
-      signal: AbortSignal.timeout(config.timeoutMs),
-    });
+    // robots.txt の転送は追ってよい（RFC 9309 2.3.1.2・5回まで）が、1回ずつ間隔をあける（2026-11-02）
+    let cur = `${origin}/robots.txt`;
+    let res = await fetchOnce(cur);
+    for (let hop = 0; hop < MAX_REDIRECTS && isRedirect(res.status) && res.headers.get("location"); hop++) {
+      cur = new URL(res.headers.get("location"), cur).href;
+      await res.text().catch(() => "");
+      await pace(config.minDelayMs);
+      res = await fetchOnce(cur);
+    }
     const st = res.status;
     // 断られた・多すぎる・届かないの答えでも、中身がメンテナンスの告知なら一時的な見送りにする。
     // メンテナンスの告知を 403・429 で返すサイトがある（2026-10-22〜 ザ・パーク 403・あなぶき 429・近鉄不動産 403）
@@ -126,17 +131,9 @@ function isAllowed(rules, pathname) {
   return !best || best.type === "allow";
 }
 
-// 節度を守って 1 件取得する。
-// opts.minDelay でこの取得のアクセス間隔を上書き（事業者ごとの配慮に使う）。
-// opts.redirect: "manual" で転送を追わない（閉じた物件をトップへ転送する社で、転送先を物件として読まないため。
-//   追わない分、転送先のページを取りに行く1回も減る）。転送のときは status が 3xx、location に転送先が入る。
-// 戻り値: { ok, status, html, skippedReason, location }。本ページを送らなかったときは skippedReason が入り、
-//   robots.txt で断られた（401・403）なら blocked: true、robots.txt に届かない（通信の失敗・5xx）なら transient: true
-export async function politeFetch(url, opts = {}) {
-  const u = new URL(url);
+// robots.txt の関所。取ってよければ null、だめなら politeFetch の戻り値の形（skippedReason つき）を返す
+async function robotsGate(u) {
   const origin = `${u.protocol}//${u.host}`;
-
-  // 1) robots.txt チェック
   const robots = await getRobots(origin);
   if (robots.kind === "blocked") {
     return { ok: false, blocked: true, status: robots.status, skippedReason: `robots.txt が HTTP ${robots.status}（断られている）` };
@@ -150,29 +147,103 @@ export async function politeFetch(url, opts = {}) {
   if (!isAllowed(robots.rules, u.pathname)) {
     return { ok: false, skippedReason: `robots.txt で Disallow: ${u.pathname}` };
   }
+  return null;
+}
+
+// 転送をたどる上限（RFC 9110 の目安の5回）
+const MAX_REDIRECTS = 5;
+const isRedirect = (st) => st === 301 || st === 302 || st === 303 || st === 307 || st === 308;
+const originOf = (u) => `${u.protocol}//${u.host}`;
+
+/** 1回だけ送る（転送は追わない）。間隔は呼ぶ側で取る */
+async function fetchOnce(url) {
+  return fetch(url, {
+    headers: { "User-Agent": config.userAgent, "Accept-Language": "ja,en;q=0.8" },
+    signal: AbortSignal.timeout(config.timeoutMs),
+    redirect: "manual",
+  });
+}
+
+// 節度を守って 1 件取得する。
+// opts.minDelay でこの取得のアクセス間隔を上書き（事業者ごとの配慮に使う）。
+// opts.redirect: "manual" で転送を追わない（閉じた物件をトップへ転送する社で、転送先を物件として読まないため。
+//   追わない分、転送先のページを取りに行く1回も減る）。転送のときは status が 3xx、location に転送先が入る。
+// 転送は fetch に任せず、1回ずつ自分でたどる（2026-11-02）。以前は fetch が転送をそのまま追っていたので、
+//   ・転送先の robots.txt を見ていなかった（別のホストへの転送でも、同じホストの Disallow のパスへの転送でも）。
+//     パークネットの robots.txt は「Disallow: /・Allow: /parknet/」で、改修で /parknet/ の外へ転送されると禁止のページを取ってしまう
+//   ・転送の2回目を間をあけずにすぐ送っていた（パークネットの一覧は1ページごとに 302 と 200 の2回）
+//   いまは転送のたびに、転送先の robots.txt（ホストとパス）を確かめ、いつもの間隔をあけてから送る。断られたら送らずに返す
+//   （skippedReason は「転送先の…」）。別のホストへ移ったときは movedTo に転送先を入れる（run.js が health に残す。
+//   http → https のようにホストが同じ転送は入れない。robots.txt は origin ごとに確かめる）
+// 戻り値: { ok, status, html, skippedReason, location, url, movedTo }。本ページを送らなかったときは skippedReason が入り、
+//   robots.txt で断られた（401・403）なら blocked: true、robots.txt に届かない（通信の失敗・5xx）なら transient: true
+//   （別の origin への転送先の robots.txt で見送ったときは、どちらも付けず redirectBlocked: true。そのページ1件の見送り）
+//   url は最後に取ったページの URL（転送をたどったときは転送先）
+export async function politeFetch(url, opts = {}) {
+  const start = new URL(url);
+
+  // 1) robots.txt チェック
+  const gate = await robotsGate(start);
+  if (gate) return gate;
 
   // 2) アクセス間隔の確保（直列・最低 minDelayMs、opts.minDelay があれば優先）
-  await pace(opts.minDelay ?? config.minDelayMs);
+  const minDelay = opts.minDelay ?? config.minDelayMs;
+  await pace(minDelay);
 
-  // 3) 取得
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": config.userAgent,
-      "Accept-Language": "ja,en;q=0.8",
-    },
-    signal: AbortSignal.timeout(config.timeoutMs),
-    redirect: opts.redirect === "manual" ? "manual" : "follow",
-  });
+  // 3) 取得。転送は1回ずつたどる
+  let cur = start;
+  let res = await fetchOnce(cur.href);
+  for (let hop = 0; opts.redirect !== "manual" && isRedirect(res.status) && res.headers.get("location"); hop++) {
+    const location = res.headers.get("location");
+    await res.text().catch(() => "");   // 転送の本文は読まずに捨てる（接続を返すため）
+    if (hop >= MAX_REDIRECTS) {
+      console.warn(`[redirect] ${url}: 転送が${MAX_REDIRECTS}回を超えたので止めた（最後の転送先 ${location}）`);
+      return { ok: false, status: res.status, html: "", location, url: cur.href };
+    }
+    const next = new URL(location, cur);
+    const moved = next.host !== start.host ? { movedTo: next.href } : {};
+    const g = await robotsGate(next);
+    if (g) {
+      console.warn(`[redirect] ${cur.href} → ${next.href}: 転送先の${g.skippedReason}。転送先は取りに行かない`);
+      const skippedReason = `転送先（${next.host}）の ${g.skippedReason}`;
+      // 別の origin の robots.txt で断られた・届かないのは、その転送先だけの話。blocked・transient・maintenance を付けたまま返すと、
+      // run.js は「この社のサイトに断られた・届かない」としてその社の回をまるごと打ち切り、物件の時刻も進めないので、
+      // 1件の物件が別のホストへ転送されるだけで毎回そこで止まり続ける（2026-11-02 点検の訂正）。
+      // その物件1件の見送り（redirectBlocked。status は転送の 3xx）として返す。同じ origin なら robots.txt は同じなので今のまま
+      if (originOf(next) !== originOf(start)) {
+        return { ok: false, status: res.status, redirectBlocked: true, skippedReason,
+          ...(g.robotsError ? { robotsError: g.robotsError } : {}), location, url: cur.href, ...moved };
+      }
+      return { ...g, skippedReason, location, url: cur.href, ...moved };
+    }
+    await pace(minDelay);
+    cur = next;
+    res = await fetchOnce(cur.href);
+  }
   const html = await res.text();
-  return { ok: res.ok, status: res.status, html, location: res.headers.get("location") };
+  const moved = cur.host !== start.host ? { movedTo: cur.href } : {};
+  return { ok: res.ok, status: res.status, html, location: res.headers.get("location"), url: cur.href, ...moved };
 }
 
 /** robots.txt を見ずに、1ページだけ取る。メンテナンスの確かめ（markMaintenance）で、robots.txt が 401・403 だった社の
- *  入口（トップページ）を1回だけ見るためだけに使う（RFC 9309 2.3.1.3 では 4xx のときは取ってよい）。間隔は守る */
+ *  入口（トップページ）を1回だけ見るためだけに使う（RFC 9309 2.3.1.3 では 4xx のときは取ってよい）。間隔は守る。
+ *  転送は politeFetch と同じく1回ずつたどり、毎回間隔をあける。同じ origin の中の転送は robots.txt を見ない（4xx なので取ってよい）が、
+ *  別の origin へ転送されたときは、その origin の robots.txt を確かめ、だめなら取りに行かない（2026-11-02） */
 export async function fetchOnceIgnoringRobots(url) {
+  const start = new URL(url);
   await pace(config.minDelayMs);
-  const res = await fetch(url, { headers: { "User-Agent": config.userAgent, "Accept-Language": "ja,en;q=0.8" },
-    signal: AbortSignal.timeout(config.timeoutMs), redirect: "follow" });
+  let cur = start;
+  let res = await fetchOnce(cur.href);
+  for (let hop = 0; isRedirect(res.status) && res.headers.get("location"); hop++) {
+    const location = res.headers.get("location");
+    await res.text().catch(() => "");
+    if (hop >= MAX_REDIRECTS) return { ok: false, status: res.status, html: "" };
+    const next = new URL(location, cur);
+    if (originOf(next) !== originOf(start) && await robotsGate(next)) return { ok: false, status: res.status, html: "" };
+    await pace(config.minDelayMs);
+    cur = next;
+    res = await fetchOnce(cur.href);
+  }
   return { ok: res.ok, status: res.status, html: await res.text().catch(() => "") };
 }
 

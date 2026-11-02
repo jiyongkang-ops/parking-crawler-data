@@ -46,6 +46,8 @@ jobs:
         # ジョブごと時間切れにすると、コミットの手順の時間が残らず、その回の観測を失うおそれがある（2026-10-18）
         timeout-minutes: 110
         env:
+          # 一覧の守り（src/list-guard.js）を外す社。相手先が本当に物件を減らしたと確かめたときだけ、リポジトリの変数に入れて1回回し、回ったら消す
+          LIST_SHRINK_OK: ${{ vars.LIST_SHRINK_OK }}
           CRAWL_ONLY: "times"
           OUT_FILE: "data/prices-times.jsonl"
           # 1回の取得の予算（分）。以前は書いておらず既定の45分だった（2026-10-17 本人の了解で90分）。
