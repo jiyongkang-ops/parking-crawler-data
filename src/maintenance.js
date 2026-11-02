@@ -49,6 +49,7 @@ export const ORIGINS = {
   repark: "https://www.repark.jp", seiwapark: "https://www.seiwapark.co.jp", systempark: "https://systempark.biz",
   tamapark: "https://www.tamapark.co.jp", thepark: "https://www.dkparking.com", times: "https://times-info.net",
   tokyulifia: "https://www.tokyulifia.co.jp",
+  showapark: "https://www.shouwapark.co.jp", ypark: "https://www.waxds.com",
   // 止めている社（space24・odakyu）は載せない。許可が出るまでトップにも行かない
 };
 
@@ -57,7 +58,10 @@ export const ORIGINS = {
  *  あなぶきは会社のトップ（住まいの会社のサイト）が 10/27 に戻ったが、駐車場の一覧（/park/hourly/）は
  *  メンテナンスの告知（429）のまま。トップで見ると「回数の制限」と取り違える（2026-10-30 確認）。
  *  どちらも巡回で取っているページなので、見に行っても新しい所にはアクセスしない */
-export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/" };
+export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/",
+  // ショウワパークは巡回で一覧を作るときに取る駐車場検索のページ。ユアー・パーキングの waxds.com はホームページ更新サービスで、
+  // トップ（/）はサービスの会社のページになる。同社の地図の画面（物件の JSON を読んでいるページ）を見る（2026-11-02）
+  showapark: "/parking/", ypark: "/ypark/map.php" };
 
 /** 事業者の入口の URL（メンテナンスを確かめるときに見るページ）。載っていなければ null */
 export const entryOf = (op) => (ORIGINS[op] ? `${ORIGINS[op]}${ENTRY_PATHS[op] ?? "/"}` : null);

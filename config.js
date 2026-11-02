@@ -52,10 +52,15 @@ export const config = {
     // エコロパーク(エコロシティ) — 約195エリアを辿って列挙・ローリング巡回。
     // ※別ワークフロー(crawl-ecolo.yml, CRAWL_ONLY=ecolo)で実行。
     { operator: "ecolo", mode: "nationwide", label: "エコロパーク全国" },
-    // ※別ワークフロー(crawl-extra.yml, CRAWL_ONLY=kyotech,leparc,gspark)で実行。
+    // ※別ワークフロー(crawl-extra.yml, CRAWL_ONLY=kyotech,leparc,gspark,showapark,ypark)で実行。
     { operator: "kyotech", mode: "nationwide", label: "キョウテク全国" },
     { operator: "leparc", mode: "nationwide", label: "NTTル・パルク全国" },
     { operator: "gspark", mode: "nationwide", label: "GSパーク全国" },
+    // 2026-11-02 追加。どちらも Parkopedia の料金が古い・誤っている物件がレポートに出ていた（ショウワ新橋2丁目・ユアー新橋第3 など）
+    //   ショウワパーク（ショウワ電技研）… 19都道府県・一覧737件（駐輪場・月極を含む。トップの表示は586か所）。首都圏と大阪が中心
+    //   ユアー・パーキング … 公式の地図（waxds.com 上）の JSON。632件（東京が約8割）。読むのは地図の画面が自分で読む GET の2つだけ
+    { operator: "showapark", mode: "nationwide", label: "ショウワパーク" },
+    { operator: "ypark", mode: "nationwide", label: "ユアー・パーキング" },
     // ※別ワークフロー(crawl-extra2.yml)で実行する2026-08追加分。
     // paused … 止めている事業者。一覧も詳細も robots.txt も取らず、health に「停止中」だけを残す（run.js）。
     //   スペース二十四・小田急パーキングは 2026-10 時点で全ページ（スペース二十四は robots.txt も）403 を返す＝当ボットを断っている。
@@ -127,6 +132,11 @@ export const config = {
   // 追加3社（crawl-extra.yml）。いずれも毎回全件相当（~1,300リクエスト×6秒 ≒ 2.2時間/回）
   kyotechRollingPerRun: 800,
   leparcRollingPerRun: 500,
+  // 2026-11-02 追加分（crawl-extra.yml・1日2回）。1日1巡を目安に、1回あたり一覧の約半分。
+  // 1回 約300件×4秒 ≒ 20分（ショウワは週1回の一覧の作り直しに約39リクエスト＝約3分が足される）。
+  // 今の crawl-extra は1回 約1時間（キョウテク45分・ル・パルク・GSパーク）なので、足しても約1時間45分で、ジョブの時間切れ（340分）に収まる
+  showaparkRollingPerRun: 300,
+  yparkRollingPerRun: 320,
   // 2026-08 追加分（crawl-extra2.yml・1日1回で全件を目安）
   space24RollingPerRun: 500,
   jqparksRollingPerRun: 400,
