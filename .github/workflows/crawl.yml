@@ -79,6 +79,11 @@ jobs:
           # 優先物件（約520件×4秒≒35分）は3時間おきなので、その回は全国ローリングに
           # 回る時間が減る。レポートで見ている周りを優先するほうが価値が高いので、それでよい
           ROLLING_BUDGET_MIN: "50"
+          # 取得は次の時の02分までに終える（src/run-budget.js。2026-11-02 点検 pipeline-01）。予算は取得を始めてから数えるので、
+          # 取り出し（checkout。10/30 で中央値80秒・最長104秒、data/ が増えると延びる）が遅い日・前の回が長引いて順番待ちのあとに
+          # 始まった回は、そのぶん終わりが次の回（07分に起動）に近づいていた（10/25〜11/01 の最長56.0分・余裕は約4分）。
+          # ふだんの回（08〜09分に取得を始める）は上の50分のまま変わらない。12分より後に始まった回だけ短くなる（下限5分）
+          ROLLING_END_BY_MIN: "2"
           # 2026-09-21: 1回の実行を2回に分ける（間25分）のをやめ、1回に戻した。
           # これは GitHub の cron が24時間中18時間しか発火しなかった頃の対策だが、
           # いまは Cloud Scheduler が毎時きっちり起動しており（実測で24時間すべて発火）、
@@ -111,6 +116,9 @@ jobs:
           # リパークの地図の一覧（src/repark-map.js。週1回作り直す）。残さないと毎時の回で作り直しになり、毎時約100回を送ってしまう。
           # 地図を使わない設定（REPARK_MAP_MAX_REQUESTS=0）のときは無いので、拾えなくても止めない
           git add data/repark-map-ids.txt 2>/dev/null || true
+          # NPC の物件ごとの「一覧に載っていた最後の日」と今の一覧（src/list-state.js。2026-11-02）。書くのはこの回だけ（crawl-npc.yml は書かない）。
+          # 日付だけなので変わるのは1日1回。一覧を全部取れなかった回は書かないので、初回などで無くても止めない
+          git add data/npc-crawl-state.json data/npc-ids.txt 2>/dev/null || true
           # 満空は data/vacancy-YYYY-MM-DD.jsonl（日ごと。2026-09 までは月ごと）。古い日は変わらないのでgitが太らない。
           # 月初の1回目はまだ無いことがあるので、拾えなくても止めない。
           git add data/vacancy-*.jsonl data/vacancy-lots.jsonl data/priority-lots.json data/health/*.json || true
