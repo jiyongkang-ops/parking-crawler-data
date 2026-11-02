@@ -72,7 +72,7 @@ test("【当日最大料金】【24時間最大料金】の行が1日の一部�
   // 24時間営業でない物件で、時間帯が営業時間（bhours「6:30～23:00」）と同じなら、営業中ずっとの上限なので当日最大のまま
   assert.deepEqual(fees(28471).m, [["月~金(祝日除く)", "当日最大 6:30~23:00", 1200]]);
   assert.equal(dmaxOf(parseMecparksLot(lot(28471))), 1200);
-  // 【24時間最大料金】の行に時間帯（日比谷シティパーキング「全日 7：00～23：00」。施設なので今は記録しない）も同じ決まり
+  // 【24時間最大料金】の行に時間帯（日比谷シティパーキング「全日 7：00～23：00」。施設）も同じ決まり
   const hibiya = lot(26658);
   assert.deepEqual(parseMecparksFees(hibiya.time, hibiya.timem).maxFees, [{ scope: "全日", condition: "7:00-23:00 最大", amountYen: 2400 }]);
   assert.deepEqual(parseMecparksFees(hibiya.time, hibiya.timem, { hours: hibiya.bhours }).maxFees,   // 営業時間 7：00～23：00 と同じ
@@ -126,13 +126,14 @@ test("単価: 曜日の見出し・「100円 / 1時間」「100円 / 60」（単
   assert.equal(normalizeUnitLine("24時間 200円"), null);
 });
 
-test("記録しない物件: 施設（ビル駐車場）・バイク・駐輪場・（月極）・時間料金の文が無い・1日単位の料金だけ", () => {
-  assert.equal(skipReasonOf(lot(26658)), "施設");    // 日比谷シティパーキング（ptype=1。本人の判断待ち）
+test("記録しない物件: バイク・駐輪場・（月極）・時間料金の文が無い・1日単位の料金だけ", () => {
+  assert.equal(skipReasonOf(lot(26658)), null);    // 日比谷シティパーキング（ptype=1。施設も記録する。2026-11-02 本人指示）
   assert.equal(skipReasonOf(lot(2108)), "バイク");
   assert.equal(skipReasonOf(lot(26591)), "駐輪場");
   assert.equal(skipReasonOf(lot(27275)), "月極");
   assert.equal(skipReasonOf({ ptype: "3", pname: "PARKS PARK 近日OPEN" }), "近日オープン");
-  for (const pid of [26658, 2108, 26591, 27275]) assert.equal(parseMecparksLot(lot(pid)), null);
+  for (const pid of [2108, 26591, 27275]) assert.equal(parseMecparksLot(lot(pid)), null);
+  assert.equal(parseMecparksLot(lot(26658))?.name, "日比谷シティパーキング");   // 施設も記録する
   assert.equal(parseMecparksLot(lot(28722)), null);   // 時間料金の文が空（最大料金だけ）
   assert.equal(parseMecparksLot(lot(29058)), null);   // 同上
   assert.equal(parseMecparksLot(lot(28655)), null);   // 「1000円 / 24時間」だけ
@@ -151,8 +152,8 @@ test("一覧ページ: customdata と件数を読み、記録しない物件は�
   assert.equal(parseParkingCount(html), 6);
   assert.equal(parseCustomdata(html).length, 6);
   const r = parseMecparksList(html);
-  assert.deepEqual([r.rows, r.count, r.broken, r.skipped], [6, 6, false, { 施設: 2 }]);
-  assert.deepEqual(r.records.map((x) => x.parkId).sort(), ["192", "26735", "26995", "28647"]);
+  assert.deepEqual([r.rows, r.count, r.broken, r.skipped], [6, 6, false, {}]);
+  assert.deepEqual(r.records.map((x) => x.parkId).sort(), ["192", "26735", "26995", "27374", "28514", "28647"]);
   // 作りが変わって customdata が無いときは broken
   assert.deepEqual(parseMecparksList("<html>作りが変わった</html>").broken, true);
   // 東京都の市区の一覧（50市区）と町丁のリンク
@@ -181,12 +182,12 @@ test("一覧のたどり方: 100件で頭打ちの都道府県は市区ごと、
   const got = [];
   const sum = await crawlMecparks({ prefs: [1, 13, 14], log: silent, onRecord: (r) => got.push(r.parkId),
     fetchPage: async (url) => { asked.push(url); return pages[url] ? { ok: true, status: 200, html: pages[url] } : { ok: false, status: 404, html: "" }; } });
-  assert.deepEqual(got, ["27453", "29104", "28752"]);
-  assert.deepEqual([sum.count, sum.pages, sum.rows, sum.skipped], [3, 7, 5, { 施設: 1 }]);
+  assert.deepEqual(got, ["27453", "26658", "29104", "28752"]);
+  assert.deepEqual([sum.count, sum.pages, sum.rows, sum.skipped], [4, 7, 5, {}]);
   assert.deepEqual(sum.failures.map((f) => f.where), ["都道府県14"]);   // 取れなかったページは飛ばして続ける
   assert.equal(asked.length, 8);
   const h = mecparksHealth(sum);
-  assert.deepEqual([h.ok, h.n, h.reason], [true, 3, "取れなかったページ1"]);
+  assert.deepEqual([h.ok, h.n, h.reason], [true, 4, "取れなかったページ1"]);
 });
 
 test("一覧のたどり方: robots.txt で断られたら打ち切り、customdata が読めないページは読めなかったページに数える", async () => {
@@ -211,11 +212,11 @@ test("通しの巡回（CRAWL_ONLY=mecparks）: 全国の一覧を取り、記�
   };
   const r = runCrawl({ env: { CRAWL_ONLY: "mecparks" }, routes });
   assert.equal(r.pages.length, 47 + 1 + 50);
-  assert.deepEqual(r.rows.map((x) => x.parkId).sort(), ["192", "26735", "26995", "27453", "28647"]);
+  assert.deepEqual(r.rows.map((x) => x.parkId).sort(), ["192", "26658", "26735", "26995", "27374", "27453", "28514", "28647"]);
   assert.ok(r.rows.every((x) => x.operator === "mecparks" && x.fetchedAt && x.label === "三菱地所パークス全国"));
   const h = r.health[0];
-  assert.deepEqual([h.op, h.label, h.ok, h.n, h.reason, h.statusCounts], ["mecparks", "三菱地所パークス", true, 5, null, { 200: 98 }]);
-  assert.deepEqual(h.skipped, { 施設: 3, 料金なし: 1 });
+  assert.deepEqual([h.op, h.label, h.ok, h.n, h.reason, h.statusCounts], ["mecparks", "三菱地所パークス", true, 8, null, { 200: 98 }]);
+  assert.deepEqual(h.skipped, { 料金なし: 1 });
   // robots.txt が 403 なら一覧は取りに行かない（メンテナンスを確かめる入口の1回だけ）
   const b = runCrawl({ env: { CRAWL_ONLY: "mecparks" }, routes: { "*robots": { status: 403 } } });
   assert.deepEqual([b.health[0].ok, b.health[0].kind], [false, "blocked"]);
