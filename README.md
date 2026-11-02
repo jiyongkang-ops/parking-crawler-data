@@ -132,7 +132,7 @@ Cloud Scheduler（poc-aimo / asia-northeast1 の `crawl-parking-vacancy-hourly`�
 | `crawl-navipark.yml` | crawl.yml から | 11・17・23時 | 3 | `0 2,8,14` |
 | `crawl-extra.yml`（キョウテク・ル・パルク・GSパーク） | crawl.yml から | 11・23時 | 2 | `30 2,14` |
 | `crawl-ecolo.yml` | crawl.yml から | 1・13・19時 | 3 | `0 4,10,16` |
-| `crawl-extra2.yml`（スペース二十四・JQパークス・パークネット） | crawl.yml から | 2・14時 | 2 | `30 5,17` |
+| `crawl-extra2.yml`（スペース二十四・JQパークス・パークネット・三菱地所パークス・SANパーク） | crawl.yml から | 2・14時 | 2 | `30 5,17` |
 | `crawl-extra3.yml`（タマパーク他） | crawl.yml から | 5・17時 | 2 | `30 8,20` |
 | `crawl-carshares.yml` | crawl.yml から | 3時（1巡が終わって7日たつまでは何もせず終わる） | 1 | `0 18` |
 | `publish.yml`（dashboard.html・統一CSV） | crawl.yml から | 6時（studio-data の7:30より前） | 1 | `40 21` |
