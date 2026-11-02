@@ -10,6 +10,8 @@
 // 2026-10-27: パークネットは題名を「パークネット | 新明和工業株式会社」のまま、本文だけを「ただいまメンテナンス中です」に
 // 差し替えていて、題名だけでは見分けられず「0件（parse）」と記録されていた（10/22〜）。
 
+import { createHash } from "node:crypto";
+
 const RE = /メンテナンス|maintenance|一時停止|一時休止|サービス停止|システム停止|臨時休止|ただいま工事中/i;
 
 /** ページの題名（<title>。無ければ最初の <h1>）がメンテナンスの告知なら、その題名を返す。違えば null */
@@ -37,6 +39,87 @@ export function maintenanceBody(html) {
 /** 題名か本文がメンテナンスの告知なら、その言葉を返す（題名を先に見る）。違えば null */
 export function maintenanceOf(html) {
   return maintenanceTitle(html) ?? maintenanceBody(html);
+}
+
+// ---- 巡回の途中で告知のページを見分ける（2026-11-02 点検 maint-02） ----------------------------------------
+// 上の markMaintenance は巡回の最後に、しかも失敗した行にしか効かない。告知を HTTP 200 で返すサイトでは、
+// 物件ページ型の社は題名・見出しの「メンテナンス中」を物件の名前として読み、料金の無い行を書いて「取れた」と数えていた
+// （セイワパークは 10/22 05:08〜10/30 05:31 の14回、毎回344件「取れた」と記録し、料金の無い「メンテナンス中」の行を342件書いた。
+// 分析側はその物件を相場から外したので、8日分の DB でセイワパークの約342件が抜けていた）。
+// そこで巡回の途中で見分け、その社のその回を行を書かずに止める。見分け方は2つ:
+//   (1) 言葉: 料金が読めない物件ページの題名（lotNotice）
+//   (2) 言葉に頼らない: 違う物件のページが続けて同じ名前・同じ中身（makeSameStreak）、料金の読めた割合がふだんより急に下がった
+//       （makeNoticeGuard）。0バイトのページ（10/24 のパークネット）や、名前が無いと番号を名前にする社（タマパーク・キョウテク・
+//       ル・パルク）の告知にも効く
+
+/** 物件ページが告知か。題名（無ければ最初の見出し）で見る。本文は物件の名前が読めないときだけ見る。
+ *  料金の無い物件が多い社（JQパークスは542件中275件）で、ページの上の予告の帯（「…サービスを停止いたします」）だけで
+ *  止めないため（2026-11-02 点検の訂正）。告知ならその言葉、違えば null */
+export function lotNotice(html, rec = null) {
+  return maintenanceTitle(html) ?? (rec?.name ? null : maintenanceBody(html));
+}
+
+/** 料金が1つでも読めたか（料金の指紋 run.js feeFingerprint と同じ2つの欄） */
+export const hasFee = (rec) => (rec?.unitCharges?.length ?? 0) + (rec?.maxFees?.length ?? 0) > 0;
+
+/** ページの中身の指紋（空白をそろえた本文のハッシュ）。違う物件のページが同じ指紋なら、物件ではなく同じ告知のページ */
+export function pageSig(html) {
+  return createHash("sha1").update(String(html ?? "").replace(/\s+/g, " ").trim()).digest("hex").slice(0, 16);
+}
+
+/** 違う鍵（物件・市区）の答えが、続けて同じ値（名前・中身の指紋）になった数を数える。push(key, value) が
+ *  n 件続いたら true。value が空なら数え直す */
+export function makeSameStreak(n = 5) {
+  let last = null, keys = new Set();
+  return {
+    push(key, value) {
+      if (!value || value !== last) { last = value || null; keys = new Set(); }
+      if (value) keys.add(key);
+      return keys.size >= n;
+    },
+    reset() { last = null; keys = new Set(); },
+    get count() { return keys.size; },
+  };
+}
+
+/** 前の記録で、その社の物件のうち料金の読めた割合（ふだんの割合）。物件が minN 件より少なければ null（比べない） */
+export function feeRateOf(lastRecords, op, minN = 50) {
+  let n = 0, f = 0;
+  for (const r of lastRecords) if (r?.operator === op) { n++; if (hasFee(r)) f++; }
+  return n >= minN ? f / n : null;
+}
+
+/** 巡回の1回ぶんの見張り。料金が読めない答え（名前が読めない・読めなかったページも含む）を page() に渡すと、
+ *  告知とみなして止めるべきなら { why, kind } を返す（止めなくてよければ null）。料金が読めた答えも page() に渡す
+ *  （続けて同じ、の数え直しと、料金の読めた割合に使う）。
+ *    same      … 違う物件のページが続けて同じ名前・同じ中身なら止める数（既定5）
+ *    normalFeeRate … その社のふだんの料金の読めた割合（feeRateOf）。0.8 以上の社だけ、minSample 件取った時点で
+ *                 その rateDrop 倍（既定は半分）を下回ったら止める。告知の言葉を見ていれば maintenance、無ければ parse（ページの作りの変更）
+ *  page({ id, html, name, fee, notice }) … notice は lotNotice の答え（告知の言葉を見たか） */
+export function makeNoticeGuard({ same = 5, normalFeeRate = null, minSample = 20, rateDrop = 0.5 } = {}) {
+  const byName = makeSameStreak(same), byBody = makeSameStreak(same);
+  let n = 0, f = 0, sawNotice = false;
+  return {
+    page({ id, html, name, fee, notice = null }) {
+      n++;
+      if (notice) sawNotice = true;
+      if (fee) { f++; byName.reset(); byBody.reset(); return null; }
+      if (byName.push(id, name ? String(name) : null)) {
+        return { kind: "maintenance", why: `違う物件のページが${same}件続けて同じ名前（「${String(name).slice(0, 40)}」）で、料金が読めない。告知のページの見込み` };
+      }
+      if (byBody.push(id, pageSig(html))) {
+        const len = String(html ?? "").length;
+        return { kind: "maintenance", why: `違う物件のページが${same}件続けて同じ中身（${len}バイト）で、料金が読めない。告知のページの見込み` };
+      }
+      if (normalFeeRate != null && normalFeeRate >= 0.8 && n >= minSample && f / n < normalFeeRate * rateDrop) {
+        return { kind: sawNotice ? "maintenance" : "parse",
+          why: `料金の読めた物件が${n}件中${f}件（${Math.round((f / n) * 100)}%）で、ふだん（${Math.round(normalFeeRate * 100)}%）より大きく少ない。` +
+            `${sawNotice ? "告知のページの見込み" : "ページの作りの変更か告知のページの見込み"}` };
+      }
+      return null;
+    },
+    get stats() { return { n, f }; },
+  };
 }
 
 /** 事業者のサイトの入口（トップページ）。巡回で失敗した事業者のメンテナンスを確かめるときに、ここを1回だけ見る */

@@ -56,8 +56,10 @@ export function kindOfText(msg) {
   return null;
 }
 
-// 件数が同じなら、手を打つべきものを先に出す
-const ORDER = ["blocked", "rate", "network", "parse"];
+// 件数が同じなら、手を打つべきものを先に出す。
+// maintenance は巡回の途中で告知のページを見分けたとき（maintenance.js lotNotice。2026-11-02）。並びに無いと、
+// 告知だけで打ち切った回でも数えられず parse になる
+const ORDER = ["blocked", "rate", "maintenance", "network", "parse"];
 /** 種類ごとの件数 → いちばん多い種類（無ければ null） */
 export function dominantKind(counts) {
   let best = null, n = 0;

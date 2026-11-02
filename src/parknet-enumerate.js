@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import { cacheFresh, markFetched } from "./cache-age.js";
 import { politeFetch, failText, fetchErrorText } from "./polite-fetch.js";
+import { maintenanceOf, pageSig, makeSameStreak } from "./maintenance.js";
 import { prefListUrl, parseCityLinks, cityListUrl, parseParknetList, parseParknetTotal, parsePagerOffsets,
   PARKNET_PAGE_SIZE, PARKNET_MAX_PAGES } from "./parknet.js";
 
@@ -12,6 +13,10 @@ export async function getAllParknetCities({ cacheFile, cacheMs = 7 * 864e5 } = {
     if (cacheFresh(cacheFile, cacheMs)) return fs.readFileSync(cacheFile, "utf8").split("\n").filter(Boolean);
   }
   const top = await politeFetch(TOP);
+  // 入口が告知なら、例外の文に「メンテナンス中」を入れる（health の kind が maintenance になり、巡回の最後に同じ入口を
+  // 取り直さずに済む。2026-11-02。パークネットは 10/22〜 告知を 200 で返している）。都道府県のリンクがある普段のページは見ない
+  const mt = top.html && (!top.ok || !/city_list_\d+\.html/.test(top.html)) ? maintenanceOf(top.html) : null;
+  if (mt) throw new Error(`パークネット トップ: 相手先のサイトがメンテナンス中（「${mt}」${top.ok ? "" : `・HTTP ${top.status}`}）`);
   if (!top.ok) throw new Error(`パークネット トップ取得失敗: ${failText(top)}`);
   const prefs = [...new Set([...top.html.matchAll(/city_list_(\d+)\.html/g)].map((m) => m[1]))];
   if (!prefs.length) throw new Error("都道府県リンクが0件（ページ構造変更の可能性）");
@@ -44,11 +49,15 @@ export async function getAllParknetCities({ cacheFile, cacheMs = 7 * 864e5 } = {
  *   short を立てる。offset が効かなくなって空のページが返る形だと、dup では気づけないため（2026-10-19 の点検の指摘）。
  *   取れなかった・上限に当たった・dup・stop のときは、そちらで知らせるので short にはしない。
  *   onFetch(res, url) … 取りに行ったページごとの答え（例外のときは res が null）。HTTP の状態を数えたい呼ぶ側のため
- * 戻り値: { pages: 送ったページ数, total, got: 渡した物件数, failed: { offset, why, res } | null, stop, stopKind, stopRes, capped, dup, short }
- *   failed.res・stopRes は politeFetch の答えそのもの（例外のときは null）。失敗の種類を呼ぶ側で決められるように渡す
+ * 0件のページがメンテナンスの告知なら stop（stopKind maintenance）を返す。パークネットは 10/22 から市区の一覧を告知のページへ
+ *   転送していて（302 → /parknet/index.html・本文「ただいまメンテナンス中です」）、94市区を毎回最後まで取っていた（2026-11-02）。
+ *   1ページ目が0件なら、そのページの中身の指紋を emptySig に入れる（呼ぶ側で「違う市区が続けて同じ空のページ」を見るため）
+ * 戻り値: { pages: 送ったページ数, total, got: 渡した物件数, failed: { offset, why, res } | null, stop, stopKind, stopRes, capped, dup, short, emptySig }
+ *   failed.res・stopRes は politeFetch の答えそのもの（例外のときは null）。失敗の種類を呼ぶ側で決められるように渡す。
+ *   告知で止めたときの stopRes には maintenance（告知の言葉）を足す（health-kind.js kindOfFetch が maintenance と読む）
  */
 export async function crawlParknetCity(prefCd, city, { onPage, onFetch, maxPages = PARKNET_MAX_PAGES, fetchPage = politeFetch } = {}) {
-  const out = { pages: 0, total: null, got: 0, failed: null, stop: null, stopKind: null, stopRes: null, capped: false, dup: false, short: false };
+  const out = { pages: 0, total: null, got: 0, failed: null, stop: null, stopKind: null, stopRes: null, capped: false, dup: false, short: false, emptySig: null };
   const seen = new Set();
   for (let page = 0; page < maxPages; page++) {
     const offset = page * PARKNET_PAGE_SIZE;
@@ -60,6 +69,11 @@ export async function crawlParknetCity(prefCd, city, { onPage, onFetch, maxPages
     if (!res.ok || res.skippedReason) { out.failed = { offset, why: failText(res), res }; break; }
     out.pages++;
     const records = parseParknetList(res.html);
+    if (!records.length) {
+      const mt = maintenanceOf(res.html);
+      if (mt) { out.stop = `メンテナンスの告知（「${mt}」）`; out.stopKind = "maintenance"; out.stopRes = { ...res, maintenance: mt }; break; }
+      if (page === 0) out.emptySig = pageSig(res.html);
+    }
     if (page === 0) out.total = parseParknetTotal(res.html);
     const fresh = records.filter((r) => !seen.has(r.parkId));
     if (page > 0 && records.length && !fresh.length) { out.dup = true; break; }
@@ -80,13 +94,16 @@ export async function crawlParknetCity(prefCd, city, { onPage, onFetch, maxPages
  *   onRecord(rec) … 物件ごと（_requestUrl はその物件が載っていたページの URL。1ページ目は以前と同じ URL）
  *   onFetch(res, url) … 取りに行ったページごとの答え（例外のときは res が null）。そのまま crawlParknetCity に渡す（状態コードを数える呼ぶ側のため）
  * 途中のページが取れなかった市区は、そこまでの分を渡してから次の市区へ進む（何も消さない）。
- * robots.txt で断られた・届かないときは、残りの市区も同じ答えなので、そこで打ち切る（stop）。
+ * robots.txt で断られた・届かないとき・告知のページのときは、残りの市区も同じ答えなので、そこで打ち切る（stop）。
+ * 違う市区の1ページ目が続けて5件、同じ中身で0件だったときも、告知のページとみなして打ち切る（stopKind maintenance）。
+ *   告知の言葉に頼らない見分け。10/24 のパークネットは 0バイトの 200 を返していた（2026-11-02 点検）
  * 戻り値: { count, pages, stop, stopKind, stopRes, failedCities, partialCities, cappedCities, dupCities, shortCities,
  *           failures: [{ city, res }]（取れなかったページの答え。例外は null。失敗の種類を呼ぶ側で決めるため） }
  */
 export async function crawlParknetCities(lines, { onRecord, onFetch, crawlCity = crawlParknetCity, log = console } = {}) {
   const sum = { count: 0, pages: 0, stop: null, stopKind: null, stopRes: null,
     failedCities: [], partialCities: [], cappedCities: [], dupCities: [], shortCities: [], failures: [] };
+  const sameEmpty = makeSameStreak(5);
   for (const line of lines) {
     const [prefCd, city] = String(line).split("\t");
     if (!prefCd || !city) continue;
@@ -96,6 +113,13 @@ export async function crawlParknetCities(lines, { onRecord, onFetch, crawlCity =
     });
     sum.pages += r.pages;
     if (r.stop) { sum.stop = r.stop; sum.stopKind = r.stopKind; sum.stopRes = r.stopRes; log.warn(`  [abort] パークネット: ${r.stop}`); break; }
+    if (r.got === 0 && !r.failed && r.emptySig) {
+      if (sameEmpty.push(city, r.emptySig)) {
+        sum.stop = `違う市区のページが${sameEmpty.count}件続けて同じ中身で0件。告知のページの見込みなので打ち切り`;
+        sum.stopKind = "maintenance"; sum.stopRes = { ok: true, status: 200, maintenance: "同じ中身の0件のページ" };
+        log.warn(`  [abort] パークネット: ${sum.stop}`); break;
+      }
+    } else sameEmpty.reset();
     if (r.failed) {
       (r.pages ? sum.partialCities : sum.failedCities).push(city);
       sum.failures.push({ city, res: r.failed.res ?? null });

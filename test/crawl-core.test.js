@@ -742,11 +742,12 @@ test("通しの巡回: 保留中の社は様子見の1件だけ取り、取れ�
 });
 
 test("通しの巡回: 保留中でも様子見の1件が取れたら、そのまま続けて取る（自動で再開）", () => {
-  const { files } = mkpFiles(5);
-  const body = '<html><head><script type="application/ld+json">{"@type":"ParkingFacility","name":"名鉄協商テスト","address":"愛知県名古屋市","geo":{"latitude":35.1,"longitude":136.9}}</script></head>'
+  const { ids, files } = mkpFiles(5);
+  // 物件ごとに名前の違うページ（5件とも同じ名前で料金も無いと、告知のページとみなして止める。maintenance.js makeNoticeGuard）
+  const body = (id) => `<html><head><script type="application/ld+json">{"@type":"ParkingFacility","name":"名鉄協商テスト${id}","address":"愛知県名古屋市","geo":{"latitude":35.1,"longitude":136.9}}</script></head>`
     + '<body><div class="box_price"><table class="tbl_basic"><tr><th>最大料金</th><th>通常料金</th></tr><tr><td><p>24時間 600円</p></td><td><p>30分 200円</p></td></tr></table></div></body></html>';
   const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "5", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
-    routes: { "*robots": { status: 200, body: "" }, "*": { status: 200, body } } });
+    routes: { "*robots": { status: 200, body: "" }, ...Object.fromEntries(ids.map((id) => [MK(id), { status: 200, body: body(id) }])) } });
   assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 5);
   assert.equal(r.health[0].ok, true);
   assert.notEqual(r.health[0].kind, "maintenance");
