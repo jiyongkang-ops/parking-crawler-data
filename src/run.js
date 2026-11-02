@@ -62,6 +62,10 @@ import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
 import { getAllKeioIds } from "./keio-enumerate.js";
 import { detailUrl as odakyuUrl, parseOdakyuDetail } from "./odakyu.js";
 import { getAllOdakyuIds } from "./odakyu-enumerate.js";
+// 2026-11 追加分（三菱地所パークス＝一覧型・SANパーク＝詳細ページ型）
+import { crawlMecparks, mecparksHealth } from "./mecparks-enumerate.js";
+import { detailUrl as sanparkUrl, parseSanparkDetail } from "./sanpark.js";
+import { getAllSanparkIds } from "./sanpark-enumerate.js";
 import { flushCrawlStates, confirmsDropped } from "./repark-enumerate.js";
 import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
@@ -165,6 +169,9 @@ const ROLLING_SITES = [
     idsCache: "data/keio-ids.txt", stateFile: "data/keio-crawl-state.json", defaultPerRun: 100 },
   { op: "odakyu", label: "小田急パーキング", enumerate: getAllOdakyuIds, detailUrl: odakyuUrl, parse: parseOdakyuDetail,
     idsCache: "data/odakyu-ids.txt", stateFile: "data/odakyu-crawl-state.json", defaultPerRun: 100 },
+  // SANパーク（2026-11-02）。物件ページが月極だけ・1日単位の料金だけ・近日オープンのときは、parse が { skip } を返す（記録しない）
+  { op: "sanpark", label: "SANパーク", enumerate: getAllSanparkIds, detailUrl: sanparkUrl, parse: parseSanparkDetail,
+    idsCache: "data/sanpark-ids.txt", stateFile: "data/sanpark-crawl-state.json", defaultPerRun: 250 },
 ];
 
 /** 一覧を作り直す前のファイルから、前の一覧を読む（unparkGone で「新しく載った番号」を見分けるため）。無ければ null */
@@ -605,7 +612,7 @@ async function main() {
       const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
         ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
         : undefined;
-      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0;
+      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0, skipped = 0;
       let out = false;
       // 相手先の不調（5xx・429・403・タイムアウト・混み合いのページ）が続いたら、この回は打ち切る（makeBreaker の説明）
       const breakerN = hold ? 1 : Number(process.env.ROLLING_BREAKER) || 8;
@@ -771,6 +778,18 @@ async function main() {
           const mt = lotNotice(res.html, rec);
           if (mt) { if (transientFail(`メンテナンスの告知（「${mt}」）`, "maintenance")) { out = true; break; } continue; }
         }
+        // 記録しない物件（parse が { skip: 理由 } を返す。SANパークの月極だけ・1日単位の料金だけ・近日オープン。2026-11-02）。
+        // 料金の無い行を書くと、Advisor が同じ場所にある Parkopedia の料金のある物件を重複として落とすので書かない。
+        // 閉鎖（404）と同じく寝かせて30〜60日後に見直す（毎日取り直さない）。前に料金を記録した物件なら、Advisor の相場からも外れる
+        // （studio-index.mjs が GONE の物件を外す。日付だけ進めると、古い料金の行が「最近確かめた」物件として残る）。
+        // ページの作りが変わって全部が skip になったときは、一斉の閉鎖の歯止めで印を戻して打ち切る
+        if (rec?.skip) {
+          answered(true);
+          if (++skipped <= 20) console.log(`  [skip] ${id}: ${rec.skip}`);
+          mark({ status: 404 });
+          if (tripIfMassGone()) { out = true; break; }
+          continue;
+        }
         answered();
         // 取れたのに名前が読めない（ページの作りが違う・掲載終了の雛形など）。以前は何も出さずに飛ばしていたので、
         // 名鉄協商の552件が毎回むだに取られていることに3か月気づけなかった。番号を出し（1回20件まで）、health に件数を残す
@@ -801,6 +820,7 @@ async function main() {
       saveCrawlState(rolling.stateFile, state);
       if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた${massRestored ? "（一斉の閉鎖とみなしたので、この回の印は戻した）" : ""}`);
       if (massRestored) console.warn(`[${rolling.label}] 一斉の閉鎖とみなして、この回に付けた閉鎖の印 ${massRestored}件を前の値に戻した`);
+      if (skipped) console.log(`[${rolling.label}] 時間貸しの料金が無い・駐輪場などで記録しなかった物件 ${skipped}件を寝かせた${skipped > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
       if (noName) console.warn(`[${rolling.label}] 取れたのに名前が読めなかった物件 ${noName}件${noName > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
       if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す${busy ? `（うち混み合いのページ${busy}件）` : ""}`);
       if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた${massRestored ? "（一斉の閉鎖とみなしたので、印は戻した）" : ""}`);
@@ -812,13 +832,15 @@ async function main() {
       // 7日止まっても health は成功のままだった）
       // kind（失敗の種類。src/health-kind.js）は reason と同じ順で決める: 打ち切った理由 → 一覧の問題 → この回の失敗でいちばん多い種類
       const listProblem = !!ids.staleReason || ids.length === 0;
-      const okRun = !broke && !listProblem && (tried === 0 || got > 0);
+      // 取った物件がすべて「記録しない物件」（skip）だった回は、読めているので成功（一覧から消えた物件を確かめるだけの小さい回など。2026-11-02）
+      const allSkipped = skipped > 0 && skipped === tried;
+      const okRun = !broke && !listProblem && (tried === 0 || got > 0 || allSkipped);
       const why = broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
-        ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null) ?? ids.listNote ?? null;
+        ?? (tried > 0 && got === 0 && !allSkipped ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}${skipped ? `（記録しない物件${skipped}件）` : ""}` : null) ?? ids.listNote ?? null;
       // 保留中で取れなかった回は「メンテナンス」。取れた回はいつもどおり（保留は期限まで残るが、取れているあいだは効かない）
       const heldFail = !!hold && !okRun;
       hp(rolling.op, rolling.label, okRun, got, heldFail ? holdReason(hold, why) : why,
-        { tried, noName, ...(busy ? { busy } : {}), statusCounts: statusCounts.toJSON(),
+        { tried, noName, ...(busy ? { busy } : {}), ...(skipped ? { skipped } : {}), statusCounts: statusCounts.toJSON(),
           kind: heldFail ? "maintenance" : brokeKind ?? (listProblem ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse",
           ...(hold ? { hold: hold.until } : {}),
           ...(massRestored ? { restored: massRestored } : {}),
@@ -909,6 +931,22 @@ async function main() {
           kind: (sum.stopRes ? kindOfFetch(sum.stopRes) : null) ?? (cities.staleReason ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse" });
       // 取れなかった・途中まで・上限で止めた・ページ送りが効かなかった・総件数より少なかった市区が1つでもあれば、全部は取れていない
       listState("parknet", pnIds, ph.ok && !["failedCities", "partialCities", "cappedCities", "dupCities", "shortCities"].some((k) => sum[k].length));
+      continue;
+    }
+
+    // ---- 三菱地所パークス 全国（Parking NAVI の一覧に料金直載・毎回全巡回。2026-11-02） ----
+    // 都道府県の一覧（100件で頭打ちの所だけ市区・町丁）を取る。中身は mecparks-enumerate.js の crawlMecparks・mecparksHealth。
+    // 状態コードはページごとの答え（onFetch）で数え、失敗の種類は打ち切った答え → 取れなかったページ → 読めなかったページの順に決める
+    if (t.operator === "mecparks" && t.mode === "nationwide") {
+      const statusCounts = makeCounter(), failKinds = makeCounter();
+      const sum = await crawlMecparks({ label: t.label ?? null, onRecord: (rec, at) => handleRecord(rec, at), onFetch: (res) => countStatus(statusCounts, res) });
+      for (const f of sum.failures) failKinds.add(kindOfFetch(f.res));
+      if (sum.broken.length) failKinds.add("parse");
+      console.log(`[ok] 三菱地所パークス | ${sum.count}物件（${sum.pages}ページ・一覧${sum.rows}件のうち記録しなかった物件 ${Object.entries(sum.skipped).map(([k, n]) => `${k}${n}`).join("・") || "なし"}）`);
+      const mh = mecparksHealth(sum);
+      hp("mecparks", "三菱地所パークス", mh.ok, mh.n, mh.reason,
+        { ...mh.extra, statusCounts: statusCounts.toJSON(),
+          kind: (sum.stopRes ? kindOfFetch(sum.stopRes) : null) ?? dominantKind(failKinds.counts) ?? "parse" });
       continue;
     }
 

@@ -79,6 +79,12 @@ export const config = {
     { operator: "comnet", mode: "nationwide", label: "コムパーク" },
     { operator: "keio", mode: "nationwide", label: "京王コインパーク" },
     { operator: "odakyu", mode: "nationwide", label: "小田急パーキング", paused: "2026-10 先方が403で拒否。許可が出るまでアクセスしない" },
+    // ※2026-11 追加分（crawl-extra2.yml に相乗り）。どちらも Parkopedia が補っていたレポートの物件を公式の料金に替えるため。
+    // 三菱地所パークス（PARKS PARK・PEN・ミウラ） — Parking NAVI の一覧に料金が直載。都道府県と東京都の市区で
+    //   約100リクエスト/回（約7分）、毎回全件を取る（一覧型）。平面（ptype=3）だけを記録し、施設（ビル駐車場）は外す（本人の判断待ち）
+    { operator: "mecparks", mode: "nationwide", label: "三菱地所パークス全国" },
+    // SANパーク（パイン株式会社） — 首都圏の市区の一覧から物件ページをたどる（約1,000件・ローリング）
+    { operator: "sanpark", mode: "nationwide", label: "SANパーク" },
 
     // ザ・パーク(第一興商) — 単一JSON(data/search.json)で全国 約3,367件を1リクエスト取得。
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。
@@ -143,6 +149,9 @@ export const config = {
   comnetRollingPerRun: 200,
   keioRollingPerRun: 100,
   odakyuRollingPerRun: 100,
+  // 2026-11 追加分（crawl-extra2.yml・1日2回）。SANパークは時間貸し 約1,000件を1回250件（4秒間隔で約17分）。
+  // 1日2回で約500件 → 約2日で1巡。一覧（約132リクエスト・約9分）は7日ごとに作り直す
+  sanparkRollingPerRun: 250,
 
   // 全国規模では全件を毎回追記するとファイルが肥大するため、
   // 「新規 or 料金変動した物件のみ」追記する（時系列＝変化点の記録になる）。
