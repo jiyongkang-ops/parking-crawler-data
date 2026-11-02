@@ -131,7 +131,7 @@ test("一覧づくり: マンスリーを外して番号を並べ、取れなか
     /SANパーク 市区の選択肢: robots\.txt が HTTP 403/);
 });
 
-test("通しの巡回（CRAWL_ONLY=sanpark）: 物件ページを取り、時間料金の無い物件は記録せずに日付だけ進める", () => {
+test("通しの巡回（CRAWL_ONLY=sanpark）: 物件ページを取り、時間料金の無い物件は記録せずに寝かせる（GONE。404 と同じ）", () => {
   const ids = ["56fa1b050e088/459", "56fa7ea81986b/1761", "56fa7ea81b30b/1582"];
   const routes = { "*robots": { status: 404 } };
   for (const id of ids) routes[detailUrl(id)] = { status: 200, body: page(...id.split("/")) };
@@ -140,10 +140,29 @@ test("通しの巡回（CRAWL_ONLY=sanpark）: 物件ページを取り、時間
   assert.deepEqual(r.pages.sort(), ids.map(detailUrl).sort());
   assert.deepEqual(r.rows.map((x) => [x.operator, x.parkId, x.name]), [["sanpark", "56fa1b050e088/459", "SANパーク東池袋2"]]);
   const state = JSON.parse(fs.readFileSync(path.join(r.dir, "data/sanpark-crawl-state.json"), "utf8"));
-  for (const id of ids) assert.match(String(state[id]), /^\d{4}-\d{2}-\d{2}T/);   // 記録しない物件も取りに行った日は進む
+  assert.match(String(state[ids[0]]), /^\d{4}-\d{2}-\d{2}T/);
+  // 記録しない物件は閉鎖（404）と同じく寝かせる（30〜60日後に見直す。studio-index.mjs は GONE の物件を相場から外す）
+  for (const id of ids.slice(1)) assert.match(String(state[id]), /^GONE\|\d{4}-\d{2}-\d{2}T/);
   const h = r.health[0];
   assert.deepEqual([h.op, h.label, h.ok, h.n, h.tried, h.noName, h.skipped], ["sanpark", "SANパーク", true, 1, 3, 0, 2]);
   assert.match(r.log, /\[skip\] 56fa7ea81986b\/1761: 時間料金なし/);
+});
+
+test("通しの巡回（CRAWL_ONLY=sanpark）: 取った物件がすべて記録しない物件の回は成功。前に料金を記録した物件も寝かせる", () => {
+  // 一覧から消えた物件を確かめるだけの小さい回などで、ECO・時間料金なしの物件だけが続いても失敗と知らせない（2026-11-02）
+  const ids = ["56fa7ea81986b/1761", "56fa7ea81b30b/1582"];
+  const routes = { "*robots": { status: 404 } };
+  for (const id of ids) routes[detailUrl(id)] = { status: 200, body: page(...id.split("/")) };
+  const before = "2026-10-01T00:00:00.000Z";
+  const r = runCrawl({ env: { CRAWL_ONLY: "sanpark" }, routes,
+    files: { "data/sanpark-ids.txt": ids.join("\n") + "\n", "data/sanpark-ids.txt.fetched": new Date().toISOString(),
+      // 1761 は前に料金を記録した（取れていた）物件
+      "data/sanpark-crawl-state.json": JSON.stringify({ [ids[0]]: before }) } });
+  assert.deepEqual(r.rows, []);
+  const state = JSON.parse(fs.readFileSync(path.join(r.dir, "data/sanpark-crawl-state.json"), "utf8"));
+  for (const id of ids) assert.match(String(state[id]), /^GONE\|/);   // 古い料金の行が「最近確かめた」物件として残らない
+  const h = r.health[0];
+  assert.deepEqual([h.ok, h.n, h.tried, h.skipped, h.reason ?? null], [true, 0, 2, 2, null]);
 });
 
 test("登録: 設定（1回250件）・巡回のワークフロー・メンテナンスの入口に載っている", async () => {

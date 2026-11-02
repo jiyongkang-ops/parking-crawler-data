@@ -708,14 +708,19 @@ async function main() {
           answered(); failKinds.add("parse");
           console.error(`  [parse error] ${id}: ${e.message}`); mark(res, false); continue;
         }
-        answered();
-        // 取れたが記録しない物件（parse が { skip: 理由 } を返す。SANパークの月極だけ・1日単位の料金だけ・近日オープン）。
-        // 料金の無い物件を記録すると、Advisor が同じ場所の Parkopedia の物件（料金あり）を重複として落とすため（2026-11-02）。
-        // 取りに行った日は進める（次の巡回まで取りに行かない）。名前が読めない（作りの変更）とは分けて数える
+        // 記録しない物件（parse が { skip: 理由 } を返す。SANパークの月極だけ・1日単位の料金だけ・近日オープン。2026-11-02）。
+        // 料金の無い行を書くと、Advisor が同じ場所にある Parkopedia の料金のある物件を重複として落とすので書かない。
+        // 閉鎖（404）と同じく寝かせて30〜60日後に見直す（毎日取り直さない）。前に料金を記録した物件なら、Advisor の相場からも外れる
+        // （studio-index.mjs が GONE の物件を外す。日付だけ進めると、古い料金の行が「最近確かめた」物件として残る）。
+        // ページの作りが変わって全部が skip になったときは、一斉の閉鎖の歯止めで印を戻して打ち切る
         if (rec?.skip) {
-          if (++skipped <= 20) console.log(`  [skip] ${id}: ${rec.skip}${rec.name ? `（${rec.name}）` : ""}`);
-          mark(res); continue;
+          answered(true);
+          if (++skipped <= 20) console.log(`  [skip] ${id}: ${rec.skip}`);
+          mark({ status: 404 });
+          if (tripIfMassGone()) { out = true; break; }
+          continue;
         }
+        answered();
         // 取れたのに名前が読めない（ページの作りが違う・掲載終了の雛形など）。以前は何も出さずに飛ばしていたので、
         // 名鉄協商の552件が毎回むだに取られていることに3か月気づけなかった。番号を出し（1回20件まで）、health に件数を残す
         if (!rec || !rec.name) {
@@ -736,8 +741,8 @@ async function main() {
       saveCrawlState(rolling.stateFile, state);
       if (nGone) console.log(`[${rolling.label}] 転送で掲載終了と分かった物件 ${nGone}件を寝かせた${massRestored ? "（一斉の閉鎖とみなしたので、この回の印は戻した）" : ""}`);
       if (massRestored) console.warn(`[${rolling.label}] 一斉の閉鎖とみなして、この回に付けた閉鎖の印 ${massRestored}件を前の値に戻した`);
+      if (skipped) console.log(`[${rolling.label}] 時間貸しの料金が無い・駐輪場などで記録しなかった物件 ${skipped}件を寝かせた${skipped > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
       if (noName) console.warn(`[${rolling.label}] 取れたのに名前が読めなかった物件 ${noName}件${noName > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
-      if (skipped) console.log(`[${rolling.label}] 取れたが記録しなかった物件（月極だけ・時間料金なしなど） ${skipped}件`);
       if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す${busy ? `（うち混み合いのページ${busy}件）` : ""}`);
       if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた${massRestored ? "（一斉の閉鎖とみなしたので、印は戻した）" : ""}`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
@@ -748,9 +753,11 @@ async function main() {
       // 7日止まっても health は成功のままだった）
       // kind（失敗の種類。src/health-kind.js）は reason と同じ順で決める: 打ち切った理由 → 一覧の問題 → この回の失敗でいちばん多い種類
       const listProblem = !!ids.staleReason || ids.length === 0;
-      const okRun = !broke && !listProblem && (tried === 0 || got > 0);
+      // 取った物件がすべて「記録しない物件」（skip）だった回は、読めているので成功（一覧から消えた物件を確かめるだけの小さい回など。2026-11-02）
+      const allSkipped = skipped > 0 && skipped === tried;
+      const okRun = !broke && !listProblem && (tried === 0 || got > 0 || allSkipped);
       const why = broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
-        ?? (tried > 0 && got === 0 ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}` : null) ?? ids.listNote ?? null;
+        ?? (tried > 0 && got === 0 && !allSkipped ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}${skipped ? `（記録しない物件${skipped}件）` : ""}` : null) ?? ids.listNote ?? null;
       // 保留中で取れなかった回は「メンテナンス」。取れた回はいつもどおり（保留は期限まで残るが、取れているあいだは効かない）
       const heldFail = !!hold && !okRun;
       hp(rolling.op, rolling.label, okRun, got, heldFail ? holdReason(hold, why) : why,

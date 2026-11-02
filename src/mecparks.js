@@ -14,7 +14,7 @@
 // なって、昼の最大が安い日祝の額で読まれる（2026-11-01 の点検）。そこで1組（見出し＋行）ずつ、
 // 「【曜日】種類 時間帯 金額」の1行に並べ替えてから parseFeeBlock に渡す。単価も「300円 / 15分」を「15分300円」に並べ替える。
 
-import { parseFeeBlock } from "./jp-fee-text.js";
+import { parseFeeBlock, extractTimeRange, strip } from "./jp-fee-text.js";
 
 const BASE = "https://parkingnavi.jp";
 export const MECPARKS_LIST_CAP = 100;   // 一覧1ページに載る上限（これに達したら市区・町丁へ下りる）
@@ -76,12 +76,20 @@ function vehicleOf(head) {
 // 「月～金」「全日(祝日除く)」「特定日 7～8月」など（2026-11-01 時点で11通り以上）。
 // 特定日は「7～8月」を区分に入れない（「月」の字で平日の区分と読まれる。pricing-model.mjs の scopeOk）
 const NOHOL = "(?:\\s*[（(]祝日除く[)）])?";
+const WD = "[月火水木金土日]曜?日?";
 const DAY_RE = new RegExp(`^(全日${NOHOL}|平日${NOHOL}|土日祝日?|土日|日祝日?|日曜日?・祝日?|土曜日?${NOHOL}|日曜日?|祝日|` +
-  `月曜?日?[～~]金曜?日?${NOHOL}|月曜?日?[～~]土曜?日?${NOHOL}|特定日)(?=\\s|$)`);
+  `月曜?日?[～~]金曜?日?${NOHOL}|月曜?日?[～~]土曜?日?${NOHOL}|特定日|(?:駐車場)?指定日|` +
+  // 「(月-土)」「（月～金）」のように、かっこ付き・ハイフンで書く物件もある（台東区橋場1丁目。2026-11-02）
+  `[（(]\\s*${WD}\\s*[～~\\-－‐]\\s*${WD}\\s*[)）]${NOHOL})(?=\\s|$)`);
 function splitDay(text) {
   const m = text.match(DAY_RE);
   if (!m) return { scope: null, rest: text };
-  return { scope: m[1].replace(/\s+/g, ""), rest: text.slice(m[0].length).trim() };
+  let scope = m[1].replace(/\s+/g, "");
+  // 「駐車場指定日」「指定日」は特定日と同じ扱い（休日の上限として、平日の上限に混ぜない。桂ガーデンプラザ。2026-11-02）
+  if (/^(?:駐車場)?指定日$/.test(scope)) scope = "特定日";
+  // 「(月-土)」→「月~土」（ほかの区分と同じ書き方にそろえる）
+  else if (/^[（(]/.test(scope)) scope = scope.replace(/^[（(]([^)）]*)[)）]/, "$1").replace(/[～\-－‐]/, "~");
+  return { scope, rest: text.slice(m[0].length).trim() };
 }
 
 // 最大料金の見出し → 種類の言葉（parseFeeBlock と studio-index.mjs の bandOf が読む）
@@ -114,8 +122,9 @@ export function normalizeUnitLine(text) {
 // 最大料金の行のうち、記録しないもの。事前購入の1日パス・月極のパス・泊まりの客だけの料金・小型車の区画だけの料金
 const MAX_SKIP_RE = /パス|事前購入|宿泊|ホテル|小型車|軽自動車|軽車室/;
 
-/** 最大料金の1組（見出し・行）→ parseFeeBlock が読める1行（「【月曜～土曜日(祝日除く)】昼間最大 8:00～20:00 2800円」）。記録しないときは null */
-export function normalizeMaxPair(head, text) {
+/** 最大料金の1組（見出し・行）→ parseFeeBlock が読める1行（「【月曜～土曜日(祝日除く)】昼間最大 8:00～20:00 2800円」）。記録しないときは null。
+ *  hours … 物件の営業時間（一覧の bhours。「6:30～23:00」）。24時間営業でない物件の当日最大を読むのに使う */
+export function normalizeMaxPair(head, text, { hours = null } = {}) {
   const { vehicle, rest } = vehicleOf(head);
   if (vehicle !== "自動車" || /宿泊/.test(rest)) return null;
   let t = String(text ?? "").replace(/\s+/g, " ").trim();
@@ -130,13 +139,29 @@ export function normalizeMaxPair(head, text) {
     .replace(/\s+/g, " ").trim();
   // 行の中に「5時間最大」「3時間まで」「24時間最大」があれば、それが種類（見出しの「当日最大」より細かい）
   const own = /\d+\s*時間\s*(?:最大|まで)/.test(body);
-  const kind = own ? "" : kindOf(rest);
+  let kind = own ? "" : kindOf(rest);
+  // 【当日最大料金】【24時間最大料金】でも、行に1日の一部だけの時間帯（「8:00～20:00」「7:00～19:00」）が書いてあれば、
+  // それはその時間帯の上限。種類の言葉を付けると studio-index.mjs の bandOf が24時間相当と読み、別にある夜間最大が
+  // 足されずに dmax が小さく出る（森下3丁目第3: 昼1,900円＋夜500円が1,900円になっていた。2026-11-02 の点検）。
+  // 種類の言葉を付けなければ、parseFeeBlock が「8:00-20:00 最大」と時間帯の上限で読む（【12時間最大料金】と同じ扱い）。
+  // 「0:00～24:00」のように1日全部の時間帯なら当日最大のまま。24時間営業でない物件で、時間帯が営業時間と同じとき
+  // （ポンテポルタ千住「6:30～23:00」・三井住友銀行高麗橋ビル「8:00～20:00」）も、営業している間ずっとの上限なので当日最大のまま
+  if (/^(?:当日|24時間)最大$/.test(kind) && !wholeDay(body, hours)) kind = "";
   const line = `${kind} ${body}`.trim();
   return `【${scope ?? "全日"}】${line}`;
 }
 
+/** 行の時間帯が1日全部か（0:00～24:00、始まりと終わりが同じ時刻、または営業時間と同じ）。時間帯が書いていないときも1日全部とする */
+function wholeDay(body, hours = null) {
+  const r = extractTimeRange(strip(body));
+  if (!r) return true;
+  if (hours && extractTimeRange(strip(hours)) === r) return true;
+  const [a, b] = r.split("-").map((x) => { const [h, m] = x.split(":").map(Number); return (h * 60 + m) % 1440; });
+  return a === b;
+}
+
 /** time・timem → { unitCharges, maxFees }。曜日は見出しか行の頭から取り、区分（scope）に入れる */
-export function parseMecparksFees(time, timem) {
+export function parseMecparksFees(time, timem, { hours = null } = {}) {
   const unitLines = [];
   for (const { head, text } of pairs(time)) {
     const { vehicle, rest } = vehicleOf(head);
@@ -149,7 +174,7 @@ export function parseMecparksFees(time, timem) {
   }
   const maxLines = [];
   for (const { head, text } of pairs(timem)) {
-    const l = normalizeMaxPair(head, text);
+    const l = normalizeMaxPair(head, text, { hours });
     if (l) maxLines.push(l);
   }
   // 単価の文からは単価だけを採る（読み残した金額を最大料金にしない）
@@ -180,7 +205,7 @@ export function skipReasonOf(p) {
 /** customdata の1件 → 記録の形。記録しない物件は null（理由は skipReasonOf） */
 export function parseMecparksLot(p, { label = null } = {}) {
   if (!p?.pid || skipReasonOf(p)) return null;
-  const { unitCharges, maxFees } = parseMecparksFees(p.time, p.timem);
+  const { unitCharges, maxFees } = parseMecparksFees(p.time, p.timem, { hours: p.bhours });
   if (!unitCharges.length) return null;   // 時間料金の文が無い（月極だけ・料金の載っていない物件）
   const lat = Number(p.lat), lng = Number(p.long);
   const hours = String(p.bhours ?? "").replace(/\s+/g, " ").trim();

@@ -45,6 +45,50 @@ test("【当日最大料金】の行に「5時間最大」「24時間最大」�
   assert.deepEqual(fees(27198).m[0], ["月曜~土曜日(祝日除く)", "当日最大 0:00~24:00", 4200]);
 });
 
+// studio-index.mjs（分析リポジトリ）の bandOf・bands・dmax のうち、ここで確かめる決まりだけを書き写したもの（2026-11-02 時点）。
+// 「当日」「24時間」を含めば24時間相当（full）、時間帯だけなら始まり17時以降か終わり9時までで夜、ほかは昼。
+// 平日に効く上限を採り（無いときだけ休日の上限）、同じ帯では低い方。full が無ければ昼＋夜
+const bandOf = (m) => { const t = `${m.scope}${m.condition}`.normalize("NFKC");
+  if (/24時間|当日/.test(t)) return "full";
+  const r = t.match(/(\d{1,2}):\d{2}\s*[-~]\s*(\d{1,2}):\d{2}/); return r ? (+r[1] >= 17 || +r[2] <= 9 ? "night" : "day") : null; };
+const offDay = (m) => /特定日/.test(m.scope) || (/土|日曜|日祝|祝|休日/.test(m.scope) && !/全日|平日|月/.test(m.scope));
+const dmaxOf = (r) => { const pick = (b) => { const c = r.maxFees.filter((m) => bandOf(m) === b); const w = c.filter((m) => !offDay(m)); const u = w.length ? w : c;
+  return u.length ? Math.min(...u.map((m) => m.amountYen)) : null; };
+  const full = pick("full"), day = pick("day"), night = pick("night"); return full ?? (day && night ? day + night : null); };
+
+test("【当日最大料金】【24時間最大料金】の行が1日の一部だけの時間帯なら、その時間帯の上限として読む（夜間最大と足して dmax）", () => {
+  // PARKS PARK 江東区森下3丁目第3: 当日 8:00～20:00 1,900円＋夜間 20:00～8:00 500円 → 2,400円（前は当日最大1,900円だけ）
+  assert.deepEqual(fees(26948).m, [["全日", "8:00-20:00 最大", 1900], ["全日", "20:00-8:00 最大", 500]]);
+  assert.equal(dmaxOf(parseMecparksLot(lot(26948))), 2400);
+  // PEN新潟市中央区東大通1丁目: 当日 7:00～19:00 800円＋夜間 19:00～7:00 1,000円 → 1,800円（前は800円）
+  assert.deepEqual(fees(27504).m, [["全日", "7:00-19:00 最大", 800], ["全日", "19:00-7:00 最大", 1000]]);
+  assert.equal(dmaxOf(parseMecparksLot(lot(27504))), 1800);
+  // PEN横浜市中区山下町: 月～金だけ【当日最大料金】、土日祝は【昼間最大料金】。平日の昼1,300円＋夜400円 → 1,700円
+  assert.deepEqual(fees(27458).m, [["月~金(祝日除く)", "8:00-24:00 最大", 1300], ["土日祝", "8:00-24:00 最大", 2000], ["全日", "24:00-8:00 最大", 400]]);
+  assert.equal(dmaxOf(parseMecparksLot(lot(27458))), 1700);
+  // 0:00～24:00（1日全部）は当日最大のまま（港区南青山7丁目。平日は4,200円）
+  assert.deepEqual(fees(27198).m[0], ["月曜~土曜日(祝日除く)", "当日最大 0:00~24:00", 4200]);
+  assert.equal(dmaxOf(parseMecparksLot(lot(27198))), 4200);
+  // 24時間営業でない物件で、時間帯が営業時間（bhours「6:30～23:00」）と同じなら、営業中ずっとの上限なので当日最大のまま
+  assert.deepEqual(fees(28471).m, [["月~金(祝日除く)", "当日最大 6:30~23:00", 1200]]);
+  assert.equal(dmaxOf(parseMecparksLot(lot(28471))), 1200);
+  // 【24時間最大料金】の行に時間帯（日比谷シティパーキング「全日 7：00～23：00」。施設なので今は記録しない）も同じ決まり
+  const hibiya = lot(26658);
+  assert.deepEqual(parseMecparksFees(hibiya.time, hibiya.timem).maxFees, [{ scope: "全日", condition: "7:00-23:00 最大", amountYen: 2400 }]);
+  assert.deepEqual(parseMecparksFees(hibiya.time, hibiya.timem, { hours: hibiya.bhours }).maxFees,   // 営業時間 7：00～23：00 と同じ
+    [{ scope: "全日", condition: "24時間最大 7:00~23:00", amountYen: 2400 }]);
+});
+
+test("行の頭の曜日が「(月-土)」（かっこ付き・ハイフン）や「駐車場指定日」でも区分に入れる", () => {
+  // PARKS PARK 台東区橋場1丁目: 【24時間最大料金】(月-土) 1,900円・日祝 800円
+  assert.deepEqual(fees(28814).m, [["月~土", "24時間最大", 1900], ["日祝", "24時間最大", 800], ["全日", "20:00-8:00 最大", 300]]);
+  assert.equal(dmaxOf(parseMecparksLot(lot(28814))), 1900);
+  // PARKS PARK 桂ガーデンプラザ: 「駐車場指定日 2500円」は特定日（休日の上限として、平日の上限に混ぜない）
+  assert.deepEqual(fees(28739).m, [["全日", "24時間最大", 1500], ["特定日", "24時間最大", 2500], ["全日", "19:00-7:00 最大", 500]]);
+  assert.equal(offDay({ scope: "特定日" }), true);
+  assert.equal(offDay({ scope: "月~土" }), false);
+});
+
 test("昼間・夜間・N時間の見出しと時間帯（「24時-8時最大」「22時～8時」を含む）", () => {
   assert.deepEqual(fees(27192).m, [["全日", "24時間最大", 1500], ["全日", "24:00-8:00 最大", 400]]);
   assert.deepEqual(fees(27167).m, [["全日", "22:00-8:00 最大", 300]]);

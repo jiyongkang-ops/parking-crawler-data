@@ -115,7 +115,7 @@ export function sanparkFeeLines(td) {
   return out;
 }
 
-/** 物件ページ → 記録の形。記録しない物件は { skip: 理由 } を返す（run.js が記録せずに日付だけ進める） */
+/** 物件ページ → 記録の形。記録しない物件は { skip: 理由 } を返す（run.js が記録せずに、閉鎖（404）と同じく寝かせる） */
 export function parseSanparkDetail(html, { id } = {}) {
   const s = String(html ?? "");
   const rawName = strip(s.match(/<span itemprop="name">([\s\S]*?)<\/span>/)?.[1] ?? s.match(/<h2 class="cont_h">([\s\S]*?)<\/h2>/)?.[1] ?? "");
