@@ -1,19 +1,18 @@
 {
- "at": "2026-11-02T06:38:35.849Z",
+ "at": "2026-11-02T11:09:11.227Z",
  "workflow": "crawl-times",
  "only": "times",
  "targets": [
   {
    "op": "times",
    "label": "タイムズ",
-   "ok": true,
-   "n": 900,
-   "reason": null,
-   "tried": 900,
+   "ok": false,
+   "n": 0,
+   "reason": "robots.txt が HTTP 403（断られている）。この回は打ち切り",
+   "kind": "blocked",
+   "tried": 0,
    "noName": 0,
-   "statusCounts": {
-    "200": 900
-   },
+   "statusCounts": {},
    "lastOkAt": "2026-11-02T06:38:35.849Z"
   }
  ]
