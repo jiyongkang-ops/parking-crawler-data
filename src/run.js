@@ -135,7 +135,7 @@ const ROLLING_SITES = [
   { op: "kyotech", label: "キョウテク", enumerate: getAllKyotechIds, detailUrl: kyotechDetailUrl, parse: parseKyotechDetail,
     idsCache: STATE.kyotechIdsCache, stateFile: STATE.kyotechCrawlState, defaultPerRun: 800 },
   { op: "leparc", label: "ルパルク", enumerate: getAllLeparcIds, detailUrl: leparcDetailUrl, parse: parseLeparcDetail,
-    idsCache: STATE.leparcIdsCache, stateFile: STATE.leparcCrawlState, defaultPerRun: 500 },
+    idsCache: STATE.leparcIdsCache, stateFile: STATE.leparcCrawlState, defaultPerRun: 240 },
   { op: "space24", label: "スペース二十四", enumerate: getAllSpace24Ids, detailUrl: space24Url, parse: parseSpace24Detail,
     idsCache: "data/space24-ids.txt", stateFile: "data/space24-crawl-state.json", defaultPerRun: 500 },
   { op: "jqparks", label: "JQパークス", enumerate: getAllJqparksIds, detailUrl: jqparksUrl, parse: parseJqparksDetail,
@@ -687,7 +687,8 @@ async function main() {
         }
         let rec;
         // 中身が読めなくても取得はできている。時刻は進めないと古い順の先頭に居座る
-        try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id }); }
+        // 一覧で読んだ物件ごとの値（listMeta。JQパークスの座標・時間貸の印。jqparks-enumerate.js）があれば、パーサに渡す（2026-11-02）
+        try { rec = rolling.parse(res.html, { [rolling.keyName ?? "id"]: id, ...(ids.listMeta ? { listMeta: ids.listMeta.get(id) ?? null } : {}) }); }
         catch (e) {
           // 相手先が混み合っているページ（タイムズの「ただいま大変混み合っております」。times.js が e.transient を付ける）。
           // HTTP 200 でも 503 と同じ不調なので、取りに行った扱いにせず次の回に取り直し、打ち切りの数にも入れる。
