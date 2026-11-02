@@ -90,6 +90,11 @@ export const config = {
     { operator: "mecparks", mode: "nationwide", label: "三菱地所パークス全国" },
     // SANパーク（パイン株式会社） — 首都圏の市区の一覧から物件ページをたどる（約1,000件・ローリング）
     { operator: "sanpark", mode: "nationwide", label: "SANパーク" },
+    // 2026-11-02 追加分（crawl-extra3.yml に相乗り）。どちらも robots.txt に決まりは無く、規約のページも無い（2026-11-01 確認）
+    // 東洋カーマックス — 一覧（約60ページ・1,170件）から駐輪場を除いた約1,130件の詳細ページをローリング巡回。関東・近畿が中心
+    { operator: "carmax", mode: "nationwide", label: "東洋カーマックス" },
+    // MAYパーク（日本メカトロニクス）— 1ページ（Shift_JIS）に名古屋中心の193区画。駐輪場・月極専用を除く約130件を毎回1リクエストで
+    { operator: "maypark", mode: "nationwide", label: "MAYパーク" },
 
     // ザ・パーク(第一興商) — 単一JSON(data/search.json)で全国 約3,367件を1リクエスト取得。
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。
@@ -162,6 +167,10 @@ export const config = {
   // 2026-11 追加分（crawl-extra2.yml・1日2回）。SANパークは時間貸し 約1,000件を1回250件（4秒間隔で約17分）。
   // 1日2回で約500件 → 約2日で1巡。一覧（約132リクエスト・約9分）は7日ごとに作り直す
   sanparkRollingPerRun: 250,
+  // 東洋カーマックス（2026-11-02）。crawl-extra3.yml は1日2回（5・17時）・巡回の手順は340分まで。
+  // 今の extra3 は1回あたり最大でも約1,950件（4秒おきで約130分）なので、400件（約27分）足しても時間に余裕がある。
+  // 予算（ROLLING_BUDGET_MIN 既定45分）にも収まる。約1,130件を1日800件で、約1.4日で1巡。小さな会社のサイトなので1回400件に抑える
+  carmaxRollingPerRun: 400,
 
   // 全国規模では全件を毎回追記するとファイルが肥大するため、
   // 「新規 or 料金変動した物件のみ」追記する（時系列＝変化点の記録になる）。

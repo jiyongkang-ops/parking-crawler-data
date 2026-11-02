@@ -148,6 +148,7 @@ export const ORIGINS = {
   tokyulifia: "https://www.tokyulifia.co.jp",
   mecparks: "https://parkingnavi.jp", sanpark: "https://sanpark.jp",
   showapark: "https://www.shouwapark.co.jp", ypark: "https://www.waxds.com",
+  carmax: "http://www.carmax-parking.jp", maypark: "https://aaa-mtc.jp",
   // 止めている社（space24・odakyu）は載せない。許可が出るまでトップにも行かない
 };
 
@@ -160,7 +161,12 @@ export const ORIGINS = {
 export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/", mecparks: "/search_result.php?type=1&area=1",
   // ショウワパークは巡回で一覧を作るときに取る駐車場検索のページ。ユアー・パーキングの waxds.com はホームページ更新サービスで、
   // トップ（/）はサービスの会社のページになる。同社の地図の画面（物件の JSON を読んでいるページ）を見る（2026-11-02）
-  showapark: "/parking/", ypark: "/ypark/map.php" };
+  showapark: "/parking/", ypark: "/ypark/map.php",
+  //  東洋カーマックス・MAYパーク（2026-11-02 追加）も、巡回で取る「駐車場を探す」と一覧のページを見る
+  //  （会社のトップは別のサイト・別の作りで、駐車場の検索が止まっていても普段どおりのことがある）
+  carmax: "/25search/", maypark: "/may/index.html" };
+/** 入口のページの文字コード（UTF-8 でない社だけ）。MAYパークは Shift_JIS で、UTF-8 で読むと告知の言葉が化けて見分けられない */
+export const ENTRY_ENCODINGS = { maypark: "shift_jis" };
 
 /** 事業者の入口の URL（メンテナンスを確かめるときに見るページ）。載っていなければ null */
 export const entryOf = (op) => (ORIGINS[op] ? `${ORIGINS[op]}${ENTRY_PATHS[op] ?? "/"}` : null);
@@ -189,9 +195,11 @@ export async function markMaintenance(rows, fetchTop, fetchTopDirect = null) {
     if (!entry) continue;
     if (!seen.has(entry)) {
       let title = null;
+      // 文字コードの指定は UTF-8 でない社だけに渡す（ほかの社は今までどおり URL だけで呼ぶ）
+      const opts = ENTRY_ENCODINGS[r.op] ? [{ encoding: ENTRY_ENCODINGS[r.op] }] : [];
       try {
-        let res = await fetchTop(entry);
-        if (res?.blocked && (res.status === 401 || res.status === 403) && fetchTopDirect) res = await fetchTopDirect(entry);
+        let res = await fetchTop(entry, ...opts);
+        if (res?.blocked && (res.status === 401 || res.status === 403) && fetchTopDirect) res = await fetchTopDirect(entry, ...opts);
         title = res?.maintenance ?? (res?.html ? maintenanceOf(res.html) : null);
       } catch { /* 見られなければ元のまま */ }
       seen.set(entry, title);

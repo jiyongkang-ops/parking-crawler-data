@@ -168,6 +168,8 @@ async function fetchOnce(url) {
 // opts.minDelay でこの取得のアクセス間隔を上書き（事業者ごとの配慮に使う）。
 // opts.redirect: "manual" で転送を追わない（閉じた物件をトップへ転送する社で、転送先を物件として読まないため。
 //   追わない分、転送先のページを取りに行く1回も減る）。転送のときは status が 3xx、location に転送先が入る。
+// opts.encoding: 本文の文字コード（"shift_jis" など）。無ければ今までどおり UTF-8 で読む（res.text()）。
+//   MAYパークの一覧は Shift_JIS で、Content-Type に charset が無い。UTF-8 で読むと文字化けして0件になる（2026-11-02）
 // 転送は fetch に任せず、1回ずつ自分でたどる（2026-11-02）。以前は fetch が転送をそのまま追っていたので、
 //   ・転送先の robots.txt を見ていなかった（別のホストへの転送でも、同じホストの Disallow のパスへの転送でも）。
 //     パークネットの robots.txt は「Disallow: /・Allow: /parknet/」で、改修で /parknet/ の外へ転送されると禁止のページを取ってしまう
@@ -220,16 +222,22 @@ export async function politeFetch(url, opts = {}) {
     cur = next;
     res = await fetchOnce(cur.href);
   }
-  const html = await res.text();
+  const html = await bodyText(res, opts.encoding);
   const moved = cur.host !== start.host ? { movedTo: cur.href } : {};
   return { ok: res.ok, status: res.status, html, location: res.headers.get("location"), url: cur.href, ...moved };
+}
+
+/** 本文を文字列にする。encoding があればその文字コードで読む（TextDecoder。Node の ICU は shift_jis・euc-jp を読める） */
+async function bodyText(res, encoding) {
+  if (!encoding) return res.text();
+  return new TextDecoder(encoding).decode(await res.arrayBuffer());
 }
 
 /** robots.txt を見ずに、1ページだけ取る。メンテナンスの確かめ（markMaintenance）で、robots.txt が 401・403 だった社の
  *  入口（トップページ）を1回だけ見るためだけに使う（RFC 9309 2.3.1.3 では 4xx のときは取ってよい）。間隔は守る。
  *  転送は politeFetch と同じく1回ずつたどり、毎回間隔をあける。同じ origin の中の転送は robots.txt を見ない（4xx なので取ってよい）が、
  *  別の origin へ転送されたときは、その origin の robots.txt を確かめ、だめなら取りに行かない（2026-11-02） */
-export async function fetchOnceIgnoringRobots(url) {
+export async function fetchOnceIgnoringRobots(url, opts = {}) {
   const start = new URL(url);
   await pace(config.minDelayMs);
   let cur = start;
@@ -244,7 +252,7 @@ export async function fetchOnceIgnoringRobots(url) {
     cur = next;
     res = await fetchOnce(cur.href);
   }
-  return { ok: res.ok, status: res.status, html: await res.text().catch(() => "") };
+  return { ok: res.ok, status: res.status, html: await bodyText(res, opts.encoding).catch(() => "") };
 }
 
 /** 取れなかった理由の短い文。robots.txt で見送ったときは status が null なので、「HTTP null」ではなく見送りの理由を出す */

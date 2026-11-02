@@ -1,4 +1,4 @@
-# 2026-08 追加分の定期実行（タマパーク他9社）
+# 2026-08 追加分の定期実行（タマパーク他9社）。2026-11-02 から東洋カーマックス・MAYパークも相乗り
 # 出力は別ファイル(prices-extra3.jsonl)にして push 競合を回避。
 name: crawl-extra3
 
@@ -34,7 +34,7 @@ jobs:
         env:
           # 一覧の守り（src/list-guard.js）を外す社。相手先が本当に物件を減らしたと確かめたときだけ、リポジトリの変数に入れて1回回し、回ったら消す
           LIST_SHRINK_OK: ${{ vars.LIST_SHRINK_OK }}
-          CRAWL_ONLY: "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu"
+          CRAWL_ONLY: "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark"
           OUT_FILE: "data/prices-extra3.jsonl"
       - name: commit data if changed
         if: always()   # 途中で殺されても、そこまでの観測は残す

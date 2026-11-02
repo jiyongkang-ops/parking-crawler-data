@@ -70,6 +70,10 @@ import { getAllOdakyuIds } from "./odakyu-enumerate.js";
 import { crawlMecparks, mecparksHealth } from "./mecparks-enumerate.js";
 import { detailUrl as sanparkUrl, parseSanparkDetail } from "./sanpark.js";
 import { getAllSanparkIds } from "./sanpark-enumerate.js";
+// 2026-11-02 追加分（東洋カーマックス＝詳細ページ型・MAYパーク＝1ページの一覧型）
+import { detailUrl as carmaxUrl, parseCarmaxDetail } from "./carmax.js";
+import { getAllCarmaxIds } from "./carmax-enumerate.js";
+import { listUrl as mayparkListUrl, parseMayList, ENCODING as MAYPARK_ENCODING } from "./maypark.js";
 import { flushCrawlStates, confirmsDropped } from "./repark-enumerate.js";
 import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
@@ -181,6 +185,10 @@ const ROLLING_SITES = [
   // SANパーク（2026-11-02）。物件ページが月極だけ・1日単位の料金だけ・近日オープンのときは、parse が { skip } を返す（記録しない）
   { op: "sanpark", label: "SANパーク", enumerate: getAllSanparkIds, detailUrl: sanparkUrl, parse: parseSanparkDetail,
     idsCache: "data/sanpark-ids.txt", stateFile: "data/sanpark-crawl-state.json", defaultPerRun: 250 },
+  // 東洋カーマックス（2026-11-02）。一覧（約60ページ）から駐輪場を除いた約1,130件。詳細ページが料金に「月極」だけ・料金の文が
+  // 無い物件は記録しない（parseCarmaxDetail が excluded を返す。下の巡回の説明）
+  { op: "carmax", label: "東洋カーマックス", enumerate: getAllCarmaxIds, detailUrl: carmaxUrl, parse: parseCarmaxDetail,
+    idsCache: "data/carmax-ids.txt", stateFile: "data/carmax-crawl-state.json", defaultPerRun: 400 },
 ];
 
 /** 一覧を作り直す前のファイルから、前の一覧を読む（unparkGone で「新しく載った番号」を見分けるため）。無ければ null */
@@ -262,7 +270,8 @@ function writeHealth() {
 }
 /** 巡回の最後: 失敗した事業者の入口を1回ずつ見てメンテナンスを見分けてから、health を書く */
 async function finishHealth() {
-  try { await markMaintenance(health, (u) => politeFetch(u), (u) => fetchOnceIgnoringRobots(u)); }
+  // 入口が UTF-8 でない社（MAYパーク）は文字コードの指定 o が付いてくる（maintenance.js の ENTRY_ENCODINGS）
+  try { await markMaintenance(health, (u, o) => politeFetch(u, o), (u, o) => fetchOnceIgnoringRobots(u, o)); }
   catch (e) { console.warn(`[health] メンテナンスの確認ができませんでした: ${e?.message ?? e}`); }
   writeHealth();
 }
@@ -621,7 +630,7 @@ async function main() {
       const fetchOpts = rolling.minDelay || rolling.goneOnRedirect
         ? { ...(rolling.minDelay ? { minDelay: rolling.minDelay } : {}), ...(rolling.goneOnRedirect ? { redirect: "manual" } : {}) }
         : undefined;
-      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0, skipped = 0;
+      let done = 0, got = 0, tried = 0, nGone = 0, noName = 0, busy = 0, skipped = 0, excluded = 0;
       let out = false;
       // 相手先の不調（5xx・429・403・タイムアウト・混み合いのページ）が続いたら、この回は打ち切る（makeBreaker の説明）
       const breakerN = hold ? 1 : Number(process.env.ROLLING_BREAKER) || 8;
@@ -787,7 +796,7 @@ async function main() {
           const mt = lotNotice(res.html, rec);
           if (mt) { if (transientFail(`メンテナンスの告知（「${mt}」）`, "maintenance")) { out = true; break; } continue; }
         }
-        // 記録しない物件（parse が { skip: 理由 } を返す。SANパークの月極だけ・1日単位の料金だけ・近日オープン。2026-11-02）。
+        // 記録しない物件（parse が { skip: 理由 } を返す。SANパークの月極だけ・1日単位の料金だけ・近日オープン、ショウワパーク・ユアー・パーキングの駐輪場・開業前など。2026-11-02）。
         // 料金の無い行を書くと、Advisor が同じ場所にある Parkopedia の料金のある物件を重複として落とすので書かない。
         // 閉鎖（404）と同じく寝かせて30〜60日後に見直す（毎日取り直さない）。前に料金を記録した物件なら、Advisor の相場からも外れる
         // （studio-index.mjs が GONE の物件を外す。日付だけ進めると、古い料金の行が「最近確かめた」物件として残る）。
@@ -799,18 +808,15 @@ async function main() {
           if (tripIfMassGone()) { out = true; break; }
           continue;
         }
-        // 記録しない物件（parse が { skip: 理由 } を返す。月極だけ・開業前・駐輪場など。2026-11-02 ショウワパーク・ユアー・パーキングから）。
-        // 料金の無い行を書くと、Advisor が同じ場所にある Parkopedia の料金のある物件を重複として落とすので書かない。
-        // 閉鎖（404）と同じく寝かせて30〜60日後に見直す（毎日取り直さない）。前に料金を記録した物件なら、Advisor の相場からも外れる
-        // （studio-index.mjs が GONE の物件を外す）。ページの作りが変わって全部が skip になったときは、一斉の閉鎖の歯止めで印を戻して打ち切る
-        if (rec?.skip) {
-          answered(true);
-          if (++skipped <= 20) console.log(`  [skip] ${id}: ${rec.skip}`);
-          mark({ status: 404 });
-          if (tripIfMassGone()) { out = true; break; }
-          continue;
-        }
         answered();
+        // 記録しない物件（駐輪場・月極だけ・時間貸しの料金の文が無い・近日オープン。parse が excluded に理由を入れる。2026-11-02 東洋カーマックス）。
+        // 料金の記録は書かない。料金の無い物件を記録すると、Advisor が100m以内の同じ名前の料金つきの Parkopedia の物件を落とし、
+        // 料金のある物件が料金なしに替わる（2026-11-01 見直し）。取りに行った日は進める（毎回同じ物件を取りに行かない）。
+        // health には件数（excluded）を残し、取った物件がすべてこれでも失敗にしない
+        if (rec?.excluded) {
+          if (++excluded <= 20) console.log(`  [skip] ${id} ${rec.name ?? ""}: ${rec.excluded}（記録しない）`);
+          mark(res, false); continue;
+        }
         // 取れたのに名前が読めない（ページの作りが違う・掲載終了の雛形など）。以前は何も出さずに飛ばしていたので、
         // 名鉄協商の552件が毎回むだに取られていることに3か月気づけなかった。番号を出し（1回20件まで）、health に件数を残す
         if (!rec || !rec.name) {
@@ -842,6 +848,7 @@ async function main() {
       if (massRestored) console.warn(`[${rolling.label}] 一斉の閉鎖とみなして、この回に付けた閉鎖の印 ${massRestored}件を前の値に戻した`);
       if (skipped) console.log(`[${rolling.label}] 時間貸しの料金が無い・駐輪場などで記録しなかった物件 ${skipped}件を寝かせた${skipped > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
       if (noName) console.warn(`[${rolling.label}] 取れたのに名前が読めなかった物件 ${noName}件${noName > 20 ? "（番号は最初の20件だけ出した）" : ""}`);
+      if (excluded) console.log(`[${rolling.label}] 記録しない物件（駐輪場・月極だけ・料金の文が無いなど）${excluded}件`);
       if (retried) console.log(`[${rolling.label}] 相手先の不調で取れなかった${retried}件は、次の回に取り直す${busy ? `（うち混み合いのページ${busy}件）` : ""}`);
       if (confirm.length) console.log(`[${rolling.label}] 一覧から消えた${confirm.length}件のうち、閉鎖（404）だった${confirmGone}件に印を付けた${massRestored ? "（一斉の閉鎖とみなしたので、印は戻した）" : ""}`);
       // 取りに行ったのに1件も読めなかったら失敗（403・ページの作りの変更など）。取る物件が無かった回は成功。
@@ -852,15 +859,15 @@ async function main() {
       // 7日止まっても health は成功のままだった）
       // kind（失敗の種類。src/health-kind.js）は reason と同じ順で決める: 打ち切った理由 → 一覧の問題 → この回の失敗でいちばん多い種類
       const listProblem = !!ids.staleReason || ids.length === 0;
-      // 取った物件がすべて「記録しない物件」（skip）だった回は、読めているので成功（一覧から消えた物件を確かめるだけの小さい回など。2026-11-02）
-      const allSkipped = skipped > 0 && skipped === tried;
+      // 取った物件がすべて「記録しない物件」（skip・excluded）だった回は、読めているので成功（一覧から消えた物件を確かめるだけの小さい回など。2026-11-02）
+      const allSkipped = skipped + excluded > 0 && skipped + excluded === tried;
       const okRun = !broke && !listProblem && (tried === 0 || got > 0 || allSkipped);
       const why = broke ?? ids.staleReason ?? (ids.length === 0 ? "一覧が0件" : null)
         ?? (tried > 0 && got === 0 && !allSkipped ? `${tried}件取りに行って0件${noName ? `（名前が読めない${noName}件）` : ""}${skipped ? `（記録しない物件${skipped}件）` : ""}` : null) ?? ids.listNote ?? null;
       // 保留中で取れなかった回は「メンテナンス」。取れた回はいつもどおり（保留は期限まで残るが、取れているあいだは効かない）
       const heldFail = !!hold && !okRun;
       hp(rolling.op, rolling.label, okRun, got, heldFail ? holdReason(hold, why) : why,
-        { tried, noName, ...(busy ? { busy } : {}), ...(skipped ? { skipped } : {}), statusCounts: statusCounts.toJSON(),
+        { tried, noName, ...(busy ? { busy } : {}), ...(skipped ? { skipped } : {}), ...(excluded ? { excluded } : {}), statusCounts: statusCounts.toJSON(),
           kind: heldFail ? "maintenance" : brokeKind ?? (listProblem ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse",
           ...(hold ? { hold: hold.until } : {}),
           ...(massRestored ? { restored: massRestored } : {}),
@@ -981,6 +988,21 @@ async function main() {
       console.log(`[ok] エムデン・テクノパーキング | ${records.length}物件`);
       hp("mden", "エムデン", records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
       listState("mden", records.map((r) => r.parkId), records.length > 0);
+      continue;
+    }
+
+    // ---- MAYパーク（日本メカトロニクス。1ページに全物件・Shift_JIS。2026-11-02）----
+    // 駐輪場・バイク・月極専用・料金の文が無い区画は parseMayList が外す（excluded。件数は health に残す）。座標は無い（住所から引く）
+    if (t.operator === "maypark" && t.mode === "nationwide") {
+      const url = mayparkListUrl();
+      let res;
+      try { res = await politeFetch(url, { encoding: MAYPARK_ENCODING }); } catch (e) { const m = fetchErrorText(e); console.error(`[error] maypark: ${m}`); hp("maypark", "MAYパーク", false, 0, m, { kind: "network", statusCounts: { network: 1 } }); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] maypark: ${res.skippedReason ?? "HTTP " + res.status}`); hp("maypark", "MAYパーク", false, 0, res.skippedReason ?? `HTTP ${res.status}`, { kind: kindOfFetch(res), ...statusOf(res) }); continue; }
+      const { records, excluded, boxes } = parseMayList(res.html);
+      records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
+      console.log(`[ok] MAYパーク | ${records.length}物件（区画${boxes}のうち、駐輪場・月極専用・料金の文が無いなどで記録しない${excluded.length}）`);
+      hp("maypark", "MAYパーク", records.length > 0, records.length, records.length ? null : "0件",
+        { kind: "parse", ...statusOf(res), ...(excluded.length ? { excluded: excluded.length } : {}) });
       continue;
     }
 
