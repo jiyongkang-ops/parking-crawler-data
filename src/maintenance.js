@@ -48,7 +48,7 @@ export const ORIGINS = {
   navipark: "https://www.navipark1.com", npc: "https://parking.npc-npc.co.jp", parknet: "https://parknet.shinmaywa.co.jp",
   repark: "https://www.repark.jp", seiwapark: "https://www.seiwapark.co.jp", systempark: "https://systempark.biz",
   tamapark: "https://www.tamapark.co.jp", thepark: "https://www.dkparking.com", times: "https://times-info.net",
-  tokyulifia: "https://www.tokyulifia.co.jp",
+  tokyulifia: "https://www.tokyulifia.co.jp", carmax: "http://www.carmax-parking.jp", maypark: "https://aaa-mtc.jp",
   // 止めている社（space24・odakyu）は載せない。許可が出るまでトップにも行かない
 };
 
@@ -57,7 +57,11 @@ export const ORIGINS = {
  *  あなぶきは会社のトップ（住まいの会社のサイト）が 10/27 に戻ったが、駐車場の一覧（/park/hourly/）は
  *  メンテナンスの告知（429）のまま。トップで見ると「回数の制限」と取り違える（2026-10-30 確認）。
  *  どちらも巡回で取っているページなので、見に行っても新しい所にはアクセスしない */
-export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/" };
+//  東洋カーマックス・MAYパーク（2026-11-02 追加）も、巡回で取る「駐車場を探す」と一覧のページを見る
+//  （会社のトップは別のサイト・別の作りで、駐車場の検索が止まっていても普段どおりのことがある）
+export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/", carmax: "/25search/", maypark: "/may/index.html" };
+/** 入口のページの文字コード（UTF-8 でない社だけ）。MAYパークは Shift_JIS で、UTF-8 で読むと告知の言葉が化けて見分けられない */
+export const ENTRY_ENCODINGS = { maypark: "shift_jis" };
 
 /** 事業者の入口の URL（メンテナンスを確かめるときに見るページ）。載っていなければ null */
 export const entryOf = (op) => (ORIGINS[op] ? `${ORIGINS[op]}${ENTRY_PATHS[op] ?? "/"}` : null);
@@ -86,9 +90,11 @@ export async function markMaintenance(rows, fetchTop, fetchTopDirect = null) {
     if (!entry) continue;
     if (!seen.has(entry)) {
       let title = null;
+      // 文字コードの指定は UTF-8 でない社だけに渡す（ほかの社は今までどおり URL だけで呼ぶ）
+      const opts = ENTRY_ENCODINGS[r.op] ? [{ encoding: ENTRY_ENCODINGS[r.op] }] : [];
       try {
-        let res = await fetchTop(entry);
-        if (res?.blocked && (res.status === 401 || res.status === 403) && fetchTopDirect) res = await fetchTopDirect(entry);
+        let res = await fetchTop(entry, ...opts);
+        if (res?.blocked && (res.status === 401 || res.status === 403) && fetchTopDirect) res = await fetchTopDirect(entry, ...opts);
         title = res?.maintenance ?? (res?.html ? maintenanceOf(res.html) : null);
       } catch { /* 見られなければ元のまま */ }
       seen.set(entry, title);

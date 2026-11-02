@@ -130,6 +130,8 @@ function isAllowed(rules, pathname) {
 // opts.minDelay でこの取得のアクセス間隔を上書き（事業者ごとの配慮に使う）。
 // opts.redirect: "manual" で転送を追わない（閉じた物件をトップへ転送する社で、転送先を物件として読まないため。
 //   追わない分、転送先のページを取りに行く1回も減る）。転送のときは status が 3xx、location に転送先が入る。
+// opts.encoding: 本文の文字コード（"shift_jis" など）。無ければ今までどおり UTF-8 で読む（res.text()）。
+//   MAYパークの一覧は Shift_JIS で、Content-Type に charset が無い。UTF-8 で読むと文字化けして0件になる（2026-11-02）
 // 戻り値: { ok, status, html, skippedReason, location }。本ページを送らなかったときは skippedReason が入り、
 //   robots.txt で断られた（401・403）なら blocked: true、robots.txt に届かない（通信の失敗・5xx）なら transient: true
 export async function politeFetch(url, opts = {}) {
@@ -163,17 +165,23 @@ export async function politeFetch(url, opts = {}) {
     signal: AbortSignal.timeout(config.timeoutMs),
     redirect: opts.redirect === "manual" ? "manual" : "follow",
   });
-  const html = await res.text();
+  const html = await bodyText(res, opts.encoding);
   return { ok: res.ok, status: res.status, html, location: res.headers.get("location") };
+}
+
+/** 本文を文字列にする。encoding があればその文字コードで読む（TextDecoder。Node の ICU は shift_jis・euc-jp を読める） */
+async function bodyText(res, encoding) {
+  if (!encoding) return res.text();
+  return new TextDecoder(encoding).decode(await res.arrayBuffer());
 }
 
 /** robots.txt を見ずに、1ページだけ取る。メンテナンスの確かめ（markMaintenance）で、robots.txt が 401・403 だった社の
  *  入口（トップページ）を1回だけ見るためだけに使う（RFC 9309 2.3.1.3 では 4xx のときは取ってよい）。間隔は守る */
-export async function fetchOnceIgnoringRobots(url) {
+export async function fetchOnceIgnoringRobots(url, opts = {}) {
   await pace(config.minDelayMs);
   const res = await fetch(url, { headers: { "User-Agent": config.userAgent, "Accept-Language": "ja,en;q=0.8" },
     signal: AbortSignal.timeout(config.timeoutMs), redirect: "follow" });
-  return { ok: res.ok, status: res.status, html: await res.text().catch(() => "") };
+  return { ok: res.ok, status: res.status, html: await bodyText(res, opts.encoding).catch(() => "") };
 }
 
 /** 取れなかった理由の短い文。robots.txt で見送ったときは status が null なので、「HTTP null」ではなく見送りの理由を出す */
