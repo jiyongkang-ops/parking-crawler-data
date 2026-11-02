@@ -1,7 +1,7 @@
 {
- "at": "2026-11-01T17:35:44.763Z",
+ "at": "2026-11-02T06:07:39.405Z",
  "workflow": "crawl-extra2",
- "only": "space24,jqparks,parknet",
+ "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
   {
    "op": "space24",
@@ -17,21 +17,54 @@
    "ok": true,
    "n": 400,
    "reason": null,
-   "tried": 400,
-   "noName": 0,
+   "tried": 401,
+   "noName": 1,
    "statusCounts": {
-    "200": 400
+    "200": 401
    },
-   "lastOkAt": "2026-11-01T17:35:44.763Z"
+   "lastOkAt": "2026-11-02T06:07:39.405Z"
   },
   {
    "op": "parknet",
    "label": "パークネット",
    "ok": false,
    "n": 0,
-   "reason": "相手先のサイトがメンテナンス中（「ただいまメンテナンス中です」）。この回は見送り（巡回の記録: 一覧: 都道府県リンクが0件（ページ構造変更の可能性））",
+   "reason": "一覧: パークネット トップ: 相手先のサイトがメンテナンス中（「ただいまメンテナンス中です」）",
    "kind": "maintenance",
    "lastOkAt": "2026-10-21T05:42:14.990Z"
+  },
+  {
+   "op": "mecparks",
+   "label": "三菱地所パークス",
+   "ok": true,
+   "n": 552,
+   "reason": null,
+   "pages": 98,
+   "rows": 608,
+   "skipped": {
+    "月極": 2,
+    "料金なし": 18,
+    "バイク": 28,
+    "駐輪場": 8
+   },
+   "statusCounts": {
+    "200": 98
+   },
+   "lastOkAt": "2026-11-02T06:07:39.405Z"
+  },
+  {
+   "op": "sanpark",
+   "label": "SANパーク",
+   "ok": true,
+   "n": 217,
+   "reason": "一覧づくりで市区10件が取れなかった。その分は前の一覧の番号0件を残した",
+   "tried": 250,
+   "noName": 0,
+   "skipped": 33,
+   "statusCounts": {
+    "200": 250
+   },
+   "lastOkAt": "2026-11-02T06:07:39.405Z"
   }
  ]
 }
