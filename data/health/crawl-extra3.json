@@ -1,5 +1,5 @@
 {
- "at": "2026-11-02T21:35:44.530Z",
+ "at": "2026-11-03T09:57:35.710Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "anabuki",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "kintetsu",
@@ -60,21 +60,20 @@
    "statusCounts": {
     "200": 109
    },
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "seiwapark",
    "label": "セイワパーク",
-   "ok": false,
-   "n": 0,
-   "reason": "違う物件のページが5件続けて同じ名前（「セイワパーク株式会社」）で、料金が読めない。告知かページの作りの変更の見込み。この回は止め、料金の読めなかった10件は行を書かずに次の回に取り直す（2回目の5件は時刻だけ進める）",
-   "kind": "parse",
-   "tried": 10,
+   "ok": true,
+   "n": 349,
+   "reason": null,
+   "tried": 349,
    "noName": 0,
    "statusCounts": {
-    "200": 10
+    "200": 349
    },
-   "lastOkAt": "2026-11-01T21:29:56.733Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "systempark",
@@ -87,7 +86,7 @@
    "statusCounts": {
     "200": 290
    },
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "comnet",
@@ -100,7 +99,7 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "keio",
@@ -113,7 +112,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "odakyu",
@@ -127,15 +126,15 @@
    "op": "carmax",
    "label": "東洋カーマックス",
    "ok": true,
-   "n": 372,
+   "n": 313,
    "reason": null,
    "tried": 400,
    "noName": 0,
-   "excluded": 28,
+   "excluded": 87,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   },
   {
    "op": "maypark",
@@ -147,7 +146,7 @@
     "200": 1
    },
    "excluded": 60,
-   "lastOkAt": "2026-11-02T21:35:44.530Z"
+   "lastOkAt": "2026-11-03T09:57:35.710Z"
   }
  ]
 }
