@@ -1,5 +1,5 @@
 {
- "at": "2026-11-04T05:58:57.952Z",
+ "at": "2026-11-04T17:42:35.225Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -22,7 +22,7 @@
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-04T05:58:57.952Z"
+   "lastOkAt": "2026-11-04T17:42:35.225Z"
   },
   {
    "op": "parknet",
@@ -50,21 +50,18 @@
    "statusCounts": {
     "200": 98
    },
-   "lastOkAt": "2026-11-04T05:58:57.952Z"
+   "lastOkAt": "2026-11-04T17:42:35.225Z"
   },
   {
    "op": "sanpark",
    "label": "SANパーク",
-   "ok": true,
-   "n": 59,
-   "reason": null,
-   "tried": 250,
+   "ok": false,
+   "n": 0,
+   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（fetch failed（UND_ERR_CONNECT_TIMEOUT））",
+   "kind": "network",
+   "tried": 0,
    "noName": 0,
-   "skipped": 186,
-   "statusCounts": {
-    "200": 245,
-    "network": 5
-   },
+   "statusCounts": {},
    "lastOkAt": "2026-11-04T05:58:57.952Z"
   }
  ]
