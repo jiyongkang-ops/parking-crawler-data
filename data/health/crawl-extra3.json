@@ -1,5 +1,5 @@
 {
- "at": "2026-11-04T21:57:22.901Z",
+ "at": "2026-11-05T09:57:08.395Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "anabuki",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "kintetsu",
@@ -60,7 +60,7 @@
    "statusCounts": {
     "200": 110
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "seiwapark",
@@ -73,7 +73,7 @@
    "statusCounts": {
     "200": 343
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "systempark",
@@ -86,7 +86,7 @@
    "statusCounts": {
     "200": 290
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "comnet",
@@ -99,7 +99,7 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "keio",
@@ -112,7 +112,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "odakyu",
@@ -126,16 +126,16 @@
    "op": "carmax",
    "label": "東洋カーマックス",
    "ok": true,
-   "n": 284,
+   "n": 329,
    "reason": null,
    "tried": 400,
    "noName": 0,
-   "excluded": 114,
+   "excluded": 63,
    "statusCounts": {
-    "200": 398,
-    "404": 2
+    "200": 392,
+    "404": 8
    },
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   },
   {
    "op": "maypark",
@@ -147,7 +147,7 @@
     "200": 1
    },
    "excluded": 60,
-   "lastOkAt": "2026-11-04T21:57:22.901Z"
+   "lastOkAt": "2026-11-05T09:57:08.395Z"
   }
  ]
 }
