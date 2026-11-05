@@ -1,5 +1,5 @@
 {
- "at": "2026-11-04T14:54:16.927Z",
+ "at": "2026-11-05T02:53:44.438Z",
  "workflow": "crawl-navipark",
  "only": "navipark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 675
    },
-   "lastOkAt": "2026-11-04T14:54:16.927Z"
+   "lastOkAt": "2026-11-05T02:53:44.438Z"
   }
  ]
 }
