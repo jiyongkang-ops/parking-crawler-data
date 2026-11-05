@@ -1,5 +1,5 @@
 {
- "at": "2026-11-05T05:42:24.091Z",
+ "at": "2026-11-05T17:42:52.150Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -22,7 +22,7 @@
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-05T05:42:24.091Z"
+   "lastOkAt": "2026-11-05T17:42:52.150Z"
   },
   {
    "op": "parknet",
@@ -37,10 +37,10 @@
    "op": "mecparks",
    "label": "三菱地所パークス",
    "ok": true,
-   "n": 552,
+   "n": 551,
    "reason": null,
    "pages": 98,
-   "rows": 608,
+   "rows": 607,
    "skipped": {
     "月極": 2,
     "料金なし": 18,
@@ -50,7 +50,7 @@
    "statusCounts": {
     "200": 98
    },
-   "lastOkAt": "2026-11-05T05:42:24.091Z"
+   "lastOkAt": "2026-11-05T17:42:52.150Z"
   },
   {
    "op": "sanpark",
