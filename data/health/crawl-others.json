@@ -1,5 +1,5 @@
 {
- "at": "2026-11-06T13:09:12.359Z",
+ "at": "2026-11-07T01:08:53.888Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -25,7 +25,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-06T13:09:12.359Z"
+   "lastOkAt": "2026-11-07T01:08:53.888Z"
   }
  ]
 }
