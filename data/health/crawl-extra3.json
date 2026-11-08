@@ -1,5 +1,5 @@
 {
- "at": "2026-11-08T09:57:14.688Z",
+ "at": "2026-11-08T21:57:17.467Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "anabuki",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "kintetsu",
@@ -60,7 +60,7 @@
    "statusCounts": {
     "200": 110
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "seiwapark",
@@ -73,7 +73,7 @@
    "statusCounts": {
     "200": 345
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "systempark",
@@ -86,7 +86,7 @@
    "statusCounts": {
     "200": 291
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "comnet",
@@ -99,7 +99,7 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "keio",
@@ -112,7 +112,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "odakyu",
@@ -126,15 +126,15 @@
    "op": "carmax",
    "label": "東洋カーマックス",
    "ok": true,
-   "n": 364,
+   "n": 355,
    "reason": null,
    "tried": 400,
    "noName": 0,
-   "excluded": 36,
+   "excluded": 45,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   },
   {
    "op": "maypark",
@@ -146,7 +146,7 @@
     "200": 1
    },
    "excluded": 60,
-   "lastOkAt": "2026-11-08T09:57:14.688Z"
+   "lastOkAt": "2026-11-08T21:57:17.467Z"
   }
  ]
 }
