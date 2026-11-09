@@ -62,7 +62,7 @@ import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
 import { getAllKeioIds } from "./keio-enumerate.js";
 import { detailUrl as showaparkUrl, parseShowaparkDetail } from "./showapark.js";
 import { getAllShowaparkIds } from "./showapark-enumerate.js";
-import { detailUrl as yparkUrl, parseYparkDetail } from "./ypark.js";
+import { detailUrl as yparkUrl, parseYparkDetail, yparkListRecords } from "./ypark.js";
 import { getAllYparkIds } from "./ypark-enumerate.js";
 import { detailUrl as odakyuUrl, parseOdakyuDetail } from "./odakyu.js";
 import { getAllOdakyuIds } from "./odakyu-enumerate.js";
@@ -178,8 +178,8 @@ const ROLLING_SITES = [
   // 2026-11-02 追加（crawl-extra.yml）。ユアー・パーキングは料金を JSON（setparkinfo）で読むので、parse には JSON の文字列が届く
   { op: "showapark", label: "ショウワパーク", enumerate: getAllShowaparkIds, detailUrl: showaparkUrl, parse: parseShowaparkDetail,
     idsCache: "data/showapark-ids.txt", stateFile: "data/showapark-crawl-state.json", defaultPerRun: 300 },
-  { op: "ypark", label: "ユアー・パーキング", enumerate: getAllYparkIds, detailUrl: yparkUrl, parse: parseYparkDetail,
-    idsCache: "data/ypark-ids.txt", stateFile: "data/ypark-crawl-state.json", defaultPerRun: 320 },
+  // ユアー・パーキングは 2026-11-09 にこの表から外した。waxds.com はクラウドからのアクセスを止めていて、ほかの回線から自動で取りに
+  // 行くのは回り込みになるため、どの環境からも自動では取りに行かない（人が保存した一覧を取り込むだけ。下の「ユアー・パーキング」）
   { op: "odakyu", label: "小田急パーキング", enumerate: getAllOdakyuIds, detailUrl: odakyuUrl, parse: parseOdakyuDetail,
     idsCache: "data/odakyu-ids.txt", stateFile: "data/odakyu-crawl-state.json", defaultPerRun: 100 },
   // SANパーク（2026-11-02）。物件ページが月極だけ・1日単位の料金だけ・近日オープンのときは、parse が { skip } を返す（記録しない）
@@ -458,6 +458,24 @@ async function main() {
   }
 
   for (const t of targets) {
+    // ---- ユアー・パーキング（人が保存した地図の一覧から取り込む。2026-11-09 本人「3 を土台に、1 を足して」）----
+    // waxds.com はクラウドからのアクセスを止めているので、自動では取りに行かない（crawl-extra.yml から外した）。
+    // import-ypark.yml が、data/ypark-inbox/ に置かれたファイルを YPARK_LIST_FILE で渡す。料金の無い記録（名前・住所・台数・座標）になる
+    // 置かれたファイルが無いときは何もしない（自動では取りに行かない）
+    if (t.operator === "ypark" && !process.env.YPARK_LIST_FILE) { console.log("[skip] ユアー・パーキング: 自動では取りに行かない（人が置いた一覧を import-ypark.yml で取り込む）"); continue; }
+    if (t.operator === "ypark") {
+      const f = process.env.YPARK_LIST_FILE;
+      let text = null;
+      try { text = fs.readFileSync(f, "utf8"); } catch (e) { hp("ypark", "ユアー・パーキング", false, 0, `置かれたファイルが読めない: ${e.message}`, { kind: "parse" }); continue; }
+      const parsed = yparkListRecords(text);
+      if (!parsed || !parsed.records.length) { hp("ypark", "ユアー・パーキング", false, 0, parsed ? "一覧が0件" : "地図の一覧の JSON ではない", { kind: "parse" }); continue; }
+      parsed.records.forEach((r) => handleRecord(r));
+      console.log(`[ok] ユアー・パーキング（一覧の取り込み）| ${parsed.records.length}物件（まだ開いていない・駐輪場で記録しない${parsed.excluded.length}）`);
+      hp("ypark", "ユアー・パーキング", true, parsed.records.length, null, { via: "list-import", ...(parsed.excluded.length ? { excluded: parsed.excluded.length } : {}) });
+      listState("ypark", parsed.records.map((r) => r.parkId), true);
+      continue;
+    }
+
     // ---- 止めている事業者（config の paused）----
     // 先方に断られている社。一覧も詳細も取らない（robots.txt も取りに行かない）。health には ok=false の「停止中」を
     // 残す。消すと Advisor に「直った」と届き、studio-index.mjs の「長く取れていない」の判定も外れるため。

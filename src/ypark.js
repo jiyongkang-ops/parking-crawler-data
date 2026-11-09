@@ -110,3 +110,40 @@ export function parseYparkDetail(json, { id, label } = {}) {
     sourceUrl: pageUrl(pid),
   };
 }
+
+// ---- 一覧の取り込み（2026-11-09 本人「3 を土台に、1 を足して」）-----------------------------------------------
+// waxds.com はクラウド（GitHub・Google Cloud）からのアクセスを止めているので、自動の巡回では取れない（11/02 に足してから一度も取れず）。
+// 月1回、人がふつうにブラウザで地図の一覧（ypark-enumerate.js の LIST_URL）を開いて保存し、data/ypark-inbox/ に置く。
+// 一覧には料金が無い（名前・住所・台数・座標だけ。料金は物件ページを1件ずつ開かないと読めない）ので、料金の無い記録として残し、
+// 料金は Parkopedia で補う（Advisor は、同じ駐車場の組で料金のある方を残す。pk-dedupe.ts の mergeWithPk）。
+// 外す物件は一覧の巡回と同じ（まだ開いていない・駐輪場）。
+/** 保存した一覧（getallpoint の JSON の配列）→ { records, excluded }。JSON の配列でなければ null */
+export function yparkListRecords(text) {
+  let arr;
+  try { arr = JSON.parse(String(text ?? "").replace(/^\uFEFF/, "")); } catch { return null; }
+  if (!Array.isArray(arr)) return null;
+  const records = [], excluded = [], seen = new Set();
+  for (const x of arr) {
+    const id = String(x?.id ?? "");
+    if (!/^\d+$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    const raw = strip(String(x.a1 ?? "")), a7 = strip(String(x.a7 ?? ""));
+    if (!raw) continue;
+    if (NOT_OPEN_RE.test(a7)) { excluded.push({ id, name: raw, why: a7.slice(0, 30) }); continue; }
+    if (TWO_WHEEL_RE.test(raw)) { excluded.push({ id, name: raw, why: "駐輪場・バイク" }); continue; }
+    const lat = Number(x.lat), lng = Number(x.lng);
+    records.push({
+      operator: "ypark", parkId: id, label: null,
+      name: raw.startsWith(BRAND) ? raw : `${BRAND}${raw}`,
+      address: strip(`${x.a3 ?? ""}${x.a4 ?? ""}`) || null,
+      lat: Number.isFinite(lat) && lat > 0 ? lat : null,
+      lng: Number.isFinite(lng) && lng > 0 ? lng : null,
+      capacity: capacityOf(a7),
+      openingHours: null,
+      unitCharges: [], maxFees: [],
+      sourceUrl: pageUrl(id),
+      via: "list-import",
+    });
+  }
+  return { records: records.sort((a, b) => Number(a.parkId) - Number(b.parkId)), excluded };
+}
