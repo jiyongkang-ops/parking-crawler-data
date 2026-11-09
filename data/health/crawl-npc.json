@@ -1,5 +1,5 @@
 {
- "at": "2026-11-09T05:39:19.944Z",
+ "at": "2026-11-09T11:39:20.596Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -12,7 +12,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
@@ -23,95 +23,95 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 4/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 5/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 6/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 7/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 8/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 9/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 10/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 11/11",
    "ok": true,
-   "n": 1766,
+   "n": 1765,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-09T05:39:19.944Z"
+   "lastOkAt": "2026-11-09T11:39:20.596Z"
   }
  ]
 }
