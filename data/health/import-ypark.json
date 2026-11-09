@@ -1,0 +1,17 @@
+{
+ "at": "2026-11-09T04:37:48.439Z",
+ "workflow": "import-ypark",
+ "only": "ypark",
+ "targets": [
+  {
+   "op": "ypark",
+   "label": "ユアー・パーキング",
+   "ok": true,
+   "n": 631,
+   "reason": null,
+   "via": "list-import",
+   "excluded": 3,
+   "lastOkAt": "2026-11-09T04:37:48.439Z"
+  }
+ ]
+}
