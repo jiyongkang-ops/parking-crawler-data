@@ -1,7 +1,7 @@
 {
- "at": "2026-11-09T03:44:38.799Z",
+ "at": "2026-11-09T15:41:58.221Z",
  "workflow": "crawl-extra",
- "only": "kyotech,leparc,gspark,showapark,ypark",
+ "only": "kyotech,leparc,gspark,showapark",
  "targets": [
   {
    "op": "kyotech",
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 675
    },
-   "lastOkAt": "2026-11-09T03:44:38.799Z"
+   "lastOkAt": "2026-11-09T15:41:58.221Z"
   },
   {
    "op": "leparc",
@@ -27,7 +27,7 @@
    "statusCounts": {
     "200": 240
    },
-   "lastOkAt": "2026-11-09T03:44:38.799Z"
+   "lastOkAt": "2026-11-09T15:41:58.221Z"
   },
   {
    "op": "gspark",
@@ -38,29 +38,20 @@
    "statusCounts": {
     "200": 118
    },
-   "lastOkAt": "2026-11-09T03:44:38.799Z"
+   "lastOkAt": "2026-11-09T15:41:58.221Z"
   },
   {
    "op": "showapark",
    "label": "ショウワパーク",
    "ok": true,
-   "n": 298,
+   "n": 300,
    "reason": null,
-   "tried": 301,
+   "tried": 300,
    "noName": 0,
-   "skipped": 2,
    "statusCounts": {
-    "200": 301
+    "200": 300
    },
-   "lastOkAt": "2026-11-09T03:44:38.799Z"
-  },
-  {
-   "op": "ypark",
-   "label": "ユアー・パーキング",
-   "ok": false,
-   "n": 0,
-   "reason": "一覧: ユアー・パーキング一覧: robots.txt が HTTP 403（断られている）",
-   "kind": "blocked"
+   "lastOkAt": "2026-11-09T15:41:58.221Z"
   }
  ]
 }
