@@ -1,5 +1,5 @@
 {
- "at": "2026-11-08T17:58:59.403Z",
+ "at": "2026-11-09T05:58:59.426Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -15,14 +15,14 @@
    "op": "jqparks",
    "label": "JQパークス",
    "ok": true,
-   "n": 399,
+   "n": 400,
    "reason": null,
    "tried": 400,
-   "noName": 1,
+   "noName": 0,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-08T17:58:59.403Z"
+   "lastOkAt": "2026-11-09T05:58:59.426Z"
   },
   {
    "op": "parknet",
@@ -50,21 +50,21 @@
    "statusCounts": {
     "200": 98
    },
-   "lastOkAt": "2026-11-08T17:58:59.403Z"
+   "lastOkAt": "2026-11-09T05:58:59.426Z"
   },
   {
    "op": "sanpark",
    "label": "SANパーク",
    "ok": true,
-   "n": 248,
+   "n": 247,
    "reason": null,
    "tried": 250,
    "noName": 0,
    "statusCounts": {
-    "200": 248,
-    "network": 2
+    "200": 247,
+    "network": 3
    },
-   "lastOkAt": "2026-11-08T17:58:59.403Z"
+   "lastOkAt": "2026-11-09T05:58:59.426Z"
   }
  ]
 }
