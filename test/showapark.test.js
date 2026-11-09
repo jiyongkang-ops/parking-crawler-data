@@ -313,19 +313,10 @@ test("通しの巡回: 前は取れていた物件が一斉に「記録しない
   assert.equal(r.rows.length, 0);
 });
 
-test("通しの巡回: ユアー・パーキングは料金の JSON（setparkinfo）を読んで記録し、近日OPEN の物件は書かずに寝かせる", () => {
-  const yfx = (id) => fs.readFileSync(path.join(ROOT, `test/fixtures/ypark/setparkinfo-${id}.json`), "utf8");
-  const soon = JSON.stringify({ ...JSON.parse(yfx(11337)), name: "西大井第3", a7: "近日OPEN予定" });
-  const r = runCrawl({ env: { CRAWL_ONLY: "ypark" },
-    files: { "data/ypark-ids.txt": "11337\n10880\n11545\n", "data/ypark-ids.txt.fetched": new Date().toISOString() },
-    routes: { [yparkUrl(11337)]: { status: 200, body: yfx(11337) }, [yparkUrl(10880)]: { status: 200, body: yfx(10880) },
-      [yparkUrl(11545)]: { status: 200, body: soon } } });
-  assert.deepEqual(r.rows.map((x) => [x.parkId, x.name]).sort(), [["10880", "ユアー・パーキング神田紺屋町第1"], ["11337", "ユアー・パーキング新橋第3"]]);
-  assert.match(r.state["11545"], /^GONE\|/);
-  // 呼んだのは robots.txt と物件の JSON だけ（地図の管理用の呼び出しは無い）
-  assert.ok(r.calls.every((u) => u === "https://www.waxds.com/robots.txt" || u.startsWith("https://www.waxds.com/ypark/parkinfoc.php?crud=setparkinfo&id=")), r.calls.join("\n"));
-  const h = r.health.find((x) => x.op === "ypark");
-  assert.equal(h.ok, true);
-  assert.equal(h.n, 2);
-  assert.equal(h.skipped, 1);
+test("通しの巡回: ユアー・パーキングは自動では取りに行かない（2026-11-09。人が置いた一覧を import-ypark.yml で取り込む）", () => {
+  // 以前はここで物件の JSON（setparkinfo）を巡回していたが、waxds.com はクラウドからのアクセスを止めていて一度も取れず、
+  // ほかの回線から自動で取るのは回り込みになるので、巡回の表から外した。取り込みの確かめは test/ypark.test.js
+  const r = runCrawl({ env: { CRAWL_ONLY: "ypark" }, files: { "data/ypark-ids.txt": "11337\n10880\n", "data/ypark-crawl-state.json": "{}" }, routes: {} });
+  assert.deepEqual(r.calls, []);
+  assert.deepEqual(r.rows, []);
 });

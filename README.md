@@ -145,12 +145,13 @@ Cloud Scheduler（poc-aimo / asia-northeast1 の `crawl-parking-vacancy-hourly`�
 | `crawl-others.yml`（名鉄協商・ザ・パーク） | crawl.yml から | 10・16・22時 | 3 | `0 1,7,13` |
 | `crawl-npc.yml`（NPC の満空を27分おきに11回） | crawl.yml から | 4・10・16・22時 | 4 | `13 1,7,13,19` |
 | `crawl-navipark.yml` | crawl.yml から | 11・17・23時 | 3 | `0 2,8,14` |
-| `crawl-extra.yml`（キョウテク・ル・パルク・GSパーク・ショウワパーク・ユアー・パーキング） | crawl.yml から | 11・23時 | 2 | `30 2,14` |
+| `crawl-extra.yml`（キョウテク・ル・パルク・GSパーク・ショウワパーク） | crawl.yml から | 11・23時 | 2 | `30 2,14` |
 | `crawl-ecolo.yml` | crawl.yml から | 1・13・19時 | 3 | `0 4,10,16` |
 | `crawl-extra2.yml`（スペース二十四・JQパークス・パークネット・三菱地所パークス・SANパーク） | crawl.yml から | 2・14時 | 2 | `30 5,17` |
 | `crawl-extra3.yml`（タマパーク他） | crawl.yml から | 5・17時 | 2 | `30 8,20` |
 | `crawl-carshares.yml` | crawl.yml から | 3時（1巡が終わって7日たつまでは何もせず終わる） | 1 | `0 18` |
 | `publish.yml`（dashboard.html・統一CSV） | crawl.yml から | 6時（studio-data の7:30より前） | 1 | `40 21` |
+| `import-ypark.yml`（ユアー・パーキングの一覧の取り込み） | 人が `data/ypark-inbox/` にファイルを置いたとき（push） | ― | 月1回 | ―（2026-11-09 から。クラウドから取れないため、手順は data/ypark-inbox/README.md） |
 
 - **cron のままのワークフローは無い。** 新しく足すときも、cron と crawl.yml の両方からは起動しない（同じ回が2回走り、先方への負荷が増える）。
   時刻表は `crawl.yml` の `dispatch` ジョブの `FIXED` にあり、`test/dispatch-schedule.test.js` がこの表・回数・重なりを確かめる。

@@ -175,3 +175,62 @@ test("料金の整え方: 行頭の曜日を見出しに、注記の行はその
   assert.equal(capacityOf("5\n"), 5);
   assert.equal(capacityOf("近日OPEN予定"), null);
 });
+
+test("保存した地図の一覧から、料金の無い記録を作る（2026-11-09 一覧の取り込み）", async () => {
+  const { yparkListRecords } = await import("../src/ypark.js");
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const text = fs.readFileSync(path.join(here, "fixtures/ypark/getallpoint.json"), "utf8");
+  const r = yparkListRecords(text);
+  assert.ok(r && r.records.length >= 600, `件数 ${r?.records.length}`);
+  const x = r.records.find((v) => v.parkId === "11231");
+  assert.deepEqual([x.name, x.address, x.capacity, x.unitCharges.length, x.maxFees.length, x.via],
+    ["ユアー・パーキング渋谷区本町第4", "渋谷区本町6-15-6", 2, 0, 0, "list-import"]);
+  assert.ok(x.lat > 35 && x.lng > 139);
+  // まだ開いていない物件は記録しない（一覧の巡回と同じ）
+  assert.ok(r.excluded.every((e) => e.why));
+  assert.equal(r.records.length + r.excluded.length <= 632, true);
+  // 先頭に BOM が付いていても読む・JSON でなければ null
+  assert.equal(yparkListRecords("﻿" + text).records.length, r.records.length);
+  assert.equal(yparkListRecords("<html>"), null);
+  assert.equal(yparkListRecords("{}"), null);
+});
+
+test("取り込みはネットにつながない。置いたファイルが無ければ何もしない（2026-11-09。自動で取りに行かない）", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { pathToFileURL } = await import("node:url");
+  const ROOT0 = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const run = (withFile) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ypark-import-"));
+    fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+    const list = path.join(dir, "data/saved.json");
+    fs.copyFileSync(path.join(ROOT0, "test/fixtures/ypark/getallpoint.json"), list);
+    const calls = path.join(dir, "calls.txt");
+    fs.writeFileSync(calls, "");
+    const preload = path.join(dir, "stub.mjs");
+    // どこかへ取りに行ったら記録して失敗させる（取り込みでは1回も呼ばれないはず）
+    fs.writeFileSync(preload, `
+import fs from "node:fs";
+globalThis.fetch = async function stub(url) { fs.appendFileSync(${JSON.stringify(calls)}, String(url) + "\\n"); throw new Error("network blocked in test"); };
+`);
+    const env = { ...process.env, HEALTH_NAME: "test", OUT_FILE: "data/prices-test.jsonl", CRAWL_ONLY: "ypark" };
+    if (withFile) env.YPARK_LIST_FILE = list; else delete env.YPARK_LIST_FILE;
+    const p = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(ROOT0, "src/run.js")], { cwd: dir, encoding: "utf8", timeout: 60_000, env });
+    assert.equal(p.status, 0, `${p.stdout}\n${p.stderr}`);
+    const pf = path.join(dir, "data/prices-test.jsonl"), hf = path.join(dir, "data/health/test.json");
+    return {
+      rows: fs.existsSync(pf) ? fs.readFileSync(pf, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [],
+      health: fs.existsSync(hf) ? JSON.parse(fs.readFileSync(hf, "utf8")).targets : [],
+      state: fs.existsSync(path.join(dir, "data/ypark-crawl-state.json")) ? JSON.parse(fs.readFileSync(path.join(dir, "data/ypark-crawl-state.json"), "utf8")) : null,
+      calls: fs.readFileSync(calls, "utf8").split("\n").filter(Boolean),
+    };
+  };
+  const ok = run(true);
+  assert.deepEqual(ok.calls, [], "取り込みでどこかへ取りに行った");
+  assert.ok(ok.rows.length >= 600 && ok.rows.every((r) => r.operator === "ypark" && !r.unitCharges.length && r.via === "list-import"));
+  const h = ok.health.find((x) => x.op === "ypark");
+  assert.deepEqual([h.ok, h.n, h.via], [true, ok.rows.length, "list-import"]);
+  assert.equal(Object.keys(ok.state).length, ok.rows.length);   // 一覧に載っていた日（分析側が「最後に確かめた日」に使う）
+  const none = run(false);
+  assert.deepEqual(none.calls, [], "ファイルが無いのに取りに行った");
+  assert.deepEqual(none.rows, []);
+});
