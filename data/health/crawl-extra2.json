@@ -1,5 +1,5 @@
 {
- "at": "2026-11-09T05:58:59.426Z",
+ "at": "2026-11-09T18:08:31.534Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -15,14 +15,14 @@
    "op": "jqparks",
    "label": "JQパークス",
    "ok": true,
-   "n": 400,
+   "n": 399,
    "reason": null,
    "tried": 400,
-   "noName": 0,
+   "noName": 1,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-09T05:58:59.426Z"
+   "lastOkAt": "2026-11-09T18:08:31.534Z"
   },
   {
    "op": "parknet",
@@ -50,21 +50,22 @@
    "statusCounts": {
     "200": 98
    },
-   "lastOkAt": "2026-11-09T05:58:59.426Z"
+   "lastOkAt": "2026-11-09T18:08:31.534Z"
   },
   {
    "op": "sanpark",
    "label": "SANパーク",
    "ok": true,
-   "n": 247,
-   "reason": null,
+   "n": 243,
+   "reason": "一覧づくりで市区11件が取れなかった。その分は前の一覧の番号81件を残した",
    "tried": 250,
    "noName": 0,
+   "skipped": 5,
    "statusCounts": {
-    "200": 247,
-    "network": 3
+    "200": 248,
+    "network": 2
    },
-   "lastOkAt": "2026-11-09T05:58:59.426Z"
+   "lastOkAt": "2026-11-09T18:08:31.534Z"
   }
  ]
 }
