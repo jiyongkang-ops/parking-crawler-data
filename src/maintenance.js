@@ -147,7 +147,7 @@ export const ORIGINS = {
   tamapark: "https://www.tamapark.co.jp", thepark: "https://www.dkparking.com", times: "https://times-info.net",
   tokyulifia: "https://www.tokyulifia.co.jp",
   mecparks: "https://parkingnavi.jp", sanpark: "https://sanpark.jp",
-  showapark: "https://www.shouwapark.co.jp", ypark: "https://www.waxds.com",
+  showapark: "https://www.shouwapark.co.jp",
   carmax: "http://www.carmax-parking.jp", maypark: "https://aaa-mtc.jp",
   // 止めている社（space24・odakyu）は載せない。許可が出るまでトップにも行かない
 };
@@ -161,7 +161,7 @@ export const ORIGINS = {
 export const ENTRY_PATHS = { parknet: "/parknet/search/", anabuki: "/park/hourly/", mecparks: "/search_result.php?type=1&area=1",
   // ショウワパークは巡回で一覧を作るときに取る駐車場検索のページ。ユアー・パーキングの waxds.com はホームページ更新サービスで、
   // トップ（/）はサービスの会社のページになる。同社の地図の画面（物件の JSON を読んでいるページ）を見る（2026-11-02）
-  showapark: "/parking/", ypark: "/ypark/map.php",
+  showapark: "/parking/",
   //  東洋カーマックス・MAYパーク（2026-11-02 追加）も、巡回で取る「駐車場を探す」と一覧のページを見る
   //  （会社のトップは別のサイト・別の作りで、駐車場の検索が止まっていても普段どおりのことがある）
   carmax: "/25search/", maypark: "/may/index.html" };
