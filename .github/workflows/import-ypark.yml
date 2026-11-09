@@ -1,0 +1,62 @@
+# ユアー・パーキングの一覧を取り込む（2026-11-09 本人「3 を土台に、1 を足して」）。
+# waxds.com はクラウドからのアクセスを止めているので、自動では取りに行かない。人が月1回ブラウザで保存した地図の一覧を
+# data/ypark-inbox/ に置くと、この手順が prices-extra.jsonl に取り込む（料金の無い記録。料金は Parkopedia で補う）。
+# 手順書は data/ypark-inbox/README.md。取り込んだら置いたファイルを消す。
+name: import-ypark
+
+on:
+  push:
+    branches: [main]
+    paths: ["data/ypark-inbox/**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # prices-extra.jsonl を書く crawl-extra と重ならないよう、同じ組にする
+    concurrency:
+      group: crawl-extra
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: Import（置かれた一覧のいちばん新しいもの）
+        run: |
+          shopt -s nullglob
+          files=()
+          for f in data/ypark-inbox/*; do
+            case "$(basename "$f")" in README.md|.gitkeep) ;; *) files+=("$f") ;; esac
+          done
+          if [ ${#files[@]} -eq 0 ]; then echo "取り込むファイルがありません"; exit 0; fi
+          f=$(ls -t "${files[@]}" | head -1)
+          echo "取り込む: $f（置かれていたファイル ${#files[@]}件）"
+          CRAWL_ONLY=ypark OUT_FILE=data/prices-extra.jsonl HEALTH_NAME=import-ypark YPARK_LIST_FILE="$f" node src/run.js
+          # 置いたファイルは取り込んだら消す（README は残す）
+          git rm -q -- "${files[@]}"
+      - name: commit data if changed
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A data/
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: import ypark list ($(date -u +%Y-%m-%dT%H:%MZ))"
+            for i in $(seq 1 6); do
+              if ! git pull --no-rebase --no-edit origin main; then
+                git diff --name-only --diff-filter=U | xargs -r git checkout --ours --
+                git add -A
+                git commit --no-edit
+              fi
+              if git push; then echo "pushed"; break; fi
+              echo "push retry $i"; sleep $((RANDOM % 8 + 3))
+              [ "$i" = 6 ] && { echo "push failed after retries"; exit 1; }
+            done
+          else
+            echo "変化なし。コミットしません。"
+          fi
