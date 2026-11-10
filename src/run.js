@@ -78,6 +78,8 @@ import { flushCrawlStates, confirmsDropped } from "./repark-enumerate.js";
 import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
 import { gapFilled } from "./record-gap.js";
+import { loadCaps, applyCap, refreshCaps, gsparkCapOf, mecparksCapOf, CAP_PER_RUN } from "./detail-caps.js";
+import { detailUrl as mecparksDetailUrl } from "./mecparks.js";
 import { kindOfFetch, kindOfText, dominantKind, makeCounter, countStatus, withLastOk } from "./health-kind.js";
 import { markMaintenance, maintenanceOf, lotNotice, hasFee, makeNoticeGuard, feeRateOf, makeSameStreak, pageSig } from "./maintenance.js";
 import { snapshotList, guardShrunkList } from "./list-guard.js";
@@ -100,7 +102,21 @@ const STATE = {
   leparcCrawlState: "data/leparc-crawl-state.json",
   gsparkAreasCache: "data/gspark-areas.txt",
   parknetCitiesCache: "data/parknet-cities.txt",
+  // 一覧型の社の台数の控え（src/detail-caps.js。2026-11-10）。社ごとに別のファイル（書くワークフローが違うため）
+  gsparkCaps: "data/gspark-caps.json",
+  mecparksCaps: "data/mecparks-caps.json",
 };
+
+/** 一覧型の社の台数を、一覧を取り終えたあとに月1回の詳細ページで読む（src/detail-caps.js）。
+ *  CAP_PER_RUN=0 で止められる。一覧の回が打ち切り・失敗のときは取りに行かない（呼ぶ側で決める）。
+ *  戻り値は health に足す補足 { caps: { 控え, 台数あり, 今回取った, 読めた, … } } */
+async function refreshDetailCaps({ file, caps, ids, urlOf, capOf, label }) {
+  const limit = process.env.CAP_PER_RUN !== undefined && process.env.CAP_PER_RUN !== "" ? Number(process.env.CAP_PER_RUN) : CAP_PER_RUN;
+  const sum = limit > 0 ? await refreshCaps({ ids, caps, urlOf, capOf, file, limit }) : { tried: 0, got: 0, unreadable: 0, failed: 0, stop: null };
+  const withCap = ids.filter((id) => Number(caps.get(String(id))?.c) > 0).length;
+  console.log(`[${label}] 台数: 詳細を${sum.tried}件取り、${sum.got}件読めた（読めない${sum.unreadable}・取れない${sum.failed}${sum.stop ? `・止めた: ${sum.stop}` : ""}）。一覧${ids.length}件のうち台数あり${withCap}件`);
+  return { caps: { tried: sum.tried, got: sum.got, unreadable: sum.unreadable, failed: sum.failed, withCap, ...(sum.stop ? { stop: sum.stop } : {}) } };
+}
 
 // 「列挙 → 古い順に少しずつ詳細を取る」型は全社まったく同じ手順なので、表で持って1つのループで回す。
 // 以前は事業者ごとに同じ40行をコピーしていたため、2026-09 の「失敗しても時刻を進める」修正が
@@ -918,6 +934,8 @@ async function main() {
       const statusCounts = makeCounter(), failKinds = makeCounter();
       // 0件のエリアのページが告知なら、その回は打ち切る。違うエリアが続けて5件、同じ中身で0件のときも同じ（告知の言葉に頼らない見分け。2026-11-02）
       const sameEmpty = makeSameStreak(5);
+      // 台数の控え（詳細ページを月1回。src/detail-caps.js）。一覧には台数が無いので、控えの台数を付けてから記録に回す
+      const gsCaps = loadCaps(STATE.gsparkCaps);
       for (const code of codes) {
         if (stop) break;
         for (let page = 1; page <= 30; page++) {
@@ -936,15 +954,20 @@ async function main() {
               stopKind = "maintenance"; console.warn(`  [abort] GSパーク: ${stop}`); break;
             }
           } else if (records.length) sameEmpty.reset();
-          for (const rec of records) { rec._requestUrl = url; handleRecord(rec); count++; gsIds.push(rec.parkId); }
+          for (const rec of records) { rec._requestUrl = url; applyCap(rec, gsCaps); handleRecord(rec); count++; gsIds.push(rec.parkId); }
           if (!hasNext || !records.length) break;
           if (page === 30) gsPartial = true;   // まだ次があるのに上限のページ数に当たった
         }
       }
       console.log(`[ok] GSパーク全国 | ${count}物件（エリア${codes.length}）`);
+      // 一覧を取り終えた回だけ、番の来た物件の台数を詳細ページで読む（次の回から記録に付く）
+      const gsCapNote = count > 0 && !stop
+        ? await refreshDetailCaps({ file: STATE.gsparkCaps, caps: gsCaps, ids: gsIds, label: "GSパーク",
+            urlOf: (id) => `https://www.gs-park.com/time_parking/${id}/`, capOf: gsparkCapOf })
+        : {};
       // 途中で止めた回は失敗（一覧型は「直近の実行が成功していれば全件をその日に確かめた」とみなされるため）
       hp("gspark", t.label, count > 0 && !stop && !codes.staleReason, count, stop ?? codes.staleReason ?? (count ? null : "0件"),
-        { statusCounts: statusCounts.toJSON(), kind: stopKind ?? (codes.staleReason ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse" });
+        { statusCounts: statusCounts.toJSON(), kind: stopKind ?? (codes.staleReason ? "stale-list" : null) ?? dominantKind(failKinds.counts) ?? "parse", ...gsCapNote });
       listState("gspark", gsIds, count > 0 && !stop && !gsPartial);
       continue;
     }
@@ -984,14 +1007,23 @@ async function main() {
     // 状態コードはページごとの答え（onFetch）で数え、失敗の種類は打ち切った答え → 取れなかったページ → 読めなかったページの順に決める
     if (t.operator === "mecparks" && t.mode === "nationwide") {
       const statusCounts = makeCounter(), failKinds = makeCounter();
-      const sum = await crawlMecparks({ label: t.label ?? null, onRecord: (rec, at) => handleRecord(rec, at), onFetch: (res) => countStatus(statusCounts, res) });
+      // 台数の控え（詳細ページを月1回。src/detail-caps.js）。一覧には台数が無いので、控えの台数を付けてから記録に回す
+      const mpCaps = loadCaps(STATE.mecparksCaps);
+      const mpIds = [];
+      const sum = await crawlMecparks({ label: t.label ?? null, onRecord: (rec, at) => { applyCap(rec, mpCaps); handleRecord(rec, at); mpIds.push(rec.parkId); },
+        onFetch: (res) => countStatus(statusCounts, res) });
       for (const f of sum.failures) failKinds.add(kindOfFetch(f.res));
       if (sum.broken.length) failKinds.add("parse");
       console.log(`[ok] 三菱地所パークス | ${sum.count}物件（${sum.pages}ページ・一覧${sum.rows}件のうち記録しなかった物件 ${Object.entries(sum.skipped).map(([k, n]) => `${k}${n}`).join("・") || "なし"}）`);
       const mh = mecparksHealth(sum);
+      // 一覧を取り終えた回だけ、番の来た物件の台数を詳細ページで読む（次の回から記録に付く）
+      const mpCapNote = mh.ok
+        ? await refreshDetailCaps({ file: STATE.mecparksCaps, caps: mpCaps, ids: mpIds, label: "三菱地所パークス",
+            urlOf: mecparksDetailUrl, capOf: mecparksCapOf })
+        : {};
       hp("mecparks", "三菱地所パークス", mh.ok, mh.n, mh.reason,
         { ...mh.extra, statusCounts: statusCounts.toJSON(),
-          kind: (sum.stopRes ? kindOfFetch(sum.stopRes) : null) ?? dominantKind(failKinds.counts) ?? "parse" });
+          kind: (sum.stopRes ? kindOfFetch(sum.stopRes) : null) ?? dominantKind(failKinds.counts) ?? "parse", ...mpCapNote });
       continue;
     }
 
