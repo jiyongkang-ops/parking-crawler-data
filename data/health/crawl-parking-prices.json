@@ -1,5 +1,5 @@
 {
- "at": "2026-11-10T07:59:01.974Z",
+ "at": "2026-11-10T09:59:07.188Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -7,12 +7,12 @@
    "op": "npc",
    "label": "NPC全国 1/1",
    "ok": true,
-   "n": 1767,
+   "n": 1768,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-10T07:59:01.974Z"
+   "lastOkAt": "2026-11-10T09:59:07.188Z"
   },
   {
    "op": "repark",
@@ -32,7 +32,7 @@
     "mapOnly": 1425,
     "mapCompleteAt": "2026-11-09T02:08:54.162Z"
    },
-   "lastOkAt": "2026-11-10T07:59:01.974Z"
+   "lastOkAt": "2026-11-10T09:59:07.188Z"
   }
  ]
 }
