@@ -18,7 +18,7 @@ const coordOk = (v) => v != null && v !== "" && Number.isFinite(Number(v)) && Nu
 /** 座標があるか（0,0 は「無い」と同じ。名鉄協商の掲載終了の雛形が 0,0 を出す） */
 export const hasCoord = (r) => !!r && coordOk(r.lat) && coordOk(r.lng);
 
-/** 前の記録 prev に無く、今回の rec で読めたもの（"名前・住所" など）。足すものが無ければ null。
+/** 前の記録 prev に無く、今回の rec で読めたもの（"名前・住所・台数" など）。足すものが無ければ null。
  *  住所は「前が住所らしくない、または途中で切れている（かっこが閉じていない。例「北海道札幌市白石区本通（北」）」で、
  *  今回は途中で切れていない住所らしい住所」のときだけ足す。足したあとは前の記録が完全な住所になるので、2回目は足さない。
  *  coords … 座標も見るか。満空のある社（タイムズ・リパーク・NPC）は座標を満空の控え（vacancy-lots.jsonl）に
@@ -29,5 +29,8 @@ export function gapFilled(prev, rec, { coords = true } = {}) {
   if (!prev.name && rec.name) got.push("名前");
   if (!fullAddress(prev.address) && fullAddress(rec.address)) got.push("住所");
   if (coords && !hasCoord(prev) && hasCoord(rec)) got.push("座標");
+  // 台数（2026-11-10 追加）。ナビパークは詳細ページの「時間貸区画」、GSパーク・三菱地所パークスは月1回の詳細ページ（detail-caps.js）から。
+  // 今まで台数を読んでいなかった社の物件に、料金が変わるのを待たずに1回だけ台数を足す（Advisor の周辺500mの台数に入る）
+  if (!(Number(prev.capacity) > 0) && Number(rec.capacity) > 0) got.push("台数");
   return got.length ? got.join("・") : null;
 }
