@@ -1,5 +1,5 @@
 {
- "at": "2026-11-10T01:09:07.787Z",
+ "at": "2026-11-10T07:09:18.476Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -19,9 +19,10 @@
   {
    "op": "thepark",
    "label": "ザ・パーク",
-   "ok": true,
-   "n": 3488,
-   "reason": null,
+   "ok": false,
+   "n": 0,
+   "reason": "0件",
+   "kind": "parse",
    "statusCounts": {
     "200": 1
    },
