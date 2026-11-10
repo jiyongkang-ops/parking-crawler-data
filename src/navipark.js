@@ -5,6 +5,7 @@
 // robots.txt は無し（404）。sitemap も無いため、エリア階層を辿って列挙する（navipark-enumerate）。
 
 import * as cheerio from "cheerio";
+import { toHalfWidth } from "./zenkaku.js";
 
 const BASE = "https://www.navipark1.com/parkingDetail/";
 
@@ -20,6 +21,20 @@ function scopeOf(keihou) {
   if (/平日|月|火|水|木|金/.test(base)) return "平日";
   if (/土|日|祝/.test(base)) return "土日祝";
   return base.trim() || "全曜日";
+}
+
+/** 詳細ページの「時間貸区画 N台」→ N（2026-11-10 追加。本人指示「できるところは全て実施して」）。
+ *  同じ表に「その他区画 N台」（月極など）が並ぶが、時間貸しの相場に入れる台数は時間貸区画だけ。
+ *  読めない・0台なら null（0台の時間貸しは相場の台数に足さない） */
+export function naviparkCapacityOf($) {
+  let cap = null;
+  $("th").each((_, el) => {
+    if (cap != null) return;
+    if (!/^時間貸区画$/.test(toHalfWidth($(el).text()).replace(/\s+/g, ""))) return;
+    const m = toHalfWidth($(el).next("td").text()).replace(/\s+/g, "").match(/^(\d+)台/);
+    if (m && Number(m[1]) > 0) cap = Number(m[1]);
+  });
+  return cap;
 }
 
 export function parseNaviparkDetail(html, { code, label } = {}) {
@@ -82,7 +97,7 @@ export function parseNaviparkDetail(html, { code, label } = {}) {
     address,
     lat: null, // 静的HTMLに座標なし（必要時に住所からジオコーディング）
     lng: null,
-    capacity: null,
+    capacity: naviparkCapacityOf($),
     openingHours: null,
     unitCharges,
     maxFees,

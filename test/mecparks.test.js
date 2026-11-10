@@ -211,7 +211,10 @@ test("通しの巡回（CRAWL_ONLY=mecparks）: 全国の一覧を取り、記�
     [listUrl(13, { city: "131016" })]: { status: 200, body: listPage([lot(27453), lot(26658), lot(28722)]) },
   };
   const r = runCrawl({ env: { CRAWL_ONLY: "mecparks" }, routes });
-  assert.equal(r.pages.length, 47 + 1 + 50);
+  // 一覧（47 ＋ 東京都の市区の一覧1 ＋ 市区50）のあとに、記録した8件の台数を詳細ページで読む（2026-11-10。src/detail-caps.js）
+  const details = r.pages.filter((u) => u.includes("/details.php?"));
+  assert.equal(r.pages.length - details.length, 47 + 1 + 50);
+  assert.equal(details.length, 8);
   assert.deepEqual(r.rows.map((x) => x.parkId).sort(), ["192", "26658", "26735", "26995", "27374", "27453", "28514", "28647"]);
   assert.ok(r.rows.every((x) => x.operator === "mecparks" && x.fetchedAt && x.label === "三菱地所パークス全国"));
   const h = r.health[0];
