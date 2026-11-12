@@ -1,5 +1,5 @@
 {
- "at": "2026-11-12T10:24:03.900Z",
+ "at": "2026-11-12T22:23:57.967Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "anabuki",
@@ -27,7 +27,7 @@
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "mden",
@@ -38,7 +38,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "kintetsu",
@@ -64,21 +64,20 @@
    "statusCounts": {
     "200": 110
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "seiwapark",
    "label": "セイワパーク",
    "ok": true,
-   "n": 344,
+   "n": 345,
    "reason": null,
    "tried": 345,
    "noName": 0,
    "statusCounts": {
-    "200": 344,
-    "network": 1
+    "200": 345
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "systempark",
@@ -91,7 +90,7 @@
    "statusCounts": {
     "200": 291
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "comnet",
@@ -104,7 +103,7 @@
    "statusCounts": {
     "200": 196
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "keio",
@@ -117,7 +116,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "odakyu",
@@ -131,15 +130,15 @@
    "op": "carmax",
    "label": "東洋カーマックス",
    "ok": true,
-   "n": 346,
+   "n": 385,
    "reason": null,
    "tried": 400,
    "noName": 0,
-   "excluded": 54,
+   "excluded": 15,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   },
   {
    "op": "maypark",
@@ -151,7 +150,7 @@
     "200": 1
    },
    "excluded": 60,
-   "lastOkAt": "2026-11-12T10:24:03.900Z"
+   "lastOkAt": "2026-11-12T22:23:57.967Z"
   }
  ]
 }
