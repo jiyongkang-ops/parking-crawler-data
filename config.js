@@ -96,7 +96,7 @@ export const config = {
     // MAYパーク（日本メカトロニクス）— 1ページ（Shift_JIS）に名古屋中心の193区画。駐輪場・月極専用を除く約130件を毎回1リクエストで
     { operator: "maypark", mode: "nationwide", label: "MAYパーク" },
 
-    // ザ・パーク(第一興商) — 単一JSON(data/search.json)で全国 約3,367件を1リクエスト取得。
+    // ザ・パーク(第一興商) — 一覧のページ（1ページ10件・約440ページ）を番号の順に読む。全部取れた日は、その日の残りの回では読まない（2026-11-13 サイトの作り直しに合わせた）
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。
     { operator: "thepark", mode: "nationwide", label: "ザ・パーク全国" },
   ],

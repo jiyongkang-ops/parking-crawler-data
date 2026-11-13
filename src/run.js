@@ -27,14 +27,14 @@ import { detailUrl as naviparkDetailUrl, parseNaviparkDetail } from "./navipark.
 import { getAllNaviparkCodes } from "./navipark-enumerate.js";
 import { detailUrl as ecoloDetailUrl, parseEcoloDetail, isClosedRedirect as isEcoloClosedRedirect } from "./ecolo.js";
 import { getAllEcoloIds } from "./ecolo-enumerate.js";
-import { searchUrl as theparkUrl, parseTheparkJson } from "./thepark.js";
+import { listUrl as theparkListUrl, parseTheparkPage } from "./thepark.js";
 import { detailUrl as kyotechDetailUrl, parseKyotechDetail } from "./kyotech.js";
 import { getAllKyotechIds } from "./kyotech-enumerate.js";
 import { detailUrl as leparcDetailUrl, parseLeparcDetail } from "./leparc.js";
 import { getAllLeparcIds } from "./leparc-enumerate.js";
 import { areaListUrl, parseGsparkList, parseAreaCodes } from "./gspark.js";
 // 一覧型の社の物件ごとの記録（src/list-state.js）・NPC の一括取得の上限の見張り・毎時の回の予算（src/run-budget.js）（2026-11-02）
-import { recordListState, noteListState } from "./list-state.js";
+import { recordListState, noteListState, listStateFiles } from "./list-state.js";
 import { npcCapOf, NPC_LIMIT } from "./npc.js";
 import { deadlineOf, budgetUntil } from "./run-budget.js";
 // 2026-08 追加分（詳細ページ型6社・一覧直載型2社）
@@ -1056,18 +1056,41 @@ async function main() {
       continue;
     }
 
-    // ---- ザ・パーク 全国（単一JSON一括） ----
+    // ---- ザ・パーク 全国（一覧のページを番号の順に。2026-11-13 作り直されたサイトに合わせた。src/thepark.js）----
+    // 前は1回の取得で全件だったが、いまは1ページ10件で約440ページ（4秒おきで約30分）。1日に何度も読むと相手先の負担が
+    // 増えるので、全部取れた日（物件ごとの記録に今日の日付がある日）は、その日の残りの回では取りに行かない。
+    // 途中で取れなくなったらそこで止める（その回に取れた分の料金は残す。物件ごとの記録は進めず、次の回に最初から読み直す）
     if (t.operator === "thepark" && t.mode === "nationwide") {
-      const url = theparkUrl();
-      if (cachedRecently(url)) { console.log(`[cache] ザ・パーク全国 スキップ`); continue; }
-      let res;
-      try { res = await politeFetch(url); } catch (e) { const m = fetchErrorText(e); console.error(`[error] ザ・パーク: ${m}`); hp("thepark", "ザ・パーク", false, 0, m, { kind: "network", statusCounts: { network: 1 } }); continue; }
-      if (!res.ok || res.skippedReason) { console.error(`[error] ザ・パーク: ${res.skippedReason ?? "HTTP " + res.status}`); hp("thepark", "ザ・パーク", false, 0, res.skippedReason ?? "HTTP " + res.status, { kind: kindOfFetch(res), ...statusOf(res) }); continue; }
-      const records = parseTheparkJson(res.html, { label: "ザ・パーク全国" });
-      records.forEach((r) => { r._requestUrl = url; handleRecord(r); });
-      console.log(`[ok] ザ・パーク全国 | ${records.length}物件`);
-      hp("thepark", "ザ・パーク", records.length > 0, records.length, records.length ? null : "0件", { kind: "parse", ...statusOf(res) });
-      listState("thepark", records.map((r) => r.parkId), records.length > 0);
+      const today = new Date().toISOString().slice(0, 10);
+      let doneToday = false;
+      try { doneToday = Object.values(JSON.parse(fs.readFileSync(listStateFiles("thepark").stateFile, "utf8"))).includes(today); } catch { /* まだ無い */ }
+      if (doneToday && process.env.PAGE_CACHE_MS !== "0") { console.log(`[cache] ザ・パーク全国 スキップ（今日は全部取れている）`); continue; }
+      const statusCounts = makeCounter();
+      const ids = new Set();
+      let pages = null, total = null, hid = 0, stop = null, stopKind = null;
+      for (let n = 0; n < (pages ?? 1) && n < 1000; n++) {
+        const url = theparkListUrl(n);
+        let res;
+        try { res = await politeFetch(url); } catch (e) { countStatus(statusCounts, null); stop = fetchErrorText(e); stopKind = "network"; break; }
+        countStatus(statusCounts, res);
+        if (!res.ok || res.skippedReason) { stop = res.skippedReason ?? `HTTP ${res.status}`; stopKind = kindOfFetch(res); break; }
+        const page = parseTheparkPage(res.html, { label: "ザ・パーク全国" });
+        if (!page) { stop = `${n + 1}ページ目が一覧の JSON ではない`; stopKind = "parse"; break; }
+        if (pages == null) { pages = page.totalPages; total = page.total; }
+        if (!page.listed) { stop = `${n + 1}ページ目が空（全${pages}ページ）`; stopKind = "parse"; break; }
+        hid += page.hidden;
+        const at = new Date().toISOString();
+        for (const r of page.records) { if (ids.has(r.parkId)) continue; ids.add(r.parkId); r._requestUrl = url; handleRecord(r, at); }
+        if ((n + 1) % 50 === 0) console.log(`  ザ・パーク ${n + 1}/${pages}ページ（${ids.size}物件）`);
+      }
+      // 全部取れた回 … 途中で止まらず、載っている件数（total。閉じた物件を除く）とほぼ合う。読んでいる間に物件が増減するとページがずれるので 2% まで許す
+      const complete = !stop && pages > 0 && ids.size + hid >= total * 0.98;
+      const why = stop ?? (complete ? null : ids.size ? `一覧の${total}件のうち${ids.size}件しか読めなかった` : "0件");
+      if (stop) console.error(`[error] ザ・パーク: ${stop}（${ids.size}物件まで読んだ）`);
+      console.log(`[ok] ザ・パーク全国 | ${ids.size}物件${hid ? `（閉じた・番号の無い${hid}件は記録しない）` : ""}${complete ? "" : "（途中まで）"}`);
+      hp("thepark", "ザ・パーク", complete, ids.size, why, { kind: stopKind ?? "parse", ...(statusCounts.size ? { statusCounts: statusCounts.toJSON() } : {}),
+        ...(hid ? { excluded: hid } : {}) });
+      listState("thepark", [...ids], complete);
       continue;
     }
 
