@@ -137,7 +137,8 @@ export function parseTheparkPage(body, { label, today = new Date().toISOString()
       operator: "thepark",
       parkId,
       label: label ?? null,
-      name: p.name ?? null,
+      // 前のサイトは頭の「ザ・パーク」を付けていなかった。前の記録と同じ名前にそろえる（分析側が同じ名前・100m以内を同じ駐車場とみなす）
+      name: String(p.name ?? "").replace(/^ザ・パーク[\s　]*/, "").trim() || null,
       address: [p.prefecture_name, p.city_name, p.address1, p.address2, p.address3].map((x) => String(x ?? "").trim()).filter(Boolean).join("") || null,
       lat: num(p.latitude),
       lng: num(p.longitude),

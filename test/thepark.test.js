@@ -56,7 +56,7 @@ test("一覧のページ: 番号は facility_id・座標はそのまま・住所
   assert.deepEqual([page.listed, page.hidden, page.totalPages, page.total], [7, 0, 437, 4368]);
   const r = byId("SI-00592");
   assert.deepEqual([r.operator, r.name, r.address, r.lat, r.lng, r.capacity, r.openingHours, r.label, r.parseV],
-    ["thepark", "ザ・パーク鳥取富安２丁目", "鳥取県鳥取市富安2-126", 35.491734, 134.228476, 6, "24時間", "ザ・パーク全国", PARSE_VERSION]);
+    ["thepark", "鳥取富安２丁目", "鳥取県鳥取市富安2-126", 35.491734, 134.228476, 6, "24時間", "ザ・パーク全国", PARSE_VERSION]);
   assert.equal(r.sourceUrl, "https://www.dkparking.com/hourly/tottori/312011/SI-00592");
   assert.deepEqual(US(r), ["全日 全日 40分100"]);
   assert.deepEqual(MS(r), ["全日 07:00~19:00=1000", "全日 19:00~07:00=800"]);
