@@ -37,7 +37,7 @@ jobs:
         env:
           # 一覧の守り（src/list-guard.js）を外す社。相手先が本当に物件を減らしたと確かめたときだけ、リポジトリの変数に入れて1回回し、回ったら消す
           LIST_SHRINK_OK: ${{ vars.LIST_SHRINK_OK }}
-          CRAWL_ONLY: "mkp,thepark" # 名鉄協商(ローリング) + ザ・パーク(単一JSON)
+          CRAWL_ONLY: "mkp,thepark" # 名鉄協商(ローリング) + ザ・パーク(一覧のページを1日1回・約30分)
           OUT_FILE: "data/prices-others.jsonl"
       - name: commit data if changed
         if: always()   # 途中で殺されても、そこまでの観測は残す
