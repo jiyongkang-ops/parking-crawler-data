@@ -1,5 +1,5 @@
 {
- "at": "2026-11-15T23:39:43.314Z",
+ "at": "2026-11-16T05:39:26.967Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -7,111 +7,111 @@
    "op": "npc",
    "label": "NPC全国 2/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 3/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 4/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 5/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 6/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 7/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 8/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 9/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 10/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 11/11",
    "ok": true,
-   "n": 1769,
+   "n": 1771,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-15T23:39:43.314Z"
+   "lastOkAt": "2026-11-16T05:39:26.967Z"
   }
  ]
 }
