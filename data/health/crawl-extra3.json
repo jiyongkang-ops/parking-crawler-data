@@ -1,5 +1,5 @@
 {
- "at": "2026-11-16T10:24:18.324Z",
+ "at": "2026-11-16T22:33:01.426Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark",
  "targets": [
@@ -14,21 +14,20 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "anabuki",
    "label": "あなぶきパーク",
    "ok": true,
-   "n": 396,
+   "n": 400,
    "reason": null,
    "tried": 400,
    "noName": 0,
    "statusCounts": {
-    "200": 396,
-    "404": 4
+    "200": 400
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "mden",
@@ -39,7 +38,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "kintetsu",
@@ -65,20 +64,21 @@
    "statusCounts": {
     "200": 110
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "seiwapark",
    "label": "セイワパーク",
    "ok": true,
-   "n": 346,
+   "n": 345,
    "reason": null,
    "tried": 346,
    "noName": 0,
    "statusCounts": {
-    "200": 346
+    "200": 345,
+    "network": 1
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "systempark",
@@ -91,7 +91,7 @@
    "statusCounts": {
     "200": 291
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "comnet",
@@ -104,7 +104,7 @@
    "statusCounts": {
     "200": 197
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "keio",
@@ -117,7 +117,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "odakyu",
@@ -131,15 +131,20 @@
    "op": "carmax",
    "label": "東洋カーマックス",
    "ok": true,
-   "n": 299,
+   "n": 377,
    "reason": null,
    "tried": 400,
    "noName": 0,
-   "excluded": 101,
+   "excluded": 23,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "list": {
+    "hits": 1170,
+    "rows": 1170,
+    "bikes": 42
+   },
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   },
   {
    "op": "maypark",
@@ -151,7 +156,7 @@
     "200": 1
    },
    "excluded": 60,
-   "lastOkAt": "2026-11-16T10:24:18.324Z"
+   "lastOkAt": "2026-11-16T22:33:01.426Z"
   }
  ]
 }
