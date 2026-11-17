@@ -1,5 +1,5 @@
 {
- "at": "2026-11-17T06:08:06.557Z",
+ "at": "2026-11-17T17:59:42.438Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -22,7 +22,7 @@
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-17T06:08:06.557Z"
+   "lastOkAt": "2026-11-17T17:59:42.438Z"
   },
   {
    "op": "parknet",
@@ -57,21 +57,21 @@
     "failed": 0,
     "withCap": 548
    },
-   "lastOkAt": "2026-11-17T06:08:06.557Z"
+   "lastOkAt": "2026-11-17T17:59:42.438Z"
   },
   {
    "op": "sanpark",
    "label": "SANパーク",
    "ok": true,
-   "n": 246,
-   "reason": "一覧づくりで市区26件が取れなかった。その分は前の一覧の番号207件を残した",
+   "n": 249,
+   "reason": null,
    "tried": 250,
    "noName": 0,
    "statusCounts": {
-    "200": 246,
-    "network": 4
+    "200": 249,
+    "network": 1
    },
-   "lastOkAt": "2026-11-17T06:08:06.557Z"
+   "lastOkAt": "2026-11-17T17:59:42.438Z"
   }
  ]
 }
