@@ -1,5 +1,5 @@
 {
- "at": "2026-11-19T05:59:36.485Z",
+ "at": "2026-11-19T17:53:54.536Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -15,14 +15,15 @@
    "op": "jqparks",
    "label": "JQパークス",
    "ok": true,
-   "n": 400,
+   "n": 399,
    "reason": null,
    "tried": 400,
    "noName": 0,
    "statusCounts": {
-    "200": 400
+    "200": 399,
+    "network": 1
    },
-   "lastOkAt": "2026-11-19T05:59:36.485Z"
+   "lastOkAt": "2026-11-19T17:53:54.536Z"
   },
   {
    "op": "parknet",
@@ -36,27 +37,14 @@
   {
    "op": "mecparks",
    "label": "三菱地所パークス",
-   "ok": true,
-   "n": 553,
-   "reason": null,
-   "pages": 98,
-   "rows": 609,
-   "skipped": {
-    "月極": 2,
-    "料金なし": 18,
-    "バイク": 28,
-    "駐輪場": 8
-   },
-   "statusCounts": {
-    "200": 98
-   },
-   "caps": {
-    "tried": 1,
-    "got": 1,
-    "unreadable": 0,
-    "failed": 0,
-    "withCap": 549
-   },
+   "ok": false,
+   "n": 0,
+   "reason": "相手先のサイトがメンテナンス中（「ただいまメンテナンス中です」）",
+   "kind": "maintenance",
+   "pages": 0,
+   "rows": 0,
+   "skipped": {},
+   "statusCounts": {},
    "lastOkAt": "2026-11-19T05:59:36.485Z"
   },
   {
@@ -70,7 +58,7 @@
    "statusCounts": {
     "200": 250
    },
-   "lastOkAt": "2026-11-19T05:59:36.485Z"
+   "lastOkAt": "2026-11-19T17:53:54.536Z"
   }
  ]
 }
