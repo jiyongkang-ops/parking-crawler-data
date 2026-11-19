@@ -1,5 +1,5 @@
 {
- "at": "2026-11-19T19:09:26.781Z",
+ "at": "2026-11-19T20:09:19.682Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -12,7 +12,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-19T19:09:26.781Z"
+   "lastOkAt": "2026-11-19T20:09:19.682Z"
   },
   {
    "op": "repark",
