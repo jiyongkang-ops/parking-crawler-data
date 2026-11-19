@@ -1,5 +1,5 @@
 {
- "at": "2026-11-18T17:59:19.594Z",
+ "at": "2026-11-19T05:59:36.485Z",
  "workflow": "crawl-extra2",
  "only": "space24,jqparks,parknet,mecparks,sanpark",
  "targets": [
@@ -22,7 +22,7 @@
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-18T17:59:19.594Z"
+   "lastOkAt": "2026-11-19T05:59:36.485Z"
   },
   {
    "op": "parknet",
@@ -37,10 +37,10 @@
    "op": "mecparks",
    "label": "三菱地所パークス",
    "ok": true,
-   "n": 552,
+   "n": 553,
    "reason": null,
    "pages": 98,
-   "rows": 608,
+   "rows": 609,
    "skipped": {
     "月極": 2,
     "料金なし": 18,
@@ -51,27 +51,26 @@
     "200": 98
    },
    "caps": {
-    "tried": 0,
-    "got": 0,
+    "tried": 1,
+    "got": 1,
     "unreadable": 0,
     "failed": 0,
-    "withCap": 548
+    "withCap": 549
    },
-   "lastOkAt": "2026-11-18T17:59:19.594Z"
+   "lastOkAt": "2026-11-19T05:59:36.485Z"
   },
   {
    "op": "sanpark",
    "label": "SANパーク",
    "ok": true,
-   "n": 247,
+   "n": 250,
    "reason": null,
    "tried": 250,
    "noName": 0,
    "statusCounts": {
-    "200": 247,
-    "network": 3
+    "200": 250
    },
-   "lastOkAt": "2026-11-18T17:59:19.594Z"
+   "lastOkAt": "2026-11-19T05:59:36.485Z"
   }
  ]
 }
