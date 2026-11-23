@@ -1,5 +1,5 @@
 {
- "at": "2026-11-23T11:39:39.136Z",
+ "at": "2026-11-23T17:40:49.800Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -12,7 +12,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
@@ -23,7 +23,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
@@ -45,7 +45,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
@@ -56,7 +56,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
@@ -67,7 +67,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
@@ -78,7 +78,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
@@ -89,18 +89,18 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   },
   {
    "op": "npc",
-   "label": "NPC全国 10/11",
-   "ok": true,
-   "n": 1767,
-   "reason": null,
+   "label": "NPC全国",
+   "ok": false,
+   "n": 0,
+   "reason": "The operation was aborted due to timeout（TIMEOUT）",
+   "kind": "network",
    "statusCounts": {
-    "200": 1
-   },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+    "network": 1
+   }
   },
   {
    "op": "npc",
@@ -111,7 +111,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T11:39:39.136Z"
+   "lastOkAt": "2026-11-23T17:40:49.800Z"
   }
  ]
 }
