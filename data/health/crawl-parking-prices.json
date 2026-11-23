@@ -1,5 +1,5 @@
 {
- "at": "2026-11-23T02:59:05.695Z",
+ "at": "2026-11-23T03:59:08.815Z",
  "workflow": "crawl-parking-prices",
  "only": "npc,repark",
  "targets": [
@@ -12,28 +12,28 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T02:59:05.695Z"
+   "lastOkAt": "2026-11-23T03:59:08.815Z"
   },
   {
    "op": "repark",
    "label": "三井のリパーク",
    "ok": true,
-   "n": 749,
-   "reason": "sitemap の更新が止まっている（いちばん新しい lastmod が 2025-06-18・523日前）。地図の一覧（sitemap に無い1453件）で補っている",
-   "tried": 750,
+   "n": 642,
+   "reason": "sitemap の更新が止まっている（いちばん新しい lastmod が 2025-06-18・523日前）。地図の一覧（sitemap に無い1477件）で補っている",
+   "tried": 642,
    "noName": 0,
    "statusCounts": {
-    "200": 749,
-    "404": 1
+    "200": 642
    },
    "list": {
     "sitemap": 15715,
     "sitemapNewest": "2025-06-18",
-    "map": 16128,
-    "mapOnly": 1453,
-    "mapCompleteAt": "2026-11-16T02:09:03.641Z"
+    "map": 16152,
+    "mapOnly": 1477,
+    "mapCompleteAt": "2026-11-23T03:09:05.924Z",
+    "mapRequests": 108
    },
-   "lastOkAt": "2026-11-23T02:59:05.695Z"
+   "lastOkAt": "2026-11-23T03:59:08.815Z"
   }
  ]
 }
