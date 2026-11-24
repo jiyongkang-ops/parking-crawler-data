@@ -1,5 +1,5 @@
 {
- "at": "2026-11-23T23:40:02.700Z",
+ "at": "2026-11-24T05:39:31.153Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -12,7 +12,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
@@ -23,7 +23,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
@@ -34,7 +34,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
@@ -45,7 +45,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
@@ -56,7 +56,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
@@ -67,7 +67,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
@@ -78,40 +78,40 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 9/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 10/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 11/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-23T23:40:02.700Z"
+   "lastOkAt": "2026-11-24T05:39:31.153Z"
   }
  ]
 }
