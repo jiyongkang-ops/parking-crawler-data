@@ -1,5 +1,5 @@
 {
- "at": "2026-11-24T03:44:45.746Z",
+ "at": "2026-11-24T15:42:44.705Z",
  "workflow": "crawl-extra",
  "only": "kyotech,leparc,gspark,showapark",
  "targets": [
@@ -7,14 +7,14 @@
    "op": "kyotech",
    "label": "キョウテク",
    "ok": true,
-   "n": 670,
+   "n": 675,
    "reason": null,
-   "tried": 670,
+   "tried": 675,
    "noName": 0,
    "statusCounts": {
-    "200": 670
+    "200": 675
    },
-   "lastOkAt": "2026-11-24T03:44:45.746Z"
+   "lastOkAt": "2026-11-24T15:42:44.705Z"
   },
   {
    "op": "leparc",
@@ -27,25 +27,25 @@
    "statusCounts": {
     "200": 240
    },
-   "lastOkAt": "2026-11-24T03:44:45.746Z"
+   "lastOkAt": "2026-11-24T15:42:44.705Z"
   },
   {
    "op": "gspark",
    "label": "GSパーク全国",
    "ok": true,
-   "n": 900,
+   "n": 898,
    "reason": null,
    "statusCounts": {
-    "200": 118
+    "200": 117
    },
    "caps": {
     "tried": 0,
     "got": 0,
     "unreadable": 0,
     "failed": 0,
-    "withCap": 900
+    "withCap": 898
    },
-   "lastOkAt": "2026-11-24T03:44:45.746Z"
+   "lastOkAt": "2026-11-24T15:42:44.705Z"
   },
   {
    "op": "showapark",
@@ -53,12 +53,12 @@
    "ok": true,
    "n": 300,
    "reason": null,
-   "tried": 301,
+   "tried": 300,
    "noName": 0,
    "statusCounts": {
-    "200": 301
+    "200": 300
    },
-   "lastOkAt": "2026-11-24T03:44:45.746Z"
+   "lastOkAt": "2026-11-24T15:42:44.705Z"
   }
  ]
 }
