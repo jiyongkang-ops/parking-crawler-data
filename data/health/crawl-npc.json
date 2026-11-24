@@ -1,5 +1,5 @@
 {
- "at": "2026-11-24T05:39:31.153Z",
+ "at": "2026-11-24T11:39:32.590Z",
  "workflow": "crawl-npc",
  "only": "npc",
  "targets": [
@@ -7,78 +7,78 @@
    "op": "npc",
    "label": "NPC全国 2/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 3/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 4/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 5/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 6/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 7/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
    "label": "NPC全国 8/11",
    "ok": true,
-   "n": 1767,
+   "n": 1766,
    "reason": null,
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
@@ -89,7 +89,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
@@ -100,7 +100,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   },
   {
    "op": "npc",
@@ -111,7 +111,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-24T05:39:31.153Z"
+   "lastOkAt": "2026-11-24T11:39:32.590Z"
   }
  ]
 }
