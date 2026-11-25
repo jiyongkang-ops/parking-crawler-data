@@ -1,5 +1,5 @@
 {
- "at": "2026-11-25T10:54:15.531Z",
+ "at": "2026-11-25T17:55:09.514Z",
  "workflow": "crawl-ecolo",
  "only": "ecolo",
  "targets": [
@@ -7,14 +7,14 @@
    "op": "ecolo",
    "label": "エコロパーク",
    "ok": true,
-   "n": 669,
+   "n": 675,
    "reason": null,
-   "tried": 669,
+   "tried": 675,
    "noName": 0,
    "statusCounts": {
-    "200": 669
+    "200": 675
    },
-   "lastOkAt": "2026-11-25T10:54:15.531Z"
+   "lastOkAt": "2026-11-25T17:55:09.514Z"
   }
  ]
 }
