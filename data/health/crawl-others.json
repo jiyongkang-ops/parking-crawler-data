@@ -1,5 +1,5 @@
 {
- "at": "2026-11-26T07:16:07.244Z",
+ "at": "2026-11-26T13:11:17.027Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -20,11 +20,11 @@
    "op": "thepark",
    "label": "ザ・パーク",
    "ok": false,
-   "n": 1000,
+   "n": 270,
    "reason": "HTTP 500",
    "kind": "network",
    "statusCounts": {
-    "200": 100,
+    "200": 27,
     "500": 1
    },
    "lastOkAt": "2026-11-10T01:09:07.787Z"
