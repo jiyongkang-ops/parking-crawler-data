@@ -11,7 +11,8 @@ import { runCrawl } from "./run-crawl.js";
 import { listUrl } from "../src/thepark.js";
 import { readProgress, writeProgress, RESUME_MS } from "../src/list-progress.js";
 
-const ENV = { CRAWL_ONLY: "thepark", PAGE_CACHE_MS: "0", RETRY_WAITS_MS: "0,0" };
+// 一覧の口（予備の読み方）の決まりを確かめる。地図の口は test/thepark-map.test.js
+const ENV = { CRAWL_ONLY: "thepark", PAGE_CACHE_MS: "0", RETRY_WAITS_MS: "0,0", THEPARK_MODE: "pages" };
 const today = new Date().toISOString().slice(0, 10);
 const yesterday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
 
