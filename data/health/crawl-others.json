@@ -1,5 +1,5 @@
 {
- "at": "2026-11-26T13:11:17.027Z",
+ "at": "2026-11-27T01:41:11.861Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -8,26 +8,22 @@
    "label": "名鉄協商",
    "ok": false,
    "n": 0,
-   "reason": "保留中（2026-12-24まで）: 2026-10-21 から相手先が Webサイトを一時停止（セキュリティ対策・10/27 確認・11/2 も停止中）。様子見の1件も取れなかった（robots.txt が HTTP 403（断られている）。この回は打ち切り）",
-   "kind": "maintenance",
-   "tried": 0,
-   "noName": 0,
-   "statusCounts": {},
-   "hold": "2026-12-24",
+   "reason": "一覧: mkp sitemap: robots.txt が HTTP 403（断られている）",
+   "kind": "blocked",
    "lastOkAt": "2026-11-21T07:55:00.184Z"
   },
   {
    "op": "thepark",
    "label": "ザ・パーク",
-   "ok": false,
-   "n": 270,
-   "reason": "HTTP 500",
-   "kind": "network",
+   "ok": true,
+   "n": 4374,
+   "reason": null,
    "statusCounts": {
-    "200": 27,
-    "500": 1
+    "200": 438,
+    "500": 5
    },
-   "lastOkAt": "2026-11-10T01:09:07.787Z"
+   "retried": 5,
+   "lastOkAt": "2026-11-27T01:41:11.861Z"
   }
  ]
 }
