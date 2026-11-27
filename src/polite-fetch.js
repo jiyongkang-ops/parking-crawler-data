@@ -156,10 +156,11 @@ const isRedirect = (st) => st === 301 || st === 302 || st === 303 || st === 307 
 const originOf = (u) => `${u.protocol}//${u.host}`;
 
 /** 1回だけ送る（転送は追わない）。間隔は呼ぶ側で取る */
-async function fetchOnce(url) {
+/** timeoutMs … この取得だけの待ちの上限（大きな1ファイルを読む社用。Dパーキングの約53MB。2026-11-27）。無ければ config.timeoutMs */
+async function fetchOnce(url, timeoutMs) {
   return fetch(url, {
     headers: { "User-Agent": config.userAgent, "Accept-Language": "ja,en;q=0.8" },
-    signal: AbortSignal.timeout(config.timeoutMs),
+    signal: AbortSignal.timeout(timeoutMs ?? config.timeoutMs),
     redirect: "manual",
   });
 }
@@ -168,6 +169,7 @@ async function fetchOnce(url) {
 // opts.minDelay でこの取得のアクセス間隔を上書き（事業者ごとの配慮に使う）。
 // opts.redirect: "manual" で転送を追わない（閉じた物件をトップへ転送する社で、転送先を物件として読まないため。
 //   追わない分、転送先のページを取りに行く1回も減る）。転送のときは status が 3xx、location に転送先が入る。
+// opts.timeoutMs: この取得だけの待ちの上限（大きな1ファイルを読む社。無ければ config.timeoutMs）。
 // opts.encoding: 本文の文字コード（"shift_jis" など）。無ければ今までどおり UTF-8 で読む（res.text()）。
 //   MAYパークの一覧は Shift_JIS で、Content-Type に charset が無い。UTF-8 で読むと文字化けして0件になる（2026-11-02）
 // 転送は fetch に任せず、1回ずつ自分でたどる（2026-11-02）。以前は fetch が転送をそのまま追っていたので、
@@ -194,7 +196,7 @@ export async function politeFetch(url, opts = {}) {
 
   // 3) 取得。転送は1回ずつたどる
   let cur = start;
-  let res = await fetchOnce(cur.href);
+  let res = await fetchOnce(cur.href, opts.timeoutMs);
   for (let hop = 0; opts.redirect !== "manual" && isRedirect(res.status) && res.headers.get("location"); hop++) {
     const location = res.headers.get("location");
     await res.text().catch(() => "");   // 転送の本文は読まずに捨てる（接続を返すため）
@@ -220,7 +222,7 @@ export async function politeFetch(url, opts = {}) {
     }
     await pace(minDelay);
     cur = next;
-    res = await fetchOnce(cur.href);
+    res = await fetchOnce(cur.href, opts.timeoutMs);
   }
   const html = await bodyText(res, opts.encoding);
   const moved = cur.host !== start.host ? { movedTo: cur.href } : {};
