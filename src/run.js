@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
-import { politeFetch, sleep, fetchErrorText, fetchOnceIgnoringRobots } from "./polite-fetch.js";
+import { politeFetch, sleep, fetchErrorText, fetchOnceIgnoringRobots, failText } from "./polite-fetch.js";
 import { detailUrl as reparkDetailUrl, parseReparkDetail } from "./repark.js";
 import { searchUrl, locationUrl, JAPAN_BBOX, parseNpcSearch } from "./npc.js";
 import { cacheFresh, markFetched, cacheAgeMs } from "./cache-age.js";
@@ -74,6 +74,7 @@ import { getAllSanparkIds } from "./sanpark-enumerate.js";
 import { detailUrl as carmaxUrl, parseCarmaxDetail } from "./carmax.js";
 import { getAllCarmaxIds } from "./carmax-enumerate.js";
 import { listUrl as mayparkListUrl, parseMayList, ENCODING as MAYPARK_ENCODING } from "./maypark.js";
+import { DATA_URL as dparkingDataUrl, parseDparkingData } from "./dparking.js";
 import { flushCrawlStates, confirmsDropped } from "./repark-enumerate.js";
 import { writeFileAtomic } from "./write-atomic.js";
 import { politeFetch as pf2 } from "./polite-fetch.js";
@@ -1056,6 +1057,39 @@ async function main() {
       console.log(`[ok] MAYパーク | ${records.length}物件（区画${boxes}のうち、駐輪場・月極専用・料金の文が無いなどで記録しない${excluded.length}）`);
       hp("maypark", "MAYパーク", records.length > 0, records.length, records.length ? null : "0件",
         { kind: "parse", ...statusOf(res), ...(excluded.length ? { excluded: excluded.length } : {}) });
+      continue;
+    }
+
+    // ---- Dパーキング（大和ハウスパーキング。1ファイルに全物件。2026-11-27 本人「画面に出ている項目だけ取る」。src/dparking.js）----
+    // ファイルは約53MB で、中身はたまにしか変わらない。週1回（DPARKING_EVERY_DAYS・既定7日）だけ取りに行き、
+    // それ以外の回は取りに行かない（health は前の取得の件数で ok）。記録するのは名前・住所・位置だけ（料金・台数は画面に出していない）
+    if (t.operator === "dparking" && t.mode === "nationwide") {
+      const stamp = "data/dparking-fetched.txt";
+      const everyDays = Number(process.env.DPARKING_EVERY_DAYS) || 7;
+      let last = null;
+      try { last = fs.readFileSync(stamp, "utf8").trim() || null; } catch { /* まだ無い */ }
+      if (last && Date.now() - Date.parse(last) < everyDays * 864e5 && process.env.PAGE_CACHE_MS !== "0") {
+        let n = 0;
+        try { n = fs.readFileSync(listStateFiles("dparking").idsFile, "utf8").split("\n").filter(Boolean).length; } catch { /* 無い */ }
+        console.log(`[cache] Dパーキング スキップ（前の取得 ${last}。${everyDays}日おき）`);
+        hp("dparking", "Dパーキング", true, n, null, { kind: "parse", cached: last });
+        continue;
+      }
+      const url = dparkingDataUrl;
+      let res;
+      try { res = await politeFetch(url, { timeoutMs: 180_000 }); } catch (e) { const m = fetchErrorText(e); console.error(`[error] dparking: ${m}`); hp("dparking", "Dパーキング", false, 0, m, { kind: "network", statusCounts: { network: 1 } }); continue; }
+      if (!res.ok || res.skippedReason) { console.error(`[error] dparking: ${failText(res)}`); hp("dparking", "Dパーキング", false, 0, failText(res), { kind: kindOfFetch(res), ...statusOf(res) }); continue; }
+      const page = parseDparkingData(res.html, process.env.CRAWL_TODAY ? { today: process.env.CRAWL_TODAY } : {});
+      if (!page) { console.error(`[error] dparking: 元データが JSON でない・形が違う`); hp("dparking", "Dパーキング", false, 0, "元データが JSON でない・形が違う", { kind: "parse", ...statusOf(res) }); continue; }
+      const at = new Date().toISOString();
+      for (const r of page.records) { r._requestUrl = url; handleRecord(r, at); }
+      const hiddenN = Object.values(page.hidden).reduce((a, b) => a + b, 0);
+      console.log(`[ok] Dパーキング | ${page.records.length}物件（元データ${page.total}件のうち、画面に出ない${hiddenN}件は記録しない: `
+        + `${Object.entries(page.hidden).map(([k, n]) => `${k}${n}`).join("・") || "なし"}）`);
+      hp("dparking", "Dパーキング", page.records.length > 0, page.records.length, page.records.length ? null : "0件",
+        { kind: "parse", ...statusOf(res), ...(hiddenN ? { excluded: hiddenN } : {}) });
+      listState("dparking", page.records.map((r) => r.parkId), page.records.length > 0);
+      if (page.records.length) writeFileAtomic(stamp, at + "\n");
       continue;
     }
 
