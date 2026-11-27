@@ -728,29 +728,38 @@ test("通しの巡回: 一覧から消えた物件の確かめ（ほとんど 40
   for (const u of list) assert.ok(r.calls.includes(u));                   // 一覧の物件もいつもどおり取る
 });
 
+// 保留の通しの巡回は近鉄不動産で確かめる（名鉄協商は 2026-11-27 に保留を外した。サイトは再開していて、断られているだけのため）
+const KT = (id) => `https://parking.kintetsu-re.co.jp/hourly/detail.php?id=${id}`;
+/** 近鉄不動産の一覧 n 件と、全件「前は取れていた」状態（古い順） */
+function kintetsuFiles(n) {
+  const ids = Array.from({ length: n }, (_, i) => String(100 + i));
+  const state = { _list: listHash(ids), ...Object.fromEntries(ids.map((id, i) => [id, new Date(Date.now() - (n - i) * 3600e3).toISOString()])) };
+  return { ids, state, files: { "data/kintetsu-ids.txt": ids.join("\n") + "\n", "data/kintetsu-ids.txt.fetched": new Date().toISOString(),
+    "data/kintetsu-crawl-state.json": JSON.stringify(state) } };
+}
+
 test("通しの巡回: 保留中の社は様子見の1件だけ取り、取れなければ maintenance（一覧も作り直さない）", () => {
-  const { ids, files } = mkpFiles(20);
+  const { ids, files } = kintetsuFiles(20);
   // 一覧を古くしておいても、保留中は作り直さない
-  files["data/mkp-ids.txt.fetched"] = new Date(Date.now() - 30 * 864e5).toISOString();
-  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "20", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
+  files["data/kintetsu-ids.txt.fetched"] = new Date(Date.now() - 30 * 864e5).toISOString();
+  const r = runCrawl({ env: { CRAWL_ONLY: "kintetsu", ROLLING_PER_RUN: "20", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
     routes: { "*robots": { status: 200, body: "" }, "*": { status: 403 } } });
   const pages = r.calls.filter((u) => !u.endsWith("/robots.txt"));
   assert.equal(pages.length, 1);                                     // 様子見の1件だけ（以前は8件以上送っていた）
-  assert.ok(pages[0].startsWith("https://mkp.jp/search/detail/"));
+  assert.ok(pages[0].startsWith("https://parking.kintetsu-re.co.jp/hourly/detail.php?id="));
   assert.equal(r.health[0].ok, false);
   assert.equal(r.health[0].kind, "maintenance");
   assert.equal(r.health[0].hold, "2026-12-24");
-  assert.match(r.health[0].reason, /^保留中（2026-12-24まで）: .*一時停止.*。様子見の1件も取れなかった（HTTP 403）$/);
+  assert.match(r.health[0].reason, /^保留中（2026-12-24まで）: .*緊急メンテナンス.*。様子見の1件も取れなかった（HTTP 403）$/);
   assert.ok(ids.length === 20);
 });
 
 test("通しの巡回: 保留中でも様子見の1件が取れたら、そのまま続けて取る（自動で再開）", () => {
-  const { ids, files } = mkpFiles(5);
+  const { ids, files } = kintetsuFiles(5);
   // 物件ごとに名前の違うページ（5件とも同じ名前で料金も無いと、告知のページとみなして止める。maintenance.js makeNoticeGuard）
-  const body = (id) => `<html><head><script type="application/ld+json">{"@type":"ParkingFacility","name":"名鉄協商テスト${id}","address":"愛知県名古屋市","geo":{"latitude":35.1,"longitude":136.9}}</script></head>`
-    + '<body><div class="box_price"><table class="tbl_basic"><tr><th>最大料金</th><th>通常料金</th></tr><tr><td><p>24時間 600円</p></td><td><p>30分 200円</p></td></tr></table></div></body></html>';
-  const r = runCrawl({ env: { CRAWL_ONLY: "mkp", ROLLING_PER_RUN: "5", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
-    routes: { "*robots": { status: 200, body: "" }, ...Object.fromEntries(ids.map((id) => [MK(id), { status: 200, body: body(id) }])) } });
+  const body = (id) => `<html><body><h2 class="place">近鉄テスト駐車場${id}</h2><table class="fee"><tr><th>全日</th><td>30分 200円<br>24時間最大 800円</td></tr></table></body></html>`;
+  const r = runCrawl({ env: { CRAWL_ONLY: "kintetsu", ROLLING_PER_RUN: "5", CRAWL_HOLD: "", CRAWL_TODAY: "2026-10-27" }, files,
+    routes: { "*robots": { status: 200, body: "" }, ...Object.fromEntries(ids.map((id) => [KT(id), { status: 200, body: body(id) }])) } });
   assert.equal(r.calls.filter((u) => !u.endsWith("/robots.txt")).length, 5);
   assert.equal(r.health[0].ok, true);
   assert.notEqual(r.health[0].kind, "maintenance");
