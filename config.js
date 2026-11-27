@@ -105,6 +105,19 @@ export const config = {
     // トラストパーク — トラストナビ（tpnavi.com）の物件ページ 約1,030件を sitemap から列挙・ローリング巡回（2026-11-27 本人「トラストパークも作って」）。
     // robots.txt は Googlebot 向けの決まりだけで Disallow は空。crawl-extra2.yml に相乗り（1日2回）
     { operator: "trustpark", mode: "nationwide", label: "トラストパーク全国" },
+    // 2026-11-27 追加の8社（本人「作れるものは全部作って」）。調べた結果は ~/Desktop/crawlfix-work/crawl1127/more-targets/（手元）。
+    //   コインパーク・パークジャパン … 11/02 に「取らない」と決めていた社。調べ直して、サイトの規約のページが無く、robots.txt の禁止も
+    //     管理画面など数か所だけと分かったうえで本人が「作って」。crawl-extra.yml に相乗り
+    //   TOBU PARK・ユアーズ・京成パーク … 規約に「無断の複製・二次利用の禁止」の一般的な文がある（自動収集の文は無い）。トラストパークと同じ扱い
+    //   フルーツパーク・いずみパーキング・Park1st. … 規約のページが無い（Park1st. は駐車場の利用規約だけ）
+    { operator: "coinpark", mode: "nationwide", label: "コインパーク" },
+    { operator: "parkjapan", mode: "nationwide", label: "パークジャパン" },
+    { operator: "tobupark", mode: "nationwide", label: "TOBU PARK（東武不動産）" },
+    { operator: "fruitpark", mode: "nationwide", label: "フルーツパーク" },
+    { operator: "izumipark", mode: "nationwide", label: "いずみパーキング" },
+    { operator: "yourspark", mode: "nationwide", label: "ユアーズパーキング" },
+    { operator: "keiseipark", mode: "nationwide", label: "京成パーク" },
+    { operator: "park1st", mode: "nationwide", label: "Park1st.（阪急阪神ビルマネジメント）" },
 
     // ザ・パーク(第一興商) — 一覧のページ（1ページ10件・約440ページ）を番号の順に読む。全部取れた日は、その日の残りの回では読まない（2026-11-13 サイトの作り直しに合わせた）
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。
@@ -188,6 +201,17 @@ export const config = {
   // トラストパーク（2026-11-27）。約1,030件を1回260件・5秒おき（約22分）。1日2回で約520件 → 約2日で1巡。sitemap は7日ごとに読み直す
   trustparkRollingPerRun: 260,
   trustparkMinDelayMs: 5000,
+  // 2026-11-27 追加の8社。どれも1日2回。料金はめったに変わらないので、2〜4日で1巡を目安に小さめにする。
+  // コインパークはページが約600KB（左の一覧に同じ区の物件が全部載る）なので6秒おき
+  coinparkRollingPerRun: 300,
+  coinparkMinDelayMs: 6000,
+  parkjapanRollingPerRun: 300,
+  tobuparkRollingPerRun: 300,
+  fruitparkRollingPerRun: 250,
+  izumiparkRollingPerRun: 180,
+  yoursparkRollingPerRun: 140,
+  keiseiparkRollingPerRun: 90,
+  park1stRollingPerRun: 80,
   // 東洋カーマックス（2026-11-02）。crawl-extra3.yml は1日2回（5・17時）・巡回の手順は340分まで。
   // 今の extra3 は1回あたり最大でも約1,950件（4秒おきで約130分）なので、400件（約27分）足しても時間に余裕がある。
   // 予算（ROLLING_BUDGET_MIN 既定45分）にも収まる。約1,130件を1日800件で、約1.4日で1巡。小さな会社のサイトなので1回400件に抑える

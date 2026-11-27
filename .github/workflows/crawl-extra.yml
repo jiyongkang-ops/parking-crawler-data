@@ -39,7 +39,7 @@ jobs:
         env:
           # 一覧の守り（src/list-guard.js）を外す社。相手先が本当に物件を減らしたと確かめたときだけ、リポジトリの変数に入れて1回回し、回ったら消す
           LIST_SHRINK_OK: ${{ vars.LIST_SHRINK_OK }}
-          CRAWL_ONLY: "kyotech,leparc,gspark,showapark"   # ユアー・パーキングはクラウドから取れないので、import-ypark.yml で人が置いた一覧を取り込む（2026-11-09）
+          CRAWL_ONLY: "kyotech,leparc,gspark,showapark,coinpark,parkjapan,tobupark"   # コインパーク・パークジャパン・TOBU PARK は 2026-11-27 追加（約30＋20＋20分）。 ユアー・パーキングはクラウドから取れないので、import-ypark.yml で人が置いた一覧を取り込む（2026-11-09）
           OUT_FILE: "data/prices-extra.jsonl"
       - name: commit data if changed
         if: always()   # 途中で殺されても、そこまでの観測は残す
