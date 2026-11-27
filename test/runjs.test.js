@@ -37,7 +37,7 @@ function runCrawl({ env = {}, routes = {}, files = {}, dir = fs.mkdtempSync(path
   fs.writeFileSync(preload, `
 import fs from "node:fs";
 import { config } from ${JSON.stringify(pathToFileURL(path.join(ROOT, "config.js")).href)};
-config.minDelayMs = 0; config.timesMinDelayMs = 0;
+config.minDelayMs = 0; config.timesMinDelayMs = 0; config.mkpMinDelayMs = 0; config.theparkRetryWaitsMs = [0, 0];
 const routes = JSON.parse(fs.readFileSync(${JSON.stringify(routesFile)}, "utf8"));
 globalThis.fetch = async function stub(url, opts) {
   const u = String(url);
@@ -314,7 +314,8 @@ test("通しの巡回の health: 止めている社は paused、1件だけ取る
   assert.deepEqual(s.calls, []);
   assert.deepEqual(s.health.map((t) => [t.op, t.ok, t.kind]), [["space24", false, "paused"], ["odakyu", false, "paused"]]);
   const tp = runCrawl({ env: { CRAWL_ONLY: "thepark" }, routes: { "*": { status: 503 } } });
-  assert.deepEqual([tp.health[0].ok, tp.health[0].kind, tp.health[0].statusCounts], [false, "network", { 503: 1 }]);
+  // 5xx は待って2回まで取り直す（2026-11-27）ので、1ページ目に3回送る
+  assert.deepEqual([tp.health[0].ok, tp.health[0].kind, tp.health[0].statusCounts], [false, "network", { 503: 3 }]);
   const md = runCrawl({ env: { CRAWL_ONLY: "mden" }, routes: { "*": { status: 200, body: "<html></html>" } } });
   assert.deepEqual([md.health[0].ok, md.health[0].reason, md.health[0].kind, md.health[0].statusCounts], [false, "0件", "parse", { 200: 1 }]);
   const mx = runCrawl({ env: { CRAWL_ONLY: "mden" }, routes: { "*": { throw: "ENOTFOUND" } } });

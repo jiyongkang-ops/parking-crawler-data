@@ -26,3 +26,11 @@ test("設定: 名鉄協商と近鉄不動産に保留があり、止めている
   assert.equal(of("space24").hold, undefined);
   assert.equal(of("odakyu").hold, undefined);
 });
+
+test("名鉄協商は1回200件・8秒おき（2026-11-27。続けて650ページほど読むと robots.txt が 403 になっていた）", async () => {
+  const { config } = await import("../config.js");
+  assert.equal(config.mkpRollingPerRun, 200);
+  assert.equal(config.mkpMinDelayMs, 8000);
+  const src = (await import("node:fs")).readFileSync(new URL("../src/run.js", import.meta.url), "utf8");
+  assert.match(src, /op: "mkp"[^}]*minDelay: config\.mkpMinDelayMs/);
+});
