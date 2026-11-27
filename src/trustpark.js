@@ -2,13 +2,17 @@
 // 2026-11-27 本人「トラストパークも作って」。物件ページは http://tpnavi.com/P{番号}.html（約1,030件・sitemap から列挙）。
 // 物件の名前は <h2>（頭に「【クレジット・電子決済利用可】」などの見出しが付く）、ほかの欄は
 //   <div class="phyou_left">ラベル</div><div class="phyou_right">値</div>
-// の並び（住所・駐車場台数・駐車制限・営業時間・料金）。座標は地図の「現在閲覧中の駐車場の位置に戻る」の
-// google.maps.LatLng(緯度,経度)。料金の欄は「【時間料金】20分330円【長時間サービス料金】(07:00～19:00)最大3100円」の形。
+// の並び（住所・駐車場台数・駐車制限・営業時間・料金）。座標は地図の埋め込み <div class="pmap"><iframe src="…maps?ll=緯度,経度&amp;q=緯度,経度…">。
+// 2026-11-27 初回の巡回で直した: 以前は「現在閲覧中の駐車場の位置に戻る」の google.maps.LatLng(緯度,経度) から読んでいたが、
+// 本物のページではそのリンクが HTML のコメントの中にあり（見本はコメントを外して作っていた）、244件すべて座標が空だった。
+// 掲載を終えた物件は HTTP 200 で、名前（<h2></h2>）も地図（ll=,）も空のページを返す（P146・P1181 など初回260件のうち16件）。
+// 名前が読めない失敗にせず、掲載終了として記録しない（{ skip }。閉鎖と同じく30〜60日後に見直す）。料金の欄は「【時間料金】20分330円【長時間サービス料金】(07:00～19:00)最大3100円」の形。
 // 共通の parseFeeBlock（jp-fee-text.js）は【時間料金】【長時間サービス料金】を曜日の区分と読んでしまうので、
 // ここで【通常料金】【最大料金】に直してから渡す（jp-fee-text.js は変えない）。
 // robots.txt は Googlebot 向けの決まりだけで Disallow は空。利用規約に自動収集を禁止する文は無い（第4条に無断の複製・
 // 商業的利用・転載は著作権の侵害とある。2026-11-27 本人に伝えたうえで「作って」）。
 import { han, strip, parseFeeBlock } from "./jp-fee-text.js";
+import { latLngOf } from "./fee-rows.js";
 
 const BASE = "http://tpnavi.com/";
 
@@ -39,10 +43,7 @@ export function parseTrustparkDetail(html, { id, label } = {}) {
   const addrCell = cell(page, "住所");
   const address = addrCell ? strip(addrCell.split(/<br\s*\/?>\s*<br/i)[0]) || null : null;
 
-  let lat = null, lng = null;
-  const ll = page.match(/LatLng\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)[^"]*"\s*>\s*現在閲覧中の駐車場の位置に戻る/)
-    ?? page.match(/LatLng\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)/);
-  if (ll) { lat = Number(ll[1]) || null; lng = Number(ll[2]) || null; }
+  const { lat, lng } = latLngOf((page.match(/<div class="pmap">[\s\S]*?<\/iframe>/) || [])[0] ?? "");
 
   // 「20台、月極バイク3台」→ 先頭の数（時間貸の台数）
   const capCell = cell(page, "駐車場台数");
@@ -55,7 +56,7 @@ export function parseTrustparkDetail(html, { id, label } = {}) {
   const feeCell = cell(page, "料金");
   const { unitCharges, maxFees } = feeCell ? parseFeeBlock(normalizeTrustFee(feeCell)) : { unitCharges: [], maxFees: [] };
 
-  return {
+  const rec = {
     operator: "trustpark",
     parkId: String(id),
     label: label ?? null,
@@ -69,4 +70,7 @@ export function parseTrustparkDetail(html, { id, label } = {}) {
     maxFees,
     sourceUrl: detailUrl(id),
   };
+  // 掲載を終えた物件の空のページ（名前・住所・地図がどれも空）
+  if (!name && !address && /<h2>\s*<\/h2>/.test(page) && /maps\?ll=,/.test(page)) return { ...rec, skip: "ページの中身が空（掲載終了とみなす）" };
+  return rec;
 }

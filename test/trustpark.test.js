@@ -18,6 +18,16 @@ test("物件ページ: 名前（頭の【…】を外す）・住所・座標・
   assert.deepEqual(r.maxFees.map((m) => `${m.scope} ${m.condition}=${m.amountYen}`), ["全日 7:00-19:00 最大=3100", "全日 19:00-7:00 最大=500"]);
 });
 
+test("掲載を終えた物件（HTTP 200 で名前も地図も空）は記録しない（skip）。名前が読めない失敗にしない", () => {
+  const EMPTY = fs.readFileSync(new URL("./fixtures/trustpark-empty.html", import.meta.url), "utf8");
+  const r = parseTrustparkDetail(EMPTY, { id: "146" });
+  assert.match(r.skip ?? "", /掲載終了/);
+  assert.deepEqual([r.name, r.lat, r.lng], [null, null, null]);
+  // 本物のページでは、地図の「位置に戻る」のリンク（google.maps.LatLng）がコメントの中にある。座標は iframe から読む
+  assert.ok(/<!--[\s\S]*LatLng\(35\.64/.test(PAGE));
+  assert.equal(parseTrustparkDetail(PAGE, { id: "2550" }).skip, undefined);
+});
+
 test("料金の見出し【時間料金】【長時間サービス料金】を曜日の区分と読まない（共通のパーサに渡す前に直す）", () => {
   // 直さずに渡すと、最大料金の scope が「長時間サービス料金」になる
   assert.equal(parseFeeBlock("【長時間サービス料金】<br>(07:00～19:00)最大3100円").maxFees[0].scope, "長時間サービス料金");
@@ -34,11 +44,13 @@ test("sitemap: 物件ページ（P番号.html）だけを拾う（スマホ版�
 });
 
 test("通しの巡回: sitemap から列挙して物件ページを読む（相手先には繋がない）", () => {
-  const xml = `<urlset>${["11", "12", "13"].map((i) => `<url><loc>http://tpnavi.com/P${i}.html</loc></url>`).join("")}</urlset>`;
+  const xml = `<urlset>${["11", "12", "13", "14"].map((i) => `<url><loc>http://tpnavi.com/P${i}.html</loc></url>`).join("")}</urlset>`;
   const routes = { [SITEMAP_URL]: { status: 200, body: xml } };
   for (const i of ["11", "12", "13"]) routes[detailUrl(i)] = { status: 200, body: PAGE.replace("恵比寿3丁目", `テスト${i}`) };
-  const r = runCrawl({ env: { CRAWL_ONLY: "trustpark", ROLLING_PER_RUN: "3" }, routes });
-  assert.deepEqual(r.pages.filter((u) => u.includes("/P")).sort(), ["11", "12", "13"].map(detailUrl));
-  assert.deepEqual([r.health[0].ok, r.health[0].n], [true, 3]);
+  routes[detailUrl("14")] = { status: 200, body: fs.readFileSync(new URL("./fixtures/trustpark-empty.html", import.meta.url), "utf8") };
+  const r = runCrawl({ env: { CRAWL_ONLY: "trustpark", ROLLING_PER_RUN: "4" }, routes });
+  assert.deepEqual(r.pages.filter((u) => u.includes("/P")).sort(), ["11", "12", "13", "14"].map(detailUrl));
+  assert.deepEqual([r.health[0].ok, r.health[0].n, r.health[0].noName ?? 0], [true, 3, 0]);   // 空のページ（14）は名前が読めない数に入れない
+  assert.ok(r.rows.every((x) => x.lat > 35 && x.lng > 139));
   assert.deepEqual(r.rows.map((x) => x.name).sort(), ["トラストパークテスト11", "トラストパークテスト12", "トラストパークテスト13"]);
 });
