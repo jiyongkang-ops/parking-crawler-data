@@ -60,6 +60,8 @@ import { detailUrl as comnetUrl, parseComnetDetail } from "./comnet.js";
 import { getAllComnetIds } from "./comnet-enumerate.js";
 import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
 import { getAllKeioIds } from "./keio-enumerate.js";
+import { detailUrl as trustparkUrl, parseTrustparkDetail } from "./trustpark.js";
+import { getAllTrustparkIds } from "./trustpark-enumerate.js";
 import { detailUrl as showaparkUrl, parseShowaparkDetail } from "./showapark.js";
 import { getAllShowaparkIds } from "./showapark-enumerate.js";
 import { detailUrl as yparkUrl, parseYparkDetail, yparkListRecords } from "./ypark.js";
@@ -195,6 +197,10 @@ const ROLLING_SITES = [
     idsCache: "data/comnet-ids.txt", stateFile: "data/comnet-crawl-state.json", defaultPerRun: 200 },
   { op: "keio", label: "京王コインパーク", enumerate: getAllKeioIds, detailUrl: keioUrl, parse: parseKeioDetail,
     idsCache: "data/keio-ids.txt", stateFile: "data/keio-crawl-state.json", defaultPerRun: 100 },
+  // 2026-11-27 追加（crawl-extra2.yml）。トラストナビの物件ページ 約1,030件を sitemap から。5秒おき（config.trustparkMinDelayMs）
+  { op: "trustpark", label: "トラストパーク", enumerate: getAllTrustparkIds, detailUrl: trustparkUrl, parse: parseTrustparkDetail,
+    idsCache: "data/trustpark-ids.txt", stateFile: "data/trustpark-crawl-state.json", defaultPerRun: 260,
+    minDelay: config.trustparkMinDelayMs ?? 5000 },
   // 2026-11-02 追加（crawl-extra.yml）。ユアー・パーキングは料金を JSON（setparkinfo）で読むので、parse には JSON の文字列が届く
   { op: "showapark", label: "ショウワパーク", enumerate: getAllShowaparkIds, detailUrl: showaparkUrl, parse: parseShowaparkDetail,
     idsCache: "data/showapark-ids.txt", stateFile: "data/showapark-crawl-state.json", defaultPerRun: 300 },
