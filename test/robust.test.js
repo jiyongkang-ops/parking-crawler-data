@@ -423,7 +423,7 @@ function runCrawl({ env = {}, routes = {}, files = {}, dir = fs.mkdtempSync(path
   fs.writeFileSync(preload, `
 import fs from "node:fs";
 import { config } from ${JSON.stringify(pathToFileURL(path.join(ROOT, "config.js")).href)};
-config.minDelayMs = 0; config.timesMinDelayMs = 0;
+config.minDelayMs = 0; config.timesMinDelayMs = 0; config.mkpMinDelayMs = 0; config.theparkRetryWaitsMs = [0, 0];
 const routes = JSON.parse(fs.readFileSync(${JSON.stringify(routesFile)}, "utf8"));
 globalThis.fetch = async function stub(url, opts) {
   const u = String(url);

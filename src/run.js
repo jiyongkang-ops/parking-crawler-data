@@ -84,6 +84,7 @@ import { kindOfFetch, kindOfText, dominantKind, makeCounter, countStatus, withLa
 import { markMaintenance, maintenanceOf, lotNotice, hasFee, makeNoticeGuard, feeRateOf, makeSameStreak, pageSig } from "./maintenance.js";
 import { snapshotList, guardShrunkList } from "./list-guard.js";
 import { holdOf, holdReason } from "./hold.js";
+import { progressFile, readProgress, writeProgress, clearProgress } from "./list-progress.js";
 
 const STATE = {
   reparkSitemapCache: "data/repark-sitemap.xml",
@@ -153,7 +154,9 @@ const ROLLING_SITES = [
   // 名鉄協商は掲載を終えた物件を 302 で /misc/404.php へ転送する。転送を追って 404.php を読み、名前が読めないまま
   // 毎回取りに行っていた（552件・一覧の22%・1日約450リクエスト。2026-10-18 に3件を確かめた）。エコロと同じく閉鎖として寝かせる
   { op: "mkp", label: "名鉄協商", enumerate: getAllMkpIds, detailUrl: mkpDetailUrl, parse: parseMkpDetail,
-    idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 2500,
+    idsCache: STATE.mkpIdsCache, stateFile: STATE.mkpCrawlState, defaultPerRun: 200,
+    // 続けて読みすぎると相手先の守りに当たる見込み（config の mkpRollingPerRun の説明。2026-11-27）。8秒おきにする
+    minDelay: config.mkpMinDelayMs ?? 8000,
     goneOnRedirect: isMkpClosedRedirect },
   { op: "navipark", label: "ナビパーク", enumerate: getAllNaviparkCodes, detailUrl: naviparkDetailUrl, parse: parseNaviparkDetail,
     idsCache: STATE.naviparkCodesCache, stateFile: STATE.naviparkCrawlState, defaultPerRun: 2500, keyName: "code" },
@@ -1059,37 +1062,103 @@ async function main() {
     // ---- ザ・パーク 全国（一覧のページを番号の順に。2026-11-13 作り直されたサイトに合わせた。src/thepark.js）----
     // 前は1回の取得で全件だったが、いまは1ページ10件で約440ページ（4秒おきで約30分）。1日に何度も読むと相手先の負担が
     // 増えるので、全部取れた日（物件ごとの記録に今日の日付がある日）は、その日の残りの回では取りに行かない。
-    // 途中で取れなくなったらそこで止める（その回に取れた分の料金は残す。物件ごとの記録は進めず、次の回に最初から読み直す）
+    // 2026-11-27（本人「全部直して」）: 11/13 から毎回どこかで1ページだけ HTTP 500 が返り、そこで打ち切って次の回はまた
+    // 1ページ目から読み直していたので、一度も最後まで届かなかった。いまは
+    //   ・5xx・通信の失敗は、少し待って同じページを2回まで取り直す（待ちは config.theparkRetryWaitsMs。既定30秒・90秒）
+    //   ・取り直しても取れないページは飛ばして先へ進む（1回に THEPARK_MAX_SKIP ページまで。続けて2ページ取れなければ止める）。
+    //     最後まで読んだら、飛ばしたページをもう1回だけ読む
+    //   ・止まったら、止まったページと読んだ物件の番号を data/thepark-list-progress.json に残し、次の回はそこから続ける
+    //     （読み始めて24時間以内だけ。src/list-progress.js）。最後まで読んだら消す
+    //   ・robots.txt で断られた・メンテナンス・4xx・JSON でないページは、今までどおりすぐ止める
     if (t.operator === "thepark" && t.mode === "nationwide") {
       const today = new Date().toISOString().slice(0, 10);
-      let doneToday = false;
-      try { doneToday = Object.values(JSON.parse(fs.readFileSync(listStateFiles("thepark").stateFile, "utf8"))).includes(today); } catch { /* まだ無い */ }
-      if (doneToday && process.env.PAGE_CACHE_MS !== "0") { console.log(`[cache] ザ・パーク全国 スキップ（今日は全部取れている）`); continue; }
+      let lastDone = null;
+      try { lastDone = Object.values(JSON.parse(fs.readFileSync(listStateFiles("thepark").stateFile, "utf8"))).filter((v) => typeof v === "string").sort().pop() ?? null; } catch { /* まだ無い */ }
+      if (lastDone === today && process.env.PAGE_CACHE_MS !== "0") { console.log(`[cache] ザ・パーク全国 スキップ（今日は全部取れている）`); continue; }
+      const progFile = progressFile("thepark");
+      const prog = readProgress(progFile);
       const statusCounts = makeCounter();
-      const ids = new Set();
-      let pages = null, total = null, hid = 0, stop = null, stopKind = null;
-      for (let n = 0; n < (pages ?? 1) && n < 1000; n++) {
+      const ids = new Set(prog?.ids ?? []);
+      let pages = prog?.pages ?? null, total = prog?.total ?? null, hid = prog?.hidden ?? 0, stop = null, stopKind = null;
+      const startedAt = prog?.startedAt ?? new Date().toISOString();
+      const startPage = prog?.next ?? 0;
+      if (prog) console.log(`[thepark] 前の回の続きから読む: ${startPage + 1}ページ目から（${prog.startedAt} に読み始めた分・${ids.size}物件まで読んである）`);
+      const waits = (process.env.RETRY_WAITS_MS ? process.env.RETRY_WAITS_MS.split(",").map(Number) : config.theparkRetryWaitsMs ?? [30_000, 90_000])
+        .filter((x) => Number.isFinite(x) && x >= 0);
+      const maxSkip = Number(process.env.THEPARK_MAX_SKIP) || 5;
+      const skipped = [...(prog?.skipped ?? [])];
+      let retried = 0, failRun = 0, skippedNow = 0;
+      /** 1ページを読む。5xx・通信の失敗なら待って取り直す。{ page } か { why, kind, transient } */
+      const readPage = async (n, tries = waits.length) => {
         const url = theparkListUrl(n);
-        let res;
-        try { res = await politeFetch(url); } catch (e) { countStatus(statusCounts, null); stop = fetchErrorText(e); stopKind = "network"; break; }
-        countStatus(statusCounts, res);
-        if (!res.ok || res.skippedReason) { stop = res.skippedReason ?? `HTTP ${res.status}`; stopKind = kindOfFetch(res); break; }
-        const page = parseTheparkPage(res.html, { label: "ザ・パーク全国" });
-        if (!page) { stop = `${n + 1}ページ目が一覧の JSON ではない`; stopKind = "parse"; break; }
-        if (pages == null) { pages = page.totalPages; total = page.total; }
-        if (!page.listed) { stop = `${n + 1}ページ目が空（全${pages}ページ）`; stopKind = "parse"; break; }
+        for (let a = 0; ; a++) {
+          let res = null, err = null;
+          try { res = await politeFetch(url); } catch (e) { err = e; }
+          countStatus(statusCounts, res);
+          if (res && res.ok && !res.skippedReason) {
+            const page = parseTheparkPage(res.html, { label: "ザ・パーク全国" });
+            return page ? { page, url } : { why: `${n + 1}ページ目が一覧の JSON ではない`, kind: "parse" };
+          }
+          const transient = !!err || (!res.skippedReason && res.status >= 500);
+          const why = err ? fetchErrorText(err) : res.skippedReason ?? `HTTP ${res.status}`;
+          if (!transient) return { why, kind: kindOfFetch(res) };
+          if (a >= tries) return { why, kind: "network", transient: true };
+          retried++;
+          console.warn(`  ザ・パーク ${n + 1}ページ目: ${why}。${Math.round(waits[a] / 1000)}秒待って取り直す`);
+          await sleep(waits[a]);
+        }
+      };
+      const take = (page, url) => {
         hid += page.hidden;
         const at = new Date().toISOString();
         for (const r of page.records) { if (ids.has(r.parkId)) continue; ids.add(r.parkId); r._requestUrl = url; handleRecord(r, at); }
-        if ((n + 1) % 50 === 0) console.log(`  ザ・パーク ${n + 1}/${pages}ページ（${ids.size}物件）`);
+      };
+      const save = (next) => writeProgress(progFile, { startedAt, next, pages, total, hidden: hid, skipped, ids: [...ids] });
+      let n = startPage;
+      for (; n < (pages ?? n + 1) && n < 1000; n++) {
+        const r = await readPage(n);
+        if (r.page) {
+          failRun = 0;
+          if (pages == null) { pages = r.page.totalPages; total = r.page.total; }
+          if (!r.page.listed) { stop = `${n + 1}ページ目が空（全${pages}ページ）`; stopKind = "parse"; break; }
+          take(r.page, r.url);
+          if ((n + 1) % 50 === 0) { console.log(`  ザ・パーク ${n + 1}/${pages}ページ（${ids.size}物件）`); save(n + 1); }
+          continue;
+        }
+        // 取り直しても 5xx・通信の失敗のページは飛ばす（ページの数が分かっていて、続けて2ページ目でなく、飛ばした数が上限まで）
+        if (r.transient && pages != null && failRun < 1 && skippedNow < maxSkip) {
+          failRun++; skippedNow++; skipped.push(n);
+          console.warn(`  ザ・パーク ${n + 1}ページ目: 取り直しても取れない（${r.why}）。飛ばして先へ進み、最後にもう1回読む`);
+          continue;
+        }
+        stop = `${n + 1}ページ目: ${r.why}`; stopKind = r.kind; break;
       }
-      // 全部取れた回 … 途中で止まらず、載っている件数（total。閉じた物件を除く）とほぼ合う。読んでいる間に物件が増減するとページがずれるので 2% まで許す
+      // 最後まで読んだら、飛ばしたページをもう1回だけ読む（取り直しはしない）
+      if (!stop && skipped.length) {
+        const left = [];
+        for (const k of [...new Set(skipped)].sort((a, b) => a - b)) {
+          const r = await readPage(k, 0);
+          if (r.page) take(r.page, r.url); else left.push(k);
+        }
+        if (left.length) console.warn(`  ザ・パーク: 飛ばしたページのうち ${left.map((k) => k + 1).join("・")}ページ目は最後まで取れなかった`);
+        skipped.length = 0; skipped.push(...left);
+      }
+      if (stop) save(n); else clearProgress(progFile);
+      // 全部取れた回 … 最後のページまで読み、載っている件数（total。閉じた物件を除く）とほぼ合う。読んでいる間に物件が増減するとページがずれる・
+      // 飛ばしたページがあるので 2% まで許す
       const complete = !stop && pages > 0 && ids.size + hid >= total * 0.98;
-      const why = stop ?? (complete ? null : ids.size ? `一覧の${total}件のうち${ids.size}件しか読めなかった` : "0件");
-      if (stop) console.error(`[error] ザ・パーク: ${stop}（${ids.size}物件まで読んだ）`);
-      console.log(`[ok] ザ・パーク全国 | ${ids.size}物件${hid ? `（閉じた・番号の無い${hid}件は記録しない）` : ""}${complete ? "" : "（途中まで）"}`);
-      hp("thepark", "ザ・パーク", complete, ids.size, why, { kind: stopKind ?? "parse", ...(statusCounts.size ? { statusCounts: statusCounts.toJSON() } : {}),
-        ...(hid ? { excluded: hid } : {}) });
+      // 取れなかった回でも、相手先の一時的な不調（5xx・通信の失敗）でこの回にページが進み、2日以内に全部取れているなら、
+      // 続きを次の回に読むだけなので知らせない（ok）。進まない・2日以上全部取れていないときは知らせる
+      const advanced = n > startPage;
+      const recent = !!lastDone && lastDone >= new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
+      const ok = complete || (!!stop && stopKind === "network" && advanced && recent);
+      const why = stop ? `${stop}（${ids.size}物件まで読んだ・続きは次の回に${n + 1}ページ目から）`
+        : complete ? null : ids.size ? `一覧の${total}件のうち${ids.size}件しか読めなかった` : "0件";
+      if (stop) console.error(`[error] ザ・パーク: ${why}`);
+      console.log(`[ok] ザ・パーク全国 | ${ids.size}物件${hid ? `（閉じた・番号の無い${hid}件は記録しない）` : ""}${complete ? "" : "（途中まで）"}`
+        + `${retried ? `・取り直し${retried}回` : ""}${skipped.length ? `・取れなかったページ ${skipped.length}` : ""}`);
+      hp("thepark", "ザ・パーク", ok, ids.size, why, { kind: stopKind ?? "parse", ...(statusCounts.size ? { statusCounts: statusCounts.toJSON() } : {}),
+        ...(hid ? { excluded: hid } : {}), ...(retried ? { retried } : {}), ...(stop ? { resumeAt: n + 1 } : {}) });
       listState("thepark", [...ids], complete);
       continue;
     }
