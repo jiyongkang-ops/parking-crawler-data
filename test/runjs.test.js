@@ -313,7 +313,7 @@ test("通しの巡回の health: 止めている社は paused、1件だけ取る
   const s = runCrawl({ env: { CRAWL_ONLY: "space24,odakyu" } });
   assert.deepEqual(s.calls, []);
   assert.deepEqual(s.health.map((t) => [t.op, t.ok, t.kind]), [["space24", false, "paused"], ["odakyu", false, "paused"]]);
-  const tp = runCrawl({ env: { CRAWL_ONLY: "thepark" }, routes: { "*": { status: 503 } } });
+  const tp = runCrawl({ env: { CRAWL_ONLY: "thepark", THEPARK_MODE: "pages" }, routes: { "*": { status: 503 } } });
   // 5xx は待って2回まで取り直す（2026-11-27）ので、1ページ目に3回送る
   assert.deepEqual([tp.health[0].ok, tp.health[0].kind, tp.health[0].statusCounts], [false, "network", { 503: 3 }]);
   const md = runCrawl({ env: { CRAWL_ONLY: "mden" }, routes: { "*": { status: 200, body: "<html></html>" } } });
