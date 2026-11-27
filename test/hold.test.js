@@ -18,11 +18,13 @@ test("保留中に取れなかった回の理由", () => {
     "保留中（2026-11-24まで）: 相手先が一時停止。様子見の1件も取れなかった（HTTP 403）");
 });
 
-test("設定: 名鉄協商と近鉄不動産に保留があり、止めている社（paused）には無い", async () => {
+test("設定: 近鉄不動産に保留があり、名鉄協商（2026-11-27 外した）と止めている社（paused）には無い", async () => {
   const { config } = await import("../config.js");
   const ts = config.targets ?? config.targetList ?? Object.values(config).find((v) => Array.isArray(v) && v.some((x) => x?.operator));
   const of = (op) => ts.find((x) => x.operator === op);
-  assert.ok(of("mkp").hold && of("kintetsu").hold);
+  assert.ok(of("kintetsu").hold);
+  // 名鉄協商は 10/27 にサイトが再開していて、この巡回だけが断られている（止まっているのではない）ので保留にしない
+  assert.equal(of("mkp").hold, undefined);
   assert.equal(of("space24").hold, undefined);
   assert.equal(of("odakyu").hold, undefined);
 });
