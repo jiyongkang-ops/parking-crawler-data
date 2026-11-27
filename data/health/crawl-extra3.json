@@ -1,5 +1,5 @@
 {
- "at": "2026-11-27T10:24:48.004Z",
+ "at": "2026-11-27T22:25:22.930Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark,dparking",
  "targets": [
@@ -14,21 +14,21 @@
    "statusCounts": {
     "200": 200
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "anabuki",
    "label": "あなぶきパーク",
    "ok": true,
-   "n": 397,
+   "n": 396,
    "reason": null,
    "tried": 400,
    "noName": 0,
    "statusCounts": {
-    "200": 397,
-    "404": 3
+    "200": 396,
+    "404": 4
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "mden",
@@ -39,7 +39,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "kintetsu",
@@ -65,7 +65,7 @@
    "statusCounts": {
     "200": 110
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "seiwapark",
@@ -78,20 +78,20 @@
    "statusCounts": {
     "200": 345
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "systempark",
    "label": "システムパーク",
    "ok": true,
-   "n": 292,
+   "n": 294,
    "reason": null,
-   "tried": 292,
-   "noName": 0,
+   "tried": 295,
+   "noName": 1,
    "statusCounts": {
-    "200": 292
+    "200": 295
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "comnet",
@@ -104,7 +104,7 @@
    "statusCounts": {
     "200": 197
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "keio",
@@ -117,7 +117,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "odakyu",
@@ -131,15 +131,15 @@
    "op": "carmax",
    "label": "東洋カーマックス",
    "ok": true,
-   "n": 278,
+   "n": 370,
    "reason": null,
    "tried": 400,
    "noName": 0,
-   "excluded": 122,
+   "excluded": 30,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "maypark",
@@ -151,7 +151,7 @@
     "200": 1
    },
    "excluded": 60,
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "dparking",
@@ -159,11 +159,8 @@
    "ok": true,
    "n": 3729,
    "reason": null,
-   "statusCounts": {
-    "200": 1
-   },
-   "excluded": 4690,
-   "lastOkAt": "2026-11-27T10:24:48.004Z"
+   "cached": "2026-11-27T10:24:47.942Z",
+   "lastOkAt": "2026-11-27T22:25:22.930Z"
   }
  ]
 }
