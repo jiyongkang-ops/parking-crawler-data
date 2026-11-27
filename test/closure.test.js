@@ -42,7 +42,7 @@ function runCrawl({ env = {}, routes = {}, files = {}, dir = tmp(), status = 0 }
   fs.writeFileSync(preload, `
 import fs from "node:fs";
 import { config } from ${JSON.stringify(pathToFileURL(path.join(ROOT, "config.js")).href)};
-config.minDelayMs = 0; config.timesMinDelayMs = 0; config.mkpMinDelayMs = 0; config.theparkRetryWaitsMs = [0, 0];
+config.minDelayMs = 0; config.timesMinDelayMs = 0; config.mkpMinDelayMs = 0; config.theparkRetryWaitsMs = [0, 0]; config.trustparkMinDelayMs = 0;
 const routes = JSON.parse(fs.readFileSync(${JSON.stringify(routesFile)}, "utf8"));
 globalThis.fetch = async function stub(url, opts) {
   const u = String(url);
@@ -201,7 +201,7 @@ test("通しの巡回（ザ・パーク）: ページを順に読む。前の番
   const ids = Array.from({ length: 25 }, (_, i) => i + 1);
   // 前のサイトの番号（99）は一覧に無いので前の日付のまま
   const files = { "data/thepark-crawl-state.json": JSON.stringify({ 99: "2026-09-01" }), "data/thepark-ids.txt": "99\n" };
-  const r = runCrawl({ env: { CRAWL_ONLY: "thepark" }, files, routes: tpRoutes(ids) });
+  const r = runCrawl({ env: { THEPARK_MODE: "pages", CRAWL_ONLY: "thepark" }, files, routes: tpRoutes(ids) });
   assert.deepEqual([r.health[0].ok, r.health[0].n], [true, 25]);
   assert.deepEqual(r.calls.filter((u) => u.includes("/proxy/")), [0, 1, 2].map((n) => theparkUrl(n)));
   const today = new Date().toISOString().slice(0, 10);
@@ -211,30 +211,30 @@ test("通しの巡回（ザ・パーク）: ページを順に読む。前の番
   assert.equal(Object.keys(st).length, 26);
   const before = fs.readFileSync(path.join(r.dir, "data/thepark-crawl-state.json"), "utf8");
   // 同じ日の次の回は取りに行かない（ページのキャッシュを切った回は取りに行く）
-  const rc = runCrawl({ env: { CRAWL_ONLY: "thepark", PAGE_CACHE_MS: "21600000" }, dir: r.dir, routes: tpRoutes(ids) });
+  const rc = runCrawl({ env: { THEPARK_MODE: "pages", CRAWL_ONLY: "thepark", PAGE_CACHE_MS: "21600000" }, dir: r.dir, routes: tpRoutes(ids) });
   assert.equal(rc.calls.filter((u) => u.includes("/proxy/")).length, 0);
   assert.match(rc.log, /\[cache\] ザ・パーク全国/);
   // 2ページ目がずっと 500 → 2回取り直し、飛ばして先へ。最後にもう1回読んでもだめ。15件しか読めないので物件ごとの記録はそのまま
   // （2026-11-27 まではここで止めて、次の回はまた1ページ目からだった）
   const progress = path.join(r.dir, "data/thepark-list-progress.json");
-  const r2 = runCrawl({ env: { CRAWL_ONLY: "thepark" }, dir: r.dir, routes: { ...tpRoutes(ids), [theparkUrl(1)]: { status: 500 } } });
+  const r2 = runCrawl({ env: { THEPARK_MODE: "pages", CRAWL_ONLY: "thepark" }, dir: r.dir, routes: { ...tpRoutes(ids), [theparkUrl(1)]: { status: 500 } } });
   assert.deepEqual([r2.health[0].ok, r2.health[0].n], [false, 15]);
   assert.match(r2.health[0].reason, /一覧の25件のうち15件しか読めなかった/);
   assert.deepEqual(r2.calls.filter((u) => u.includes("/proxy/")), [0, 1, 1, 1, 2, 1].map((n) => theparkUrl(n)));
   assert.equal(fs.readFileSync(path.join(r.dir, "data/thepark-crawl-state.json"), "utf8"), before);
   assert.equal(fs.existsSync(progress), false);   // 最後まで読んだ回は続きを残さない
   // 前のサイトのように 404 の画面（JSON でない 200）が返る → 取れていないと知らせる
-  const r4 = runCrawl({ env: { CRAWL_ONLY: "thepark" }, dir: r.dir, routes: { [theparkUrl(0)]: { status: 200, body: "<html>404</html>" } } });
+  const r4 = runCrawl({ env: { THEPARK_MODE: "pages", CRAWL_ONLY: "thepark" }, dir: r.dir, routes: { [theparkUrl(0)]: { status: 200, body: "<html>404</html>" } } });
   assert.deepEqual([r4.health[0].ok, r4.health[0].n, r4.health[0].kind], [false, 0, "parse"]);
   assert.equal(fs.readFileSync(path.join(r.dir, "data/thepark-crawl-state.json"), "utf8"), before);
   fs.rmSync(progress, { force: true });   // 下の回は1ページ目から読ませる
   // 一覧が言う件数（25）より読めた件数がずっと少ない（途中のページが空）→ 書かない
-  const r5 = runCrawl({ env: { CRAWL_ONLY: "thepark" }, dir: r.dir, routes: tpRoutes(ids.slice(0, 10), 25) });
+  const r5 = runCrawl({ env: { THEPARK_MODE: "pages", CRAWL_ONLY: "thepark" }, dir: r.dir, routes: tpRoutes(ids.slice(0, 10), 25) });
   fs.rmSync(progress, { force: true });
   assert.equal(r5.health[0].ok, false);
   assert.equal(fs.readFileSync(path.join(r.dir, "data/thepark-crawl-state.json"), "utf8"), before);
   // 一覧が半分に減った回は書かず、health で知らせる
-  const r3 = runCrawl({ env: { CRAWL_ONLY: "thepark" }, dir: r.dir, routes: tpRoutes(ids.slice(0, 10)) });
+  const r3 = runCrawl({ env: { THEPARK_MODE: "pages", CRAWL_ONLY: "thepark" }, dir: r.dir, routes: tpRoutes(ids.slice(0, 10)) });
   assert.deepEqual([r3.health[0].ok, r3.health[0].kind, r3.health[0].list], [false, "stale-list", { n: 10, prev: 25 }]);
   assert.equal(fs.readFileSync(path.join(r.dir, "data/thepark-crawl-state.json"), "utf8"), before);
 });

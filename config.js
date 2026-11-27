@@ -98,6 +98,13 @@ export const config = {
     { operator: "carmax", mode: "nationwide", label: "東洋カーマックス" },
     // MAYパーク（日本メカトロニクス）— 1ページ（Shift_JIS）に名古屋中心の193区画。駐輪場・月極専用を除く約130件を毎回1リクエストで
     { operator: "maypark", mode: "nationwide", label: "MAYパーク" },
+    // Dパーキング（大和ハウスパーキング）— 地図のページが読む1ファイル（約53MB）に全物件。週1回だけ読み、画面に出ている
+    // 名前・住所・位置だけを記録する（料金・台数は画面に出していないので記録しない。2026-11-27 本人「画面に出ている項目だけ取る」）。
+    // robots.txt は無い・免責事項に自動収集の禁止は無い（2026-11-27 確認）。crawl-extra3.yml に相乗り
+    { operator: "dparking", mode: "nationwide", label: "Dパーキング全国" },
+    // トラストパーク — トラストナビ（tpnavi.com）の物件ページ 約1,030件を sitemap から列挙・ローリング巡回（2026-11-27 本人「トラストパークも作って」）。
+    // robots.txt は Googlebot 向けの決まりだけで Disallow は空。crawl-extra2.yml に相乗り（1日2回）
+    { operator: "trustpark", mode: "nationwide", label: "トラストパーク全国" },
 
     // ザ・パーク(第一興商) — 一覧のページ（1ページ10件・約440ページ）を番号の順に読む。全部取れた日は、その日の残りの回では読まない（2026-11-13 サイトの作り直しに合わせた）
     // ※別ワークフロー(crawl-others.yml に相乗り, CRAWL_ONLY に thepark を追加)で実行。
@@ -178,6 +185,9 @@ export const config = {
   // 2026-11 追加分（crawl-extra2.yml・1日2回）。SANパークは時間貸し 約1,000件を1回250件（4秒間隔で約17分）。
   // 1日2回で約500件 → 約2日で1巡。一覧（約132リクエスト・約9分）は7日ごとに作り直す
   sanparkRollingPerRun: 250,
+  // トラストパーク（2026-11-27）。約1,030件を1回260件・5秒おき（約22分）。1日2回で約520件 → 約2日で1巡。sitemap は7日ごとに読み直す
+  trustparkRollingPerRun: 260,
+  trustparkMinDelayMs: 5000,
   // 東洋カーマックス（2026-11-02）。crawl-extra3.yml は1日2回（5・17時）・巡回の手順は340分まで。
   // 今の extra3 は1回あたり最大でも約1,950件（4秒おきで約130分）なので、400件（約27分）足しても時間に余裕がある。
   // 予算（ROLLING_BUDGET_MIN 既定45分）にも収まる。約1,130件を1日800件で、約1.4日で1巡。小さな会社のサイトなので1回400件に抑える
