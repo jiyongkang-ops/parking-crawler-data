@@ -1,6 +1,7 @@
 // run.js を別のプロセスで通しで動かす道具（test/runjs.test.js・crawl-core.test.js と同じ作り。2026-11-02 に新しい2社のテスト用に切り出した）。
 // fetch は routes で差し替え、呼んだ URL を控える。事業者サイトには繋がない。
-//   routes の値: { status, body, location } か { throw: "ECONNREFUSED" }。"*robots" は robots.txt の既定、"*" はほかの既定
+//   routes の値: { status, body, location } か { throw: "ECONNREFUSED" }。"*robots" は robots.txt の既定、"*" はほかの既定。
+//   配列にすると、その URL が呼ばれた順に答える（使い切ったら最後の答え。取り直しのテスト用）
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -24,12 +25,15 @@ export function runCrawl({ env = {}, routes = {}, files = {}, dir = fs.mkdtempSy
   fs.writeFileSync(preload, `
 import fs from "node:fs";
 import { config } from ${JSON.stringify(pathToFileURL(path.join(ROOT, "config.js")).href)};
-config.minDelayMs = 0; config.timesMinDelayMs = 0;
+config.minDelayMs = 0; config.timesMinDelayMs = 0; config.mkpMinDelayMs = 0; config.theparkRetryWaitsMs = [0, 0];
 const routes = JSON.parse(fs.readFileSync(${JSON.stringify(routesFile)}, "utf8"));
+const seen = new Map();
 globalThis.fetch = async function stub(url, opts) {
   const u = String(url);
   fs.appendFileSync(${JSON.stringify(callsFile)}, u + "\\n");
   let r = routes[u];
+  // 配列なら、呼ばれた順にその答え（使い切ったら最後の答えのまま）
+  if (Array.isArray(r)) { const i = seen.get(u) ?? 0; seen.set(u, i + 1); r = r[Math.min(i, r.length - 1)]; }
   if (r === undefined) r = u.endsWith("/robots.txt") ? (routes["*robots"] ?? { status: 404 }) : (routes["*"] ?? { status: 404 });
   if (r.throw) { const e = new TypeError("fetch failed"); e.cause = { code: r.throw }; throw e; }
   return { ok: r.status >= 200 && r.status < 300, status: r.status, text: async () => r.body ?? "",
