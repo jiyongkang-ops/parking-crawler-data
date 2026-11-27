@@ -1,16 +1,21 @@
 {
- "at": "2026-11-27T07:10:02.072Z",
+ "at": "2026-11-27T13:36:17.263Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
   {
    "op": "mkp",
    "label": "名鉄協商",
-   "ok": false,
-   "n": 0,
-   "reason": "一覧: mkp sitemap: robots.txt が HTTP 403（断られている）",
-   "kind": "blocked",
-   "lastOkAt": "2026-11-21T07:55:00.184Z"
+   "ok": true,
+   "n": 78,
+   "reason": null,
+   "tried": 200,
+   "noName": 0,
+   "statusCounts": {
+    "200": 78,
+    "302": 122
+   },
+   "lastOkAt": "2026-11-27T13:36:17.263Z"
   }
  ]
 }
