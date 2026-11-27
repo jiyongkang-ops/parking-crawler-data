@@ -18,6 +18,27 @@ export function listUrl(n = 0) {
   return `${LIST_API}?number=${n}`;
 }
 
+// 地図の口（2026-11-27 本人「ザ・パークの地図用の口も作って」）。駐車場を探すページの地図が使う
+// GET /proxy/parkings/hourly/map?topLeftLatitude=…&topLeftLongitude=…&bottomRightLatitude=…&bottomRightLongitude=…
+// （/hourly/search のページと /js/common-parking.js で確かめた）。範囲の中の駐車場を、範囲の真ん中に近い順に最大100件、配列で返す。
+// 各件は一覧の口と同じ項目（facility_id・住所・緯度経度・台数・fee_info など）。100件返った範囲を4つに分けて読み直すと、
+// 全国 約230回で全件になる（一覧の口は約440ページ）。緊急連絡先などの項目も入っているが、記録には入れない（下の recordOf）
+const MAP_API = "https://www.dkparking.com/proxy/parkings/hourly/map";
+/** 地図の口が1回に返す件数の上限。これだけ返った範囲は、まだ中に駐車場が残っているかもしれないので4つに分ける */
+export const MAP_CAP = 100;
+/** 日本全体の範囲（北・西・南・東）。ここから分けていく */
+export const JAPAN_BOX = [46, 122, 20, 154];
+const r6 = (x) => Math.round(x * 1e6) / 1e6;
+/** 範囲 [北, 西, 南, 東] の地図の口の URL */
+export function mapUrl([n, w, s, e]) {
+  return `${MAP_API}?topLeftLatitude=${r6(n)}&topLeftLongitude=${r6(w)}&bottomRightLatitude=${r6(s)}&bottomRightLongitude=${r6(e)}`;
+}
+/** 範囲を4つに分ける（北西・北東・南西・南東） */
+export function splitBox([n, w, s, e]) {
+  const mLat = (n + s) / 2, mLng = (w + e) / 2;
+  return [[n, w, mLat, mLng], [n, mLng, mLat, e], [mLat, w, s, mLng], [mLat, mLng, s, e]];
+}
+
 // 記録の読み方の版。読み方を変えたら上げる（分析側は版が変わった回を料金改定にしない）
 //   2 … 2026-11-08 単価の読み違いを直した（下の parsePrice）
 //   3 … 2026-11-13 作り直されたサイトに合わせた（番号は facility_id・料金は fee_info の文・名前に「ザ・パーク」が付く）
@@ -120,6 +141,31 @@ function hidden(p, today) {
   return !!c && /^\d{4}-\d{2}-\d{2}$/.test(c) && c <= today;
 }
 
+/** 駐車場1件（一覧の口・地図の口の data の1件）→ 記録。閉じた・サイトに出さない・番号の無い物件は null。
+ *  記録に入れるのは名前・住所・座標・台数・営業時間・料金だけ（地図の口にある緊急連絡先などは入れない） */
+export function recordOf(p, { label, today }) {
+  const parkId = String(p?.facility_id ?? "").trim();
+  if (!parkId || hidden(p, today)) return null;
+  const { unitCharges, maxFees } = parseFeeInfo(p.fee_info);
+  const from = hm(p.business_hours_from), to = hm(p.business_hours_to);
+  return {
+    operator: "thepark",
+    parkId,
+    label: label ?? null,
+    // 前のサイトは頭の「ザ・パーク」を付けていなかった。前の記録と同じ名前にそろえる（分析側が同じ名前・100m以内を同じ駐車場とみなす）
+    name: String(p.name ?? "").replace(/^ザ・パーク[\s　]*/, "").trim() || null,
+    address: [p.prefecture_name, p.city_name, p.address1, p.address2, p.address3].map((x) => String(x ?? "").trim()).filter(Boolean).join("") || null,
+    lat: num(p.latitude),
+    lng: num(p.longitude),
+    capacity: num(p.parking_lot_capacity),
+    openingHours: p.is_available_24h === true ? "24時間" : from && to ? `${from}-${to}` : null,
+    unitCharges,
+    maxFees,
+    parseV: PARSE_VERSION,
+    sourceUrl: p.prefecture_latin && p.city_code ? `${SITE}/hourly/${p.prefecture_latin}/${p.city_code}/${parkId}` : `${SITE}/hourly`,
+  };
+}
+
 /** 一覧の1ページ（JSON の文字列かオブジェクト）→ { records, listed, hidden, totalPages, total }。JSON でない・形が違うときは null
  *  listed … そのページに載っていた件数（閉じた・番号の無いものも含む）。0 なら最後のページを過ぎている */
 export function parseTheparkPage(body, { label, today = new Date().toISOString().slice(0, 10) } = {}) {
@@ -128,28 +174,19 @@ export function parseTheparkPage(body, { label, today = new Date().toISOString()
   if (!j || typeof j !== "object" || !Array.isArray(j.data) || !j.pagination || typeof j.pagination !== "object") return null;
   const records = [];
   let hid = 0;
-  for (const p of j.data) {
-    const parkId = String(p?.facility_id ?? "").trim();
-    if (!parkId || hidden(p, today)) { hid++; continue; }
-    const { unitCharges, maxFees } = parseFeeInfo(p.fee_info);
-    const from = hm(p.business_hours_from), to = hm(p.business_hours_to);
-    records.push({
-      operator: "thepark",
-      parkId,
-      label: label ?? null,
-      // 前のサイトは頭の「ザ・パーク」を付けていなかった。前の記録と同じ名前にそろえる（分析側が同じ名前・100m以内を同じ駐車場とみなす）
-      name: String(p.name ?? "").replace(/^ザ・パーク[\s　]*/, "").trim() || null,
-      address: [p.prefecture_name, p.city_name, p.address1, p.address2, p.address3].map((x) => String(x ?? "").trim()).filter(Boolean).join("") || null,
-      lat: num(p.latitude),
-      lng: num(p.longitude),
-      capacity: num(p.parking_lot_capacity),
-      openingHours: p.is_available_24h === true ? "24時間" : from && to ? `${from}-${to}` : null,
-      unitCharges,
-      maxFees,
-      parseV: PARSE_VERSION,
-      sourceUrl: p.prefecture_latin && p.city_code ? `${SITE}/hourly/${p.prefecture_latin}/${p.city_code}/${parkId}` : `${SITE}/hourly`,
-    });
-  }
+  for (const p of j.data) { const r = recordOf(p, { label, today }); if (r) records.push(r); else hid++; }
   return { records, listed: j.data.length, hidden: hid,
     totalPages: Number(j.pagination.total_pages) || 0, total: Number(j.pagination.total_elements) || 0 };
+}
+
+/** 地図の口の答え（駐車場の配列。{ data: [...] } の形でもよい）→ { records, listed, hidden }。JSON でない・形が違うときは null */
+export function parseTheparkMap(body, { label, today = new Date().toISOString().slice(0, 10) } = {}) {
+  let j;
+  try { j = typeof body === "string" ? JSON.parse(body) : body; } catch { return null; }
+  const rows = Array.isArray(j) ? j : Array.isArray(j?.data) ? j.data : null;
+  if (!rows) return null;
+  const records = [];
+  let hid = 0;
+  for (const p of rows) { const r = recordOf(p, { label, today }); if (r) records.push(r); else hid++; }
+  return { records, listed: rows.length, hidden: hid };
 }

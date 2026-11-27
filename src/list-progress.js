@@ -27,15 +27,25 @@ export function readProgress(file, now = Date.now()) {
     startedAt: j.startedAt, next: j.next,
     ids: j.ids.map(String), pages: Number(j.pages) || null, total: Number(j.total) || null,
     hidden: Number(j.hidden) || 0, skipped: Array.isArray(j.skipped) ? j.skipped.filter(Number.isInteger) : [],
+    // 地図の口で読むとき（ザ・パーク。2026-11-27）: mode "map"・まだ読んでいない範囲（queue）・取れなかった範囲（skippedBoxes）。
+    // 範囲は [北, 西, 南, 東]
+    mode: typeof j.mode === "string" ? j.mode : "pages",
+    queue: Array.isArray(j.queue) ? j.queue.filter(isBox) : [],
+    skippedBoxes: Array.isArray(j.skippedBoxes) ? j.skippedBoxes.filter(isBox) : [],
   };
 }
+
+const isBox = (b) => Array.isArray(b) && b.length === 4 && b.every((x) => Number.isFinite(x));
 
 /** 続きを書く。ids は番号の順に並べる（同じ中身なら同じファイル） */
 export function writeProgress(file, p) {
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   writeFileAtomic(file, JSON.stringify({
-    startedAt: p.startedAt, next: p.next, pages: p.pages ?? null, total: p.total ?? null, hidden: p.hidden ?? 0,
-    skipped: [...new Set(p.skipped ?? [])].sort((a, b) => a - b), ids: [...new Set(p.ids)].sort(),
+    startedAt: p.startedAt, ...(p.mode && p.mode !== "pages" ? { mode: p.mode } : {}),
+    next: p.next, pages: p.pages ?? null, total: p.total ?? null, hidden: p.hidden ?? 0,
+    skipped: [...new Set(p.skipped ?? [])].sort((a, b) => a - b),
+    ...(p.queue ? { queue: p.queue } : {}), ...(p.skippedBoxes ? { skippedBoxes: p.skippedBoxes } : {}),
+    ids: [...new Set(p.ids)].sort(),
   }));
 }
 
