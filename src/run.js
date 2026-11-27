@@ -62,6 +62,15 @@ import { detailUrl as keioUrl, parseKeioDetail } from "./keio.js";
 import { getAllKeioIds } from "./keio-enumerate.js";
 import { detailUrl as trustparkUrl, parseTrustparkDetail } from "./trustpark.js";
 import { getAllTrustparkIds } from "./trustpark-enumerate.js";
+// 2026-11-27 本人「作れるものは全部作って」で足した8社（読み方は各ファイルの頭の説明。料金の文は src/fee-rows.js）
+import { getAllCoinparkUrls, parseCoinparkDetail } from "./coinpark.js";
+import { getAllParkjapanIds, detailUrl as parkjapanUrl, parseParkjapanDetail } from "./parkjapan.js";
+import { getAllFruitIds, detailUrl as fruitUrl, parseFruitDetail } from "./fruitpark.js";
+import { getAllIzumiUrls, parseIzumiDetail } from "./izumipark.js";
+import { getAllTobuIds, detailUrl as tobuUrl, parseTobuDetail } from "./tobupark.js";
+import { getAllYoursIds, detailUrl as yoursUrl, parseYoursDetail } from "./yourspark.js";
+import { getAllKeiseiUrls, parseKeiseiDetail } from "./keiseipark.js";
+import { getAllPark1stUrls, parsePark1stDetail } from "./park1st.js";
 import { detailUrl as showaparkUrl, parseShowaparkDetail } from "./showapark.js";
 import { getAllShowaparkIds } from "./showapark-enumerate.js";
 import { detailUrl as yparkUrl, parseYparkDetail, yparkListRecords } from "./ypark.js";
@@ -201,6 +210,34 @@ const ROLLING_SITES = [
   { op: "trustpark", label: "トラストパーク", enumerate: getAllTrustparkIds, detailUrl: trustparkUrl, parse: parseTrustparkDetail,
     idsCache: "data/trustpark-ids.txt", stateFile: "data/trustpark-crawl-state.json", defaultPerRun: 260,
     minDelay: config.trustparkMinDelayMs ?? 5000 },
+  // 2026-11-27 追加の8社（本人「作れるものは全部作って」）。どれも robots.txt は管理画面などだけの禁止（パークジャパンは /test など数か所）。
+  // 番号が URL そのもの（keyName "url"）の社は、物件ページの URL に物件名が入っている（コインパーク・いずみ）か、番号だけの URL が無い社（京成・Park1st.）。
+  // crawl-extra.yml（JST 11・23時）: コインパーク・パークジャパン・TOBU PARK。crawl-extra2.yml（JST 2・14時）: 残りの5社
+  // コインパーク: sitemap に約1,820件。ページが約600KB と重いので1回300件・6秒おき（1回 約30分。1日2回で約3日で1巡）
+  { op: "coinpark", label: "コインパーク", enumerate: getAllCoinparkUrls, detailUrl: (u) => u, parse: parseCoinparkDetail,
+    idsCache: "data/coinpark-ids.txt", stateFile: "data/coinpark-crawl-state.json", defaultPerRun: 300, keyName: "url",
+    minDelay: config.coinparkMinDelayMs ?? 6000 },
+  // パークジャパン: 一覧1ページに約825件（位置は一覧の地図から。詳細には位置が無い）
+  { op: "parkjapan", label: "パークジャパン", enumerate: getAllParkjapanIds, detailUrl: parkjapanUrl, parse: parseParkjapanDetail,
+    idsCache: "data/parkjapan-ids.txt", stateFile: "data/parkjapan-crawl-state.json", defaultPerRun: 300 },
+  // TOBU PARK: sitemap に約820件（月極・駐輪場は skip で寝かせる）
+  { op: "tobupark", label: "TOBU PARK", enumerate: getAllTobuIds, detailUrl: tobuUrl, parse: parseTobuDetail,
+    idsCache: "data/tobupark-ids.txt", stateFile: "data/tobupark-crawl-state.json", defaultPerRun: 300 },
+  // フルーツパーク: sitemap に約500件
+  { op: "fruitpark", label: "フルーツパーク", enumerate: getAllFruitIds, detailUrl: fruitUrl, parse: parseFruitDetail,
+    idsCache: "data/fruitpark-ids.txt", stateFile: "data/fruitpark-crawl-state.json", defaultPerRun: 250 },
+  // いずみパーキング: sitemap に約360件（月極・来客用は skip）
+  { op: "izumipark", label: "いずみパーキング", enumerate: getAllIzumiUrls, detailUrl: (u) => u, parse: parseIzumiDetail,
+    idsCache: "data/izumipark-ids.txt", stateFile: "data/izumipark-crawl-state.json", defaultPerRun: 180, keyName: "url" },
+  // ユアーズパーキング: 一覧 約14ページ・約276件
+  { op: "yourspark", label: "ユアーズパーキング", enumerate: getAllYoursIds, detailUrl: yoursUrl, parse: parseYoursDetail,
+    idsCache: "data/yourspark-ids.txt", stateFile: "data/yourspark-crawl-state.json", defaultPerRun: 140 },
+  // 京成パーク: sitemap の時間貸し 約85件
+  { op: "keiseipark", label: "京成パーク", enumerate: getAllKeiseiUrls, detailUrl: (u) => u, parse: parseKeiseiDetail,
+    idsCache: "data/keiseipark-ids.txt", stateFile: "data/keiseipark-crawl-state.json", defaultPerRun: 90, keyName: "url" },
+  // Park1st.: 町の一覧 約42ページ（週1回）→ 物件の詳細
+  { op: "park1st", label: "Park1st.", enumerate: getAllPark1stUrls, detailUrl: (u) => u, parse: parsePark1stDetail,
+    idsCache: "data/park1st-ids.txt", stateFile: "data/park1st-crawl-state.json", defaultPerRun: 80, keyName: "url" },
   // 2026-11-02 追加（crawl-extra.yml）。ユアー・パーキングは料金を JSON（setparkinfo）で読むので、parse には JSON の文字列が届く
   { op: "showapark", label: "ショウワパーク", enumerate: getAllShowaparkIds, detailUrl: showaparkUrl, parse: parseShowaparkDetail,
     idsCache: "data/showapark-ids.txt", stateFile: "data/showapark-crawl-state.json", defaultPerRun: 300 },
