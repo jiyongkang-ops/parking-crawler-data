@@ -1,34 +1,32 @@
 {
- "at": "2026-11-27T22:25:22.930Z",
+ "at": "2026-11-28T09:50:16.274Z",
  "workflow": "crawl-extra3",
  "only": "tamapark,anabuki,mden,kintetsu,tokyulifia,seiwapark,systempark,comnet,keio,odakyu,carmax,maypark,dparking",
  "targets": [
   {
    "op": "tamapark",
    "label": "タマパーク",
-   "ok": true,
-   "n": 200,
-   "reason": null,
-   "tried": 200,
+   "ok": false,
+   "n": 0,
+   "reason": "robots.txt に届かない（相手先の障害の可能性）のでこの回は見送り（fetch failed（EAI_AGAIN））",
+   "kind": "network",
+   "tried": 0,
    "noName": 0,
-   "statusCounts": {
-    "200": 200
-   },
+   "statusCounts": {},
    "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
   {
    "op": "anabuki",
    "label": "あなぶきパーク",
    "ok": true,
-   "n": 396,
+   "n": 400,
    "reason": null,
    "tried": 400,
    "noName": 0,
    "statusCounts": {
-    "200": 396,
-    "404": 4
+    "200": 400
    },
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "mden",
@@ -39,7 +37,7 @@
    "statusCounts": {
     "200": 1
    },
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "kintetsu",
@@ -65,18 +63,19 @@
    "statusCounts": {
     "200": 110
    },
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "seiwapark",
    "label": "セイワパーク",
-   "ok": true,
-   "n": 345,
-   "reason": null,
-   "tried": 345,
+   "ok": false,
+   "n": 0,
+   "reason": "違う物件のページが5件続けて同じ名前（「セイワパーク株式会社」）で、料金が読めない。告知かページの作りの変更の見込み。この回は止め、料金の読めなかった5件は行を書かずに次の回に取り直す",
+   "kind": "parse",
+   "tried": 5,
    "noName": 0,
    "statusCounts": {
-    "200": 345
+    "200": 5
    },
    "lastOkAt": "2026-11-27T22:25:22.930Z"
   },
@@ -86,12 +85,12 @@
    "ok": true,
    "n": 294,
    "reason": null,
-   "tried": 295,
-   "noName": 1,
+   "tried": 294,
+   "noName": 0,
    "statusCounts": {
-    "200": 295
+    "200": 294
    },
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "comnet",
@@ -104,7 +103,7 @@
    "statusCounts": {
     "200": 197
    },
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "keio",
@@ -117,7 +116,7 @@
    "statusCounts": {
     "200": 69
    },
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "odakyu",
@@ -131,15 +130,15 @@
    "op": "carmax",
    "label": "東洋カーマックス",
    "ok": true,
-   "n": 370,
+   "n": 309,
    "reason": null,
    "tried": 400,
    "noName": 0,
-   "excluded": 30,
+   "excluded": 91,
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "maypark",
@@ -151,7 +150,7 @@
     "200": 1
    },
    "excluded": 60,
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   },
   {
    "op": "dparking",
@@ -160,7 +159,7 @@
    "n": 3729,
    "reason": null,
    "cached": "2026-11-27T10:24:47.942Z",
-   "lastOkAt": "2026-11-27T22:25:22.930Z"
+   "lastOkAt": "2026-11-28T09:50:16.274Z"
   }
  ]
 }
