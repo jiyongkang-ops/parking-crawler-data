@@ -156,6 +156,7 @@ jobs:
   #   crawl-ecolo.yml      1・13・19時         もとは "0 4,10,16"    = 13:00・19:00・1:00
   #   crawl-extra2.yml     2・14時             もとは "30 5,17"      = 14:30・2:30
   #   crawl-extra3.yml     5・17時             もとは "30 8,20"      = 17:30・5:30
+  #   crawl-tokyo.yml      0・12時             2026-11-28 新設（日本の外からつながらない社を Google Cloud の東京で取る。cron は初めから無い）
   #   crawl-carshares.yml  3時                 もとは "0 18"         = 3:00（1巡が終わって7日たつまでは何もせず終わる）
   #   publish.yml          6時                 もとは "40 21"        = 6:40（studio-data の7:30より前にするため、7時ではなく6時）
   #   crawl-times.yml      1日3回・日ごとにずらす（下の times_hours。2026-10-17〜の時間割のまま）
@@ -213,6 +214,7 @@ jobs:
           crawl-ecolo.yml 1 13 19
           crawl-extra2.yml 2 14
           crawl-extra3.yml 5 17
+          crawl-tokyo.yml 0 12
           crawl-carshares.yml 3
           publish.yml 6'
           # 起動されなかった回を、何時間あとまで取り戻すか（同じワークフローの回と回の間＝6時間以上より短くする）
