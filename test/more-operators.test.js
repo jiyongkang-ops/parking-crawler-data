@@ -160,3 +160,24 @@ test("通しの巡回: 8社とも一覧から物件ページを読み、記録�
   // パークジャパンの位置は一覧の地図から詳細の記録に渡る
   assert.ok(r.rows.filter((x) => x.operator === "parkjapan").some((x) => x.lat > 30 && x.lng > 130));
 });
+
+// 2026-11-28 東京から取った初回で見つかった読み違い（本人「東京からとって」のあとの点検）
+test("パークジャパン: 金額が文字の飾りの区切りをまたいでいても（「最大料金3</span><span>00円」）0円と読まない", () => {
+  const a = parseParkjapanDetail(fx("parkjapan-1000604.html"), { id: "1000604" });
+  assert.deepEqual(maxes(a), ["全日 20:00-8:00 最大=300", "全日 最大料金24時間=550"]);
+  const b = parseParkjapanDetail(fx("parkjapan-1001314.html"), { id: "1001314" });
+  assert.deepEqual(units(b), ["全日 8:00-20:00 20分200", "全日 20:00-8:00 60分100"]);
+  assert.deepEqual(maxes(b), ["全日 20:00-8:00 最大=300", "全日 最大料金24時間=800", "全日 最大料金24時間=700"]);   // 車室で違う24時間最大は両方
+  // 時刻の後ろの区切りは詰めない（「8:00</span><span>200円」を 8:00200円 にしない）
+  assert.deepEqual(linesOf("<span>8:00～20:00</span><span>200円/60分</span><br><span>最大料金3</span><span style=\"x\">00円</span>"),
+    ["8:00~20:00 200円/60分", "最大料金300円"]);
+});
+
+test("Park1st.: 月極の段（月額・保証金）は読まない。保証金を最大料金にしない", () => {
+  const a = parsePark1stDetail(fx("park1st-125.html"), { url: "https://park1st.jp/system/Parkings/detail/125/1/1/x/y/z" });
+  assert.deepEqual(units(a), ["全日 8:00-21:00 60分200", "全日 21:00-8:00 60分100"]);
+  assert.deepEqual(maxes(a), ["全日 12時間毎最大=800"]);
+  const b = parsePark1stDetail(fx("park1st-84.html"), { url: "https://park1st.jp/system/Parkings/detail/84/1/1/x/y/z" });
+  assert.deepEqual(maxes(b), ["全日 当日最大=1000"]);
+  assert.ok(![...a.maxFees, ...b.maxFees].some((m) => m.amountYen >= 10000));
+});

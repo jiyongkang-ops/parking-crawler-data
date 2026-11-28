@@ -69,7 +69,11 @@ export function feeFromLines(lines, { scope: scope0 = "全日", section = null }
 
 /** HTML の料金の欄を行に分ける（<br>・<p>・<li>・改行） */
 export function linesOf(html) {
-  return String(html ?? "").replace(/<!--[\s\S]*?-->/g, " ").split(/<br\s*\/?>|<\/p>|<\/li>|<\/div>|\r?\n/i).map((x) => strip(x)).filter(Boolean);
+  return String(html ?? "").replace(/<!--[\s\S]*?-->/g, " ")
+    // 金額が文字の飾りの区切りをまたいでいる（「最大料金3</span><span>00円」。パークジャパン 2026-11-28）。区切りを空白にすると「00円」＝0円と読むので、
+    // 数字と「数字…円」の間の飾りの区切りは詰める。時刻（「8:00</span><span>200円」）の後ろは詰めない
+    .replace(/(?<![:：]\d?)(\d)(?:\s*<\/?(?:span|font|b|strong|em|i|u|small)\b[^>]*>\s*)+(?=\d[\d,]*\s*円)/gi, "$1")
+    .split(/<br\s*\/?>|<\/p>|<\/li>|<\/div>|\r?\n/i).map((x) => strip(x)).filter(Boolean);
 }
 
 /** 表の th と td の組（<th>ラベル</th><td>中身</td>）→ [ラベル（文字）, 中身（HTML）] の並び */

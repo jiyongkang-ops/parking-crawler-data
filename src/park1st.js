@@ -48,14 +48,18 @@ export function parsePark1stPrice(tableHtml) {
   const parts = [];
   for (let i = 0; i + 1 < rows.length; i++) {
     if (!rows[i].th.length || !rows[i + 1].td.length) continue;
+    // 月極の段（「月極(月額・台）」「保証金」）は時間貸しの料金ではない。保証金（72,000円）を最大料金と読んでいた（2026-11-28）
+    if (rows[i].th.some((l) => /月極|定期|保証金|敷金/.test(l))) continue;
     rows[i].th.forEach((label, k) => {
       const td = rows[i + 1].td[k];
-      if (!label || !td || /定期|回数券|月極|サービス券/.test(label)) return;
+      if (!label || !td || /定期|回数券|月極|サービス券|保証金|敷金|礼金|月額/.test(label)) return;
       const scope = scopeOf(label) ?? "全日";
       if (/最大|打切/.test(label)) {
         const cond = han(label).replace(/(全日|平日|土日祝日?|土曜|日曜|日祝)/g, "").trim() || "最大";
         parts.push(feeFromLines(linesOf(td).map((x) => `${cond} ${x}`), { scope, section: "max" }));
       } else {
+        // 単価の欄は「60分 200円」の形だけ。分・時間の無い額（保証金など）は読まない
+        if (!/分|時間/.test(strip(td))) return;
         const range = han(label).match(/\d{1,2}:\d{2}\s*[~-]\s*\d{1,2}:\d{2}/)?.[0] ?? "";
         parts.push(feeFromLines(linesOf(td).map((x) => `${range} ${x}`), { scope }));
       }
