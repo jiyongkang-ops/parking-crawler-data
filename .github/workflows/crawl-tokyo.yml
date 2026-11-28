@@ -1,0 +1,90 @@
+# 日本の外（GitHub の米国のサーバー）からつながらない社を、Google Cloud の東京（Cloud Build）で巡回する（2026-11-28〜）。
+# 対象: コインパーク・パークジャパン・Park1st.（理由と決まりは scripts/tokyo-prepare.sh の先頭。本人「東京からとって」）。
+# 名乗り・robots.txt・間隔・1回の件数はふだんの巡回と同じ（src/run.js と config.js をそのまま東京で動かす）。走らせる場所だけが違う。
+# 出力は別ファイル（data/prices-tokyo.jsonl・data/health/crawl-tokyo.json）にして push の衝突を避ける。
+# 起動は crawl.yml の dispatch ジョブ（JST 0時・12時）。Google Cloud への認証は Workload Identity（長期の鍵を置かない）で、
+# このファイル（main の crawl-tokyo.yml）からだけ通る（poc-aimo の github プールの parking-crawler-data プロバイダの条件）。
+name: crawl-tokyo
+on:
+  workflow_dispatch: {} # crawl.yml の dispatch ジョブと手動実行から
+
+permissions:
+  contents: write
+  id-token: write   # Workload Identity で Google Cloud に認証するため
+
+jobs:
+  crawl-tokyo:
+    runs-on: ubuntu-latest
+    # 東京の Cloud Build の時間切れ（3時間）＋送る・持ち帰る・コミットの分
+    timeout-minutes: 200
+    concurrency:
+      group: crawl-tokyo
+      cancel-in-progress: false
+    env:
+      TOKYO_OPS: "coinpark,parkjapan,park1st"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/721490046326/locations/global/workloadIdentityPools/github/providers/parking-crawler-data
+          service_account: crawler-data-ci@poc-aimo.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: 東京の Cloud Build で巡回する
+        id: tokyo
+        env:
+          LIST_SHRINK_OK: ${{ vars.LIST_SHRINK_OK }}
+        run: |
+          D=$(mktemp -d)
+          bash scripts/tokyo-prepare.sh "$D"
+          OUT="gs://poc-aimo-crawler-tokyo/out/${{ github.run_id }}-${{ github.run_attempt }}"
+          # 社の区切りはカンマなので、置き換えの区切りを ; にする
+          ID=$(gcloud builds submit "$D" --project poc-aimo --region=asia-northeast1 --config="$D/cloudbuild-tokyo.yaml" \
+            --gcs-source-staging-dir=gs://poc-aimo-crawler-tokyo/source \
+            --substitutions="^;^_OPS=$TOKYO_OPS;_OUT=$OUT;_LIST_SHRINK_OK=$LIST_SHRINK_OK" --async --format='value(id)') \
+            || { echo "::error::東京の Cloud Build を始められませんでした（権限・設定を確かめる）。この回は取り込みません"; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          echo "Cloud Build: $ID（asia-northeast1）"
+          # 時間切れ（3時間）まで待つ。終わらなければ取り込まない（前の状態はそのまま）
+          S=""
+          for i in $(seq 1 380); do
+            S=$(gcloud builds describe "$ID" --project poc-aimo --region=asia-northeast1 --format='value(status)' || echo "")
+            case "$S" in SUCCESS|FAILURE|TIMEOUT|CANCELLED|INTERNAL_ERROR|EXPIRED) break;; esac
+            sleep 30
+          done
+          if [ "$S" != "SUCCESS" ]; then
+            echo "::error::東京の Cloud Build が ${S:-不明} で終わりました（$ID）。この回の結果は取り込みません"
+            echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if ! { gcloud storage cp "$OUT/tokyo-out.tgz" . && tar xzf tokyo-out.tgz && rm -f tokyo-out.tgz; }; then
+            echo "::error::東京の結果を取り込めませんでした（$OUT）"; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          cat data/tokyo-run.log; rm -f data/tokyo-run.log
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - name: commit data if changed
+        if: always()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A data/
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update tokyo (coinpark/parkjapan/park1st) prices ($(date -u +%Y-%m-%dT%H:%MZ))"
+            for i in $(seq 1 6); do
+              if ! git pull --no-rebase --no-edit origin main; then
+                # 追記レースの衝突: jsonlはunionマージで自動解決、残り(状態ファイル等)は自分側を採用
+                git diff --name-only --diff-filter=U | xargs -r git checkout --ours --
+                git add -A
+                git commit --no-edit
+              fi
+              if git push; then echo "pushed"; break; fi
+              echo "push retry $i"; sleep $((RANDOM % 8 + 3))
+              [ "$i" = 6 ] && { echo "push failed after retries"; exit 1; }
+            done
+          else
+            echo "変化なし。コミットしません。"
+          fi
+      # 東京の回が動かなかった・取り込めなかったときは、コミットのあとでこの実行を失敗にして知らせる（黙って成功にしない）
+      - name: 東京の回が失敗したら知らせる
+        if: ${{ steps.tokyo.outputs.ok != 'true' }}
+        run: |
+          echo "::error::東京の巡回の結果を取り込めませんでした。上の「東京の Cloud Build で巡回する」の記録を見てください"
+          exit 1

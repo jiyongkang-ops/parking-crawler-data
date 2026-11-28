@@ -1,0 +1,24 @@
+# 日本の外からつながらない社を Google Cloud の東京で巡回する（2026-11-28 本人「東京からとって」。理由は scripts/tokyo-prepare.sh の先頭）。
+# .github/workflows/crawl-tokyo.yml が、scripts/tokyo-prepare.sh でまとめたフォルダを源にして、
+#   gcloud builds submit <フォルダ> --region=asia-northeast1 --config=cloudbuild-tokyo.yaml
+# で呼ぶ。動かす人は crawler-tokyo-build（GCS の poc-aimo-crawler-tokyo に書くのとログを書く権限だけ）。
+# 結果は _OUT に置かれ、crawl-tokyo.yml が取り込んでコミットする。
+steps:
+  - name: node:22-slim
+    entrypoint: bash
+    args: ["scripts/tokyo-crawl.sh"]
+    env: ["TOKYO_OPS=${_OPS}", "LIST_SHRINK_OK=${_LIST_SHRINK_OK}"]
+substitutions:
+  _OPS: "coinpark,parkjapan,park1st"
+  _LIST_SHRINK_OK: ""
+  _OUT: "gs://poc-aimo-crawler-tokyo/out/manual"
+artifacts:
+  objects:
+    location: "${_OUT}/"
+    paths: ["tokyo-out.tgz"]
+serviceAccount: "projects/poc-aimo/serviceAccounts/crawler-tokyo-build@poc-aimo.iam.gserviceaccount.com"
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+# 社ごとに取得の予算45分（src/run.js の ROLLING_BUDGET_MIN の既定）×3社＋一覧づくり・npm ci
+timeout: 10800s
