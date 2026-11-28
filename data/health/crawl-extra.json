@@ -1,7 +1,7 @@
 {
- "at": "2026-11-27T16:02:51.414Z",
+ "at": "2026-11-28T04:02:27.446Z",
  "workflow": "crawl-extra",
- "only": "kyotech,leparc,gspark,showapark,coinpark,parkjapan,tobupark",
+ "only": "kyotech,leparc,gspark,showapark,tobupark",
  "targets": [
   {
    "op": "kyotech",
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 675
    },
-   "lastOkAt": "2026-11-27T16:02:51.414Z"
+   "lastOkAt": "2026-11-28T04:02:27.446Z"
   },
   {
    "op": "leparc",
@@ -27,7 +27,7 @@
    "statusCounts": {
     "200": 240
    },
-   "lastOkAt": "2026-11-27T16:02:51.414Z"
+   "lastOkAt": "2026-11-28T04:02:27.446Z"
   },
   {
    "op": "gspark",
@@ -39,13 +39,13 @@
     "200": 117
    },
    "caps": {
-    "tried": 1,
-    "got": 1,
+    "tried": 0,
+    "got": 0,
     "unreadable": 0,
     "failed": 0,
     "withCap": 899
    },
-   "lastOkAt": "2026-11-27T16:02:51.414Z"
+   "lastOkAt": "2026-11-28T04:02:27.446Z"
   },
   {
    "op": "showapark",
@@ -58,37 +58,21 @@
    "statusCounts": {
     "200": 300
    },
-   "lastOkAt": "2026-11-27T16:02:51.414Z"
-  },
-  {
-   "op": "coinpark",
-   "label": "コインパーク",
-   "ok": false,
-   "n": 0,
-   "reason": "一覧: コインパーク sitemap: robots.txt に届かない（相手先の障害の可能性）（fetch failed（UND_ERR_CONNECT_TIMEOUT））",
-   "kind": "network"
-  },
-  {
-   "op": "parkjapan",
-   "label": "パークジャパン",
-   "ok": false,
-   "n": 0,
-   "reason": "一覧: パークジャパン一覧: robots.txt に届かない（相手先の障害の可能性）（fetch failed（UND_ERR_CONNECT_TIMEOUT））",
-   "kind": "network"
+   "lastOkAt": "2026-11-28T04:02:27.446Z"
   },
   {
    "op": "tobupark",
    "label": "TOBU PARK",
    "ok": true,
-   "n": 40,
+   "n": 97,
    "reason": null,
    "tried": 300,
    "noName": 0,
-   "skipped": 260,
+   "skipped": 203,
    "statusCounts": {
     "200": 300
    },
-   "lastOkAt": "2026-11-27T16:02:51.414Z"
+   "lastOkAt": "2026-11-28T04:02:27.446Z"
   }
  ]
 }

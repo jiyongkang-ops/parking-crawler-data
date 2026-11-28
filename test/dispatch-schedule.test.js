@@ -39,6 +39,8 @@ const EXPECTED_HOURS = {
   "crawl-extra3.yml": [5, 17],
   "crawl-carshares.yml": [3],
   "publish.yml": [6],
+  // 2026-11-28 新設（もとの cron は無い）。日本の外からつながらない社を Google Cloud の東京で取る
+  "crawl-tokyo.yml": [0, 12],
 };
 const DISPATCHED = [...Object.keys(EXPECTED_HOURS), "crawl-times.yml"];
 
