@@ -149,6 +149,7 @@ Cloud Scheduler（poc-aimo / asia-northeast1 の `crawl-parking-vacancy-hourly`�
 | `crawl-ecolo.yml` | crawl.yml から | 1・13・19時 | 3 | `0 4,10,16` |
 | `crawl-extra2.yml`（スペース二十四・JQパークス・パークネット・三菱地所パークス・SANパーク） | crawl.yml から | 2・14時 | 2 | `30 5,17` |
 | `crawl-extra3.yml`（タマパーク他） | crawl.yml から | 5・17時 | 2 | `30 8,20` |
+| `crawl-tokyo.yml`（コインパーク・パークジャパン・Park1st. を Google Cloud の東京で取る） | crawl.yml から | 0・12時 | 2 | ―（2026-11-28 新設。米国のサーバーからつながらないため。下の「東京から取る社」） |
 | `crawl-carshares.yml` | crawl.yml から | 3時（1巡が終わって7日たつまでは何もせず終わる） | 1 | `0 18` |
 | `publish.yml`（dashboard.html・統一CSV） | crawl.yml から | 6時（studio-data の7:30より前） | 1 | `40 21` |
 | `import-ypark.yml`（ユアー・パーキングの一覧の取り込み） | 人が `data/ypark-inbox/` にファイルを置いたとき（push） | ― | 月1回 | ―（2026-11-09 から。クラウドから取れないため、手順は data/ypark-inbox/README.md） |
@@ -160,6 +161,14 @@ Cloud Scheduler（poc-aimo / asia-northeast1 の `crawl-parking-vacancy-hourly`�
   同じ時に2回起動されても（手での実行など）、2回目は何も起動しない。
 - 同じワークフローの回と回の間（6時間以上）は、どのジョブの時間切れ（最長350分）より長い。前の回が残っていても、
   concurrency（`cancel-in-progress: false`）で終わるのを待ってから走る（同時には走らない）。
+- **東京から取る社（crawl-tokyo.yml）**: コインパーク・パークジャパン・Park1st. は、GitHub のサーバー（米国）からつなぐと入口（robots.txt）で
+  返事が無く時間切れになる（2026-11-27 23:07・11-28 2:07 の回。東京の Google Cloud からはつながる＝日本の外からのアクセスを止めている地域の制限）。
+  本人「東京からとって」（2026-11-28）で、at PARKING（分析リポジトリの月極）と同じく、走らせる場所だけを Google Cloud の東京（Cloud Build・asia-northeast1）にした。
+  - 名乗り・robots.txt・間隔・1回の件数・断られたら止める、はふだんの巡回と同じ（`src/run.js` と `config.js` をそのまま東京で動かす）。東京からも断られたら取りに行くのをやめる（回り込まない）。
+  - 流れ: `crawl-tokyo.yml` → `scripts/tokyo-prepare.sh`（巡回の中身と対象の社の状態だけをまとめる）→ `gcloud builds submit`（`cloudbuild-tokyo.yaml`）→
+    東京で `scripts/tokyo-crawl.sh` → 結果（`data/prices-tokyo.jsonl`・`data/health/crawl-tokyo.json`・社の状態）を GCS（`gs://poc-aimo-crawler-tokyo`、14日で消える）から持ち帰ってコミット。
+  - Google Cloud への認証は Workload Identity（長期の鍵は置かない）。poc-aimo の `github` プールの `parking-crawler-data` プロバイダは、このリポジトリの main の
+    `crawl-tokyo.yml` からだけ通る。動かす人は `crawler-data-ci`（Cloud Build を始める・バケットに書く）、Cloud Build の中は `crawler-tokyo-build`（バケットに書く・ログを書く）。
 - どのワークフローにも `workflow_dispatch` の入力は無い。手で1回だけ動かすときは Actions の画面か `gh workflow run crawl-ecolo.yml` など。
 - Cloud Scheduler が止まると、すべての巡回が止まる（2026-10-17 までは crawl.yml とタイムズだけだった）。
   各ワークフローの health（`data/health/*.json`）の `at` が更新されなくなる。
