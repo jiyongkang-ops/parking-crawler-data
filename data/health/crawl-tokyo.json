@@ -1,0 +1,46 @@
+{
+ "at": "2026-11-28T04:06:41.736Z",
+ "workflow": "crawl-tokyo",
+ "only": "coinpark,parkjapan,park1st",
+ "targets": [
+  {
+   "op": "coinpark",
+   "label": "コインパーク",
+   "ok": true,
+   "n": 300,
+   "reason": null,
+   "tried": 300,
+   "noName": 0,
+   "statusCounts": {
+    "200": 300
+   },
+   "lastOkAt": "2026-11-28T04:06:41.736Z"
+  },
+  {
+   "op": "parkjapan",
+   "label": "パークジャパン",
+   "ok": true,
+   "n": 281,
+   "reason": null,
+   "tried": 300,
+   "noName": 19,
+   "statusCounts": {
+    "200": 300
+   },
+   "lastOkAt": "2026-11-28T04:06:41.736Z"
+  },
+  {
+   "op": "park1st",
+   "label": "Park1st.",
+   "ok": true,
+   "n": 54,
+   "reason": null,
+   "tried": 54,
+   "noName": 0,
+   "statusCounts": {
+    "200": 54
+   },
+   "lastOkAt": "2026-11-28T04:06:41.736Z"
+  }
+ ]
+}
