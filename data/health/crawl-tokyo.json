@@ -1,5 +1,5 @@
 {
- "at": "2026-11-28T04:06:41.736Z",
+ "at": "2026-11-28T16:03:43.925Z",
  "workflow": "crawl-tokyo",
  "only": "coinpark,parkjapan,park1st",
  "targets": [
@@ -7,27 +7,28 @@
    "op": "coinpark",
    "label": "コインパーク",
    "ok": true,
-   "n": 300,
+   "n": 299,
    "reason": null,
    "tried": 300,
    "noName": 0,
    "statusCounts": {
-    "200": 300
+    "200": 299,
+    "network": 1
    },
-   "lastOkAt": "2026-11-28T04:06:41.736Z"
+   "lastOkAt": "2026-11-28T16:03:43.925Z"
   },
   {
    "op": "parkjapan",
    "label": "パークジャパン",
    "ok": true,
-   "n": 281,
+   "n": 293,
    "reason": null,
    "tried": 300,
-   "noName": 19,
+   "noName": 7,
    "statusCounts": {
     "200": 300
    },
-   "lastOkAt": "2026-11-28T04:06:41.736Z"
+   "lastOkAt": "2026-11-28T16:03:43.925Z"
   },
   {
    "op": "park1st",
@@ -40,7 +41,7 @@
    "statusCounts": {
     "200": 54
    },
-   "lastOkAt": "2026-11-28T04:06:41.736Z"
+   "lastOkAt": "2026-11-28T16:03:43.925Z"
   }
  ]
 }
