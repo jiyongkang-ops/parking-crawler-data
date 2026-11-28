@@ -1,5 +1,5 @@
 {
- "at": "2026-11-28T01:37:03.304Z",
+ "at": "2026-11-28T07:37:05.758Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -7,15 +7,15 @@
    "op": "mkp",
    "label": "名鉄協商",
    "ok": true,
-   "n": 194,
+   "n": 197,
    "reason": null,
    "tried": 200,
    "noName": 0,
    "statusCounts": {
-    "200": 194,
-    "302": 6
+    "200": 197,
+    "302": 3
    },
-   "lastOkAt": "2026-11-28T01:37:03.304Z"
+   "lastOkAt": "2026-11-28T07:37:05.758Z"
   },
   {
    "op": "thepark",
@@ -26,7 +26,6 @@
    "kind": "parse",
    "mode": "map",
    "statusCounts": {
-    "200": 4,
     "404": 1
    }
   }
