@@ -1,7 +1,7 @@
 {
- "at": "2026-11-27T19:06:44.219Z",
+ "at": "2026-11-28T07:05:15.570Z",
  "workflow": "crawl-extra2",
- "only": "space24,jqparks,parknet,mecparks,sanpark,trustpark,fruitpark,izumipark,yourspark,keiseipark,park1st",
+ "only": "space24,jqparks,parknet,mecparks,sanpark,trustpark,fruitpark,izumipark,yourspark,keiseipark",
  "targets": [
   {
    "op": "space24",
@@ -22,7 +22,7 @@
    "statusCounts": {
     "200": 400
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   },
   {
    "op": "parknet",
@@ -57,7 +57,7 @@
     "failed": 0,
     "withCap": 547
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   },
   {
    "op": "sanpark",
@@ -70,21 +70,21 @@
    "statusCounts": {
     "200": 250
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   },
   {
    "op": "trustpark",
    "label": "トラストパーク",
    "ok": true,
-   "n": 239,
+   "n": 255,
    "reason": null,
    "tried": 260,
    "noName": 0,
-   "skipped": 21,
+   "skipped": 5,
    "statusCounts": {
     "200": 260
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   },
   {
    "op": "fruitpark",
@@ -97,35 +97,35 @@
    "statusCounts": {
     "200": 250
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   },
   {
    "op": "izumipark",
    "label": "いずみパーキング",
    "ok": true,
-   "n": 94,
+   "n": 87,
    "reason": null,
    "tried": 180,
    "noName": 0,
-   "skipped": 86,
+   "skipped": 92,
    "statusCounts": {
-    "200": 180
+    "200": 179,
+    "network": 1
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   },
   {
    "op": "yourspark",
    "label": "ユアーズパーキング",
    "ok": true,
-   "n": 139,
+   "n": 140,
    "reason": null,
    "tried": 140,
    "noName": 0,
    "statusCounts": {
-    "200": 139,
-    "network": 1
+    "200": 140
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   },
   {
    "op": "keiseipark",
@@ -138,15 +138,7 @@
    "statusCounts": {
     "200": 87
    },
-   "lastOkAt": "2026-11-27T19:06:44.219Z"
-  },
-  {
-   "op": "park1st",
-   "label": "Park1st.",
-   "ok": false,
-   "n": 0,
-   "reason": "一覧: Park1st 一覧: robots.txt に届かない（相手先の障害の可能性）（fetch failed（UND_ERR_CONNECT_TIMEOUT））",
-   "kind": "network"
+   "lastOkAt": "2026-11-28T07:05:15.570Z"
   }
  ]
 }
