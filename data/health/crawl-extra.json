@@ -1,5 +1,5 @@
 {
- "at": "2026-11-28T04:02:27.446Z",
+ "at": "2026-11-28T16:02:46.653Z",
  "workflow": "crawl-extra",
  "only": "kyotech,leparc,gspark,showapark,tobupark",
  "targets": [
@@ -14,7 +14,7 @@
    "statusCounts": {
     "200": 675
    },
-   "lastOkAt": "2026-11-28T04:02:27.446Z"
+   "lastOkAt": "2026-11-28T16:02:46.653Z"
   },
   {
    "op": "leparc",
@@ -27,7 +27,7 @@
    "statusCounts": {
     "200": 240
    },
-   "lastOkAt": "2026-11-28T04:02:27.446Z"
+   "lastOkAt": "2026-11-28T16:02:46.653Z"
   },
   {
    "op": "gspark",
@@ -45,7 +45,7 @@
     "failed": 0,
     "withCap": 899
    },
-   "lastOkAt": "2026-11-28T04:02:27.446Z"
+   "lastOkAt": "2026-11-28T16:02:46.653Z"
   },
   {
    "op": "showapark",
@@ -58,21 +58,21 @@
    "statusCounts": {
     "200": 300
    },
-   "lastOkAt": "2026-11-28T04:02:27.446Z"
+   "lastOkAt": "2026-11-28T16:02:46.653Z"
   },
   {
    "op": "tobupark",
    "label": "TOBU PARK",
    "ok": true,
-   "n": 97,
+   "n": 165,
    "reason": null,
    "tried": 300,
    "noName": 0,
-   "skipped": 203,
+   "skipped": 135,
    "statusCounts": {
     "200": 300
    },
-   "lastOkAt": "2026-11-28T04:02:27.446Z"
+   "lastOkAt": "2026-11-28T16:02:46.653Z"
   }
  ]
 }
