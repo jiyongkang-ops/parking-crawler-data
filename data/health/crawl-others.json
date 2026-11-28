@@ -1,5 +1,5 @@
 {
- "at": "2026-11-27T13:36:17.263Z",
+ "at": "2026-11-28T01:37:03.304Z",
  "workflow": "crawl-others",
  "only": "mkp,thepark",
  "targets": [
@@ -7,15 +7,28 @@
    "op": "mkp",
    "label": "名鉄協商",
    "ok": true,
-   "n": 78,
+   "n": 194,
    "reason": null,
    "tried": 200,
    "noName": 0,
    "statusCounts": {
-    "200": 78,
-    "302": 122
+    "200": 194,
+    "302": 6
    },
-   "lastOkAt": "2026-11-27T13:36:17.263Z"
+   "lastOkAt": "2026-11-28T01:37:03.304Z"
+  },
+  {
+   "op": "thepark",
+   "label": "ザ・パーク",
+   "ok": false,
+   "n": 400,
+   "reason": "地図の口（5回目）: HTTP 404（400物件まで読んだ・続きは次の回に残りの範囲から）",
+   "kind": "parse",
+   "mode": "map",
+   "statusCounts": {
+    "200": 4,
+    "404": 1
+   }
   }
  ]
 }
